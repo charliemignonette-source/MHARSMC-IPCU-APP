@@ -1,0 +1,159 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isGoogleUser() { return isSignedIn() && request.auth.token.firebase.sign_in_provider == 'google.com' && request.auth.token.email_verified == true; }
+    function getUserData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    
+    function hasRole(role) { 
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == role;
+    }
+    
+    function isAdmin() { 
+      return isGoogleUser() && (
+        hasRole('ADMIN') || 
+        request.auth.token.email == 'charliemignonette@gmail.com' ||
+        request.auth.token.email == 'beeohend@gmail.com'
+      ); 
+    }
+    function isIPCN() { return isGoogleUser() && hasRole('IPCN'); }
+    function isUser() { return isSignedIn() && hasRole('USER'); }
+    function isApprover() { return isGoogleUser() && (getUserData().role in ['APPROVER', 'IPCN', 'ADMIN']); }
+    
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isValidString(val, max) { return val is string && val.size() <= max; }
+
+    function isOwner(reporterIdField) {
+      return isSignedIn() && reporterIdField == request.auth.uid;
+    }
+
+    // --- Entity Validations ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'role', 'isVerified', 'createdAt']) &&
+             data.keys().size() >= 4 &&
+             data.uid == request.auth.uid &&
+             data.role in ['ADMIN', 'IPCN', 'PHYSICIAN', 'PHARMACY', 'APPROVER', 'USER'] &&
+             data.createdAt is string;
+    }
+
+    function isValidAudit(data) {
+      return data.keys().hasAll(['type', 'unit', 'auditorId', 'timestamp', 'score', 'total']) &&
+             data.auditorId == request.auth.uid &&
+             data.score is number && data.total is number && data.score <= data.total &&
+             isValidString(data.unit, 100);
+    }
+
+    function isValidAMSReq(data) {
+      return data.keys().hasAll(['type', 'patientName', 'antibiotic', 'prescriberId', 'status']) &&
+             data.prescriberId == request.auth.uid &&
+             data.status == 'PENDING' &&
+             isValidString(data.patientName, 100);
+    }
+
+    function isValidNSIRep(data) {
+      return data.keys().hasAll(['reporterId', 'status', 'incident', 'staff', 'description', 'actions']) &&
+             data.reporterId == request.auth.uid &&
+             data.status == 'PENDING';
+    }
+
+    function isValidHAICase(data) {
+      return data.keys().hasAll(['type', 'patientName', 'hospNo', 'unit', 'triggerDate', 'status']) &&
+             isValidString(data.patientName, 100) &&
+             isValidString(data.hospNo, 50);
+    }
+
+    function isValidBOCLog(data) {
+      return data.keys().hasAll(['date', 'unit', 'patientName', 'staffId', 'compliancePercentage']) &&
+             data.staffId == request.auth.uid;
+    }
+
+    function isValidOutbreak(data) {
+      return data.keys().hasAll(['detectedAt', 'reportedBy', 'reporterId', 'status']) &&
+             data.reporterId == request.auth.uid &&
+             data.status in ['Suspected', 'Under Investigation', 'Confirmed', 'Controlled', 'Closed'];
+    }
+
+    // --- Collection Routes ---
+
+    match /user_roles/{roleId} {
+      allow get: if true;
+      allow list: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow create: if isSignedIn() && (userId == request.auth.uid) && isValidUser(incoming());
+      allow update: if isSignedIn() && (userId == request.auth.uid || isAdmin()) && 
+                   isValidUser(incoming()) && (
+                     (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'unit', 'staffCode', 'role', 'updatedAt', 'isVerified']) &&
+                      (incoming().role == existing().role || incoming().role == 'USER' || isAdmin()))
+                   );
+      allow list: if isAdmin() || isIPCN();
+    }
+
+    match /audits/{auditId} {
+      allow get: if isSignedIn() && (existing().auditorId == request.auth.uid || isIPCN() || isAdmin());
+      allow list: if isSignedIn() && (resource.data.auditorId == request.auth.uid || isIPCN() || isAdmin());
+      allow create: if (isSignedIn() && isValidAudit(incoming()));
+      allow update: if (isIPCN() || isAdmin()) && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'validatedBy', 'validatedAt', 'validatorName']);
+      allow delete: if isAdmin();
+    }
+
+    match /nsi_reports/{reportId} {
+      allow get: if isSignedIn() && (existing().reporterId == request.auth.uid || isIPCN() || isAdmin());
+      allow list: if isSignedIn() && (resource.data.reporterId == request.auth.uid || isIPCN() || isAdmin());
+      allow create: if isSignedIn() && isValidNSIRep(incoming());
+      allow update: if (isIPCN() || isAdmin()) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validation']);
+    }
+
+    match /ams_requests/{reqId} {
+      allow get: if isSignedIn() && (existing().prescriberId == request.auth.uid || isApprover() || isAdmin());
+      allow list: if isSignedIn() && (resource.data.prescriberId == request.auth.uid || isApprover() || isAdmin());
+      allow create: if isSignedIn() && isValidAMSReq(incoming());
+      allow update: if (
+        (isApprover() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewerId', 'reviewerEmail', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt'])) ||
+        ((isIPCN() || isAdmin()) && incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'validatedBy', 'validatedAt'])) ||
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'overrideReason', 'manualApproval']))
+      );
+    }
+
+    match /hai_cases/{caseId} {
+      allow get: if isSignedIn() && (existing().auditorId == request.auth.uid || isIPCN() || isAdmin());
+      allow list: if isSignedIn() && (resource.data.auditorId == request.auth.uid || isIPCN() || isAdmin());
+      allow create: if isSignedIn() && isValidHAICase(incoming());
+      allow update: if (isIPCN() || isAdmin()) && 
+                   incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validatedBy', 'validatedAt', 'validatorName', 'isValidated', 'decisionNote']);
+    }
+
+    match /boc_logs/{logId} {
+      allow get: if isSignedIn() && (existing().staffId == request.auth.uid || isIPCN() || isAdmin());
+      allow list: if isSignedIn() && (resource.data.staffId == request.auth.uid || isIPCN() || isAdmin());
+      allow create: if isSignedIn() && isValidBOCLog(incoming());
+      allow update: if (isIPCN() || isAdmin()) && 
+                   incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'verification']);
+    }
+
+    match /outbreaks/{outbreakId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidOutbreak(incoming());
+      allow update: if (isIPCN() || isAdmin()) && 
+                   incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validation', 'dateClosed', 'closureReason', 'lineList']);
+    }
+
+    match /ipcu_actions/{actionId} {
+      allow get, list: if isSignedIn() && (existing().staffId == request.auth.uid || isIPCN() || isAdmin());
+      allow create: if (isIPCN() || isAdmin() || isAdmin()); // logic for creating actions on behalf of validation
+    }
+  }
+}
