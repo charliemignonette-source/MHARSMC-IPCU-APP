@@ -11,10 +11,12 @@ import {
   ShieldAlert,
   ChevronDown,
   Search,
-  Plus
+  Plus,
+  Trash2,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, AMSRequest, AMSStatus } from '../types';
 import { UNITS, ANTIBIOTICS } from '../constants';
@@ -84,7 +86,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     const baseQuery = collection(db, 'ams_requests');
     let q;
 
-    if (user.role === 'ADMIN' || user.role === 'IPCN' || user.role === 'APPROVER' || user.role === 'PHARMACY') {
+    if (user.role === 'ADMIN' || user.role === 'IPCN' || user.role === 'APPROVER') {
       q = query(baseQuery, orderBy('createdAt', 'desc'));
     } else {
       q = query(baseQuery, where('prescriberId', '==', user.uid), orderBy('createdAt', 'desc'));
@@ -179,6 +181,9 @@ export default function AMS({ user }: { user: UserProfile | null }) {
 
   const handleAction = async (requestId: string, status: AMSStatus) => {
     if (!user) return;
+    const req = requests.find(r => r.id === requestId);
+    if (!req) return;
+
     const remarks = reviewRemarks[requestId] || '';
     const requestingPhysician = reviewPhysicians[requestId] || '';
     const now = new Date();
@@ -203,6 +208,26 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       }
 
       await updateDoc(doc(db, 'ams_requests', requestId), updateData);
+
+      // Notify Pharmacy if approved
+      if (status === 'APPROVED') {
+        try {
+          await fetch('/api/notify-pharmacy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              drugName: req.antibiotic,
+              patientName: req.patientName,
+              patientHrn: req.patientHrn,
+              ward: req.unit,
+              justification: req.justification || remarks,
+              prescriberName: req.prescriberName || 'Physician',
+            })
+          });
+        } catch (e) {
+          console.error("Failed to notify pharmacy via email", e);
+        }
+      }
       
       setReviewRemarks(prev => {
         const next = { ...prev };
@@ -219,18 +244,49 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     }
   };
 
+  const exportToCSV = () => {
+    const headers = [
+      'Date Requested', 'Patient Name', 'Hospital No', 'Unit', 'Antibiotic', 
+      'Dose', 'Status', 'Indication', 'Physician', 'Approved Date'
+    ];
+    
+    const rows = filteredRequests.map(req => [
+      req.dateTimeRequested || '',
+      req.patientName || '',
+      req.hospNo || '',
+      req.unit || '',
+      req.antibiotic || '',
+      req.dose || '',
+      req.status,
+      req.indicationForUse || '',
+      req.requestingPhysician || '',
+      req.dateTimeApproved || ''
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `AMS_Report_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const isApprover = user?.role === 'APPROVER' || user?.role === 'ADMIN' || user?.role === 'IPCN';
-  const isPharmacy = user?.role === 'PHARMACY' || user?.role === 'ADMIN';
 
   const filteredRequests = (activeFilter === 'ALL' 
     ? requests 
     : requests.filter(r => r.status === activeFilter)
-  ).filter(r => {
-    if (user?.role === 'PHARMACY') return r.status === 'APPROVED' || r.status === 'DISPENSED';
-    return true;
-  });
+  );
 
   return (
     <div className="space-y-6">
@@ -310,7 +366,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         )}>
           <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/30">
             <div className="flex bg-slate-100 p-1.5 rounded-2xl">
-              {(user?.role === 'PHARMACY' ? ['ALL', 'APPROVED', 'DISPENSED'] : ['ALL', 'PENDING', 'APPROVED']).map((f) => (
+              {['ALL', 'PENDING', 'APPROVED', 'DENIED', 'DISPENSED'].map((f) => (
                 <button
                   key={f}
                   onClick={() => setActiveFilter(f as any)}
@@ -324,6 +380,13 @@ export default function AMS({ user }: { user: UserProfile | null }) {
               ))}
             </div>
             <div className="flex gap-2">
+              <button 
+                onClick={exportToCSV}
+                className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-xl bg-white text-slate-600 hover:bg-slate-50 transition-colors text-[9px] font-black uppercase tracking-widest"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export
+              </button>
               <div className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-xl bg-white">
                 <Search className="w-3.5 h-3.5 text-slate-400" />
                 <input type="text" placeholder="Search Drug..." className="text-[10px] font-bold focus:outline-none w-24 uppercase" />
@@ -409,31 +472,52 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                           {req.dateTimeApproved && <p className="text-[9px] font-black text-brand-primary uppercase">Approved: {req.dateTimeApproved}</p>}
                           <div className="flex items-center gap-3">
                             <div className={cn(
-                              "px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest",
+                              "px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5",
                               req.status === 'APPROVED' ? "bg-emerald-100 text-emerald-700" : 
-                              req.status === 'DISPENSED' ? "bg-sky-100 text-sky-700" :
+                              req.status === 'DISPENSED' ? "bg-sky-500 text-white shadow-lg shadow-sky-500/20" :
                               req.status === 'DENIED' ? "bg-rose-100 text-rose-700" : 
                               "bg-amber-100 text-amber-700"
                             )}>
+                              {req.status === 'DISPENSED' && <CheckCircle2 className="w-2.5 h-2.5" />}
                               {req.status}
                             </div>
-                            {isPharmacy && req.status === 'APPROVED' && (
+                            {(user?.role === 'PHARMACY' || user?.role === 'ADMIN' || user?.role === 'IPCN') && req.status === 'APPROVED' && (
                               <button 
                                 onClick={async (e) => {
                                   e.stopPropagation();
                                   try {
                                     await updateDoc(doc(db, 'ams_requests', req.id!), {
                                       status: 'DISPENSED',
-                                      dispensedBy: user?.email || user?.name,
+                                      dispensedBy: user?.name || user?.email,
                                       dispensedAt: serverTimestamp()
                                     });
                                   } catch (error) {
                                     handleFirestoreError(error, OperationType.UPDATE, `ams_requests/${req.id}`);
                                   }
                                 }}
-                                className="px-3 py-1.5 bg-sky-500 text-white text-[9px] font-black uppercase tracking-widest rounded-full shadow-lg shadow-sky-500/20 active:scale-95 transition-all ml-2"
+                                className="px-4 py-2 bg-sky-600 text-white text-[9px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-sky-600/30 hover:bg-sky-500 active:scale-95 transition-all flex items-center gap-2"
                               >
-                                Dispense
+                                <FlaskConical className="w-3 h-3" />
+                                Mark as Dispensed
+                              </button>
+                            )}
+                            {user?.role === 'ADMIN' && (
+                              <button 
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (window.confirm('Are you sure you want to delete this entry? This action cannot be undone.')) {
+                                    try {
+                                      await deleteDoc(doc(db, 'ams_requests', req.id!));
+                                    } catch (error) {
+                                      handleFirestoreError(error, OperationType.DELETE, `ams_requests/${req.id}`);
+                                    }
+                                  }
+                                }}
+                                className="px-3 py-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100 active:scale-95 transition-all flex items-center gap-2"
+                                title="Delete Entry"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span className="text-[9px] font-black uppercase tracking-widest">Delete</span>
                               </button>
                             )}
                             {(user?.role === 'IPCN' || user?.role === 'ADMIN') && !req.isValidated && (
@@ -443,7 +527,8 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                   try {
                                     await updateDoc(doc(db, 'ams_requests', req.id!), {
                                       isValidated: true,
-                                      validatedBy: user.email,
+                                      validatedBy: user.uid,
+                                      validatorName: user.name,
                                       validatedAt: serverTimestamp()
                                     });
                                   } catch (error) {
@@ -625,6 +710,24 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                <div>
                                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Physician Contact</p>
                                  <p className="text-sm font-bold text-slate-900">{req.prescriberContact}</p>
+                               </div>
+                            )}
+                            {req.status === 'DISPENSED' && (
+                               <div className="md:col-span-2 bg-sky-50 p-4 rounded-2xl border border-sky-100 flex items-center justify-between mt-4">
+                                  <div className="flex items-center gap-4">
+                                     <div className="bg-sky-100 p-2 rounded-xl text-sky-600">
+                                        <FlaskConical className="w-5 h-5" />
+                                     </div>
+                                     <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-sky-600">Dispensed by Pharmacy</p>
+                                        <p className="text-sm font-bold text-slate-900">{req.dispensedBy}</p>
+                                     </div>
+                                  </div>
+                                  {req.dispensedAt && (
+                                     <div className="text-right text-[10px] font-bold text-sky-500 uppercase">
+                                        {req.dispensedAt?.toDate ? req.dispensedAt.toDate().toLocaleString() : String(req.dispensedAt)}
+                                     </div>
+                                  )}
                                </div>
                             )}
                          </div>

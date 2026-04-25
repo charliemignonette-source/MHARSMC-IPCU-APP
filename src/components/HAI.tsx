@@ -22,21 +22,19 @@ import { cn, formatDate } from '../lib/utils';
 
 export default function HAI({ user }: { user: UserProfile | null }) {
   const isIPCU = user?.role === 'ADMIN' || user?.role === 'IPCN';
-  const [activeView, setActiveView] = useState<'surveillance' | 'bundles' | 'actions'>(isIPCU ? 'surveillance' : 'bundles');
+  const [activeView, setActiveView] = useState<'surveillance' | 'bundles'>(isIPCU ? 'surveillance' : 'bundles');
   
   useEffect(() => {
-    if (!isIPCU && activeView === 'actions') {
-      setActiveView('bundles');
+    if (!isIPCU && activeView === 'surveillance') {
+      // Logic for non-IPCU users if needed, though they usually use bundles
     }
   }, [isIPCU, activeView]);
 
   const [isAddingCase, setIsAddingCase] = useState(false);
   const [isAddingBundle, setIsAddingBundle] = useState(false);
-  const [isAddingAction, setIsAddingAction] = useState(false);
   
   const [cases, setCases] = useState<HAICase[]>([]);
   const [bundleLogs, setBundleLogs] = useState<BOCLog[]>([]);
-  const [ipcuActions, setIpcuActions] = useState<IPCUAction[]>([]);
 
   const [caseForm, setCaseForm] = useState<Partial<HAICase>>({
     type: 'CLABSI',
@@ -50,14 +48,6 @@ export default function HAI({ user }: { user: UserProfile | null }) {
     triggeredCriteria: [],
     triggeredLabs: [],
     deviceDays: 0
-  });
-
-  const [actionForm, setActionForm] = useState<Partial<IPCUAction>>({
-    patientName: '',
-    hospNo: '',
-    haiType: 'CLABSI',
-    action: 'Education',
-    date: new Date().toISOString().split('T')[0]
   });
 
   const [bundleForm, setBundleForm] = useState<Partial<BOCLog>>({
@@ -120,18 +110,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       setBundleLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as BOCLog)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'boc_logs'));
 
-    // 3. IPCU Actions
-    let q3;
-    if (isIPCU) {
-      q3 = query(collection(db, 'ipcu_actions'), orderBy('createdAt', 'desc'));
-    } else {
-      q3 = query(collection(db, 'ipcu_actions'), where('staffId', '==', user.uid), orderBy('createdAt', 'desc'));
-    }
-    const unsub3 = onSnapshot(q3, (snap) => {
-      setIpcuActions(snap.docs.map(d => ({ id: d.id, ...d.data() } as IPCUAction)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'ipcu_actions'));
-
-    return () => { unsub1(); unsub2(); unsub3(); };
+    return () => { unsub1(); unsub2(); };
   }, [user, isIPCU]);
 
   const handleCaseSubmit = async (e: React.FormEvent) => {
@@ -206,29 +185,6 @@ export default function HAI({ user }: { user: UserProfile | null }) {
     }
   };
 
-  const handleActionSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-    try {
-      await addDoc(collection(db, 'ipcu_actions'), {
-        ...actionForm,
-        staffId: user.uid,
-        staffName: user.name,
-        createdAt: serverTimestamp()
-      });
-      setIsAddingAction(false);
-      setActionForm({
-        patientName: '',
-        hospNo: '',
-        haiType: 'CLABSI',
-        action: 'Education',
-        date: new Date().toISOString().split('T')[0]
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'ipcu_actions');
-    }
-  };
-
   const handleValidationSubmit = async (validationData: any) => {
     if (!selectedCase?.id || !user) return;
     try {
@@ -293,7 +249,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
 
       {/* Modern Switcher */}
       <div className="flex bg-slate-100 p-1.5 w-fit rounded-2xl mb-8">
-        {(['surveillance', 'bundles', 'actions'] as const).filter(v => isIPCU || v !== 'actions').map(view => (
+        {(['surveillance', 'bundles'] as const).map(view => (
           <button
             key={view}
             onClick={() => setActiveView(view)}
@@ -302,7 +258,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
               activeView === view ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-500"
             )}
           >
-            {view === 'surveillance' ? 'Active Surveillance' : view === 'bundles' ? 'Bundles of Care' : 'IPCU Actions'}
+            {view === 'surveillance' ? 'Active Surveillance' : 'Bundles of Care'}
           </button>
         ))}
       </div>
@@ -475,62 +431,6 @@ export default function HAI({ user }: { user: UserProfile | null }) {
               </div>
             </div>
           </motion.div>
-        ) : activeView === 'actions' ? (
-          <motion.div 
-            key="actions"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="space-y-6"
-          >
-             <div className="flex items-center justify-between mb-8">
-               <div className="flex items-center gap-3">
-                 <ClipboardList className="w-6 h-6 text-brand-primary" />
-                 <h3 className="text-lg font-black uppercase tracking-tight text-slate-900">IPCU Actions & Escalation Log</h3>
-               </div>
-               <button 
-                 onClick={() => setIsAddingAction(true)}
-                 className="px-6 py-2.5 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-slate-900/10 hover:scale-105 active:scale-95 transition-all"
-               >
-                 Log New Action
-               </button>
-             </div>
-
-             <div className="bento-card bg-white overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50/50 border-b border-slate-100">
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Date</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Patient</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Action Taken</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Staff</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {ipcuActions.map(action => (
-                      <tr key={action.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-4 text-xs font-bold text-slate-900">{action.date}</td>
-                        <td className="px-6 py-4 text-xs font-medium text-slate-600">{action.patientName} ({action.haiType})</td>
-                        <td className="px-6 py-4">
-                           <span className={cn(
-                             "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest",
-                             action.action === 'Escalation' ? "bg-rose-50 text-rose-600" : "bg-blue-50 text-blue-600"
-                           )}>
-                             {action.action}
-                           </span>
-                        </td>
-                        <td className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-tight">{action.staffName}</td>
-                      </tr>
-                    ))}
-                    {ipcuActions.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-12 text-center text-xs font-bold text-slate-400 uppercase tracking-widest">No actions logged in current stream</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-             </div>
-          </motion.div>
         ) : (
           <motion.div 
             key="bundles"
@@ -540,16 +440,16 @@ export default function HAI({ user }: { user: UserProfile | null }) {
             className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
           >
              {bundleLogs.map(log => (
-               <div key={log.id} className="bento-card p-6 bg-white hover:border-brand-primary/20 transition-all cursor-pointer group relative flex flex-col">
+               <div key={log.id} className="bento-card p-6 bg-white hover:border-teal-500/20 transition-all cursor-pointer group relative flex flex-col">
                  <div className="flex items-center justify-between mb-6">
                     <div className={cn(
-                      "p-2 rounded-xl transition-colors",
-                      log.compliancePercentage === 100 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                       "p-2 rounded-xl transition-colors",
+                       log.compliancePercentage === 100 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
                     )}>
                       {log.compliancePercentage === 100 ? <ShieldCheck className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
                     </div>
                     <div className="flex items-center gap-2">
-                      {log.isValidated && <CheckCircle2 className="w-3.5 h-3.5 text-brand-primary" />}
+                      {log.isValidated && <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />}
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{log.unit}</span>
                     </div>
                  </div>
@@ -599,7 +499,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                             });
                             setIsVerifying(true);
                           }}
-                          className="px-3 py-1.5 bg-brand-primary text-white text-[9px] font-bold uppercase tracking-widest rounded-lg flex items-center gap-2"
+                          className="px-3 py-1.5 bg-teal-600 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg flex items-center gap-2"
                         >
                           <ShieldCheck className="w-3 h-3" />
                           Verify
@@ -614,7 +514,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                  </div>
                </div>
              ))}
-             {bundleLogs.length === 0 && <div className="col-span-full"><EmptyState message="No bundle surveillance logs recorded today" /></div>}
+             {bundleLogs.length === 0 && <div className="col-span-full py-20 text-center bento-card border-dashed"><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No bundle surveillance logs recorded today</p></div>}
           </motion.div>
         )}
       </AnimatePresence>
@@ -635,15 +535,6 @@ export default function HAI({ user }: { user: UserProfile | null }) {
             onClose={() => { setIsValidating(false); setSelectedCase(null); }}
             haiCase={selectedCase}
             onSubmit={handleValidationSubmit}
-          />
-        )}
-
-        {isAddingAction && (
-          <ActionModal 
-            onClose={() => setIsAddingAction(false)}
-            formData={actionForm}
-            setFormData={setActionForm}
-            onSubmit={handleActionSubmit}
           />
         )}
 
@@ -1331,49 +1222,6 @@ function RateTile({ label, rate, unit, baseline }: { label: string, rate: number
           <div className="text-[8px] font-bold uppercase tracking-tight text-slate-400 mb-1">{unit}</div>
           <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Baseline: {baseline}</div>
        </div>
-    </div>
-  );
-}
-
-function ActionModal({ onClose, formData, setFormData, onSubmit }: any) {
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/10 backdrop-blur-md">
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
-        <div className="p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center text-white">
-           <div className="flex items-center gap-3">
-              <ClipboardList className="w-5 h-5 text-brand-primary" />
-              <h3 className="text-lg font-bold uppercase tracking-tight">IPCU Action & Escalation</h3>
-           </div>
-           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-500"><XCircle className="w-6 h-6" /></button>
-        </div>
-        <form onSubmit={onSubmit} className="p-8 space-y-6">
-           <div className="space-y-1.5">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Patient Name</label>
-              <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold outline-none" value={formData.patientName} onChange={e => setFormData({...formData, patientName: e.target.value})} />
-           </div>
-           <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">HAI Type</label>
-                <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold outline-none" value={formData.haiType} onChange={e => setFormData({...formData, haiType: e.target.value})}>
-                   <option value="CLABSI">CLABSI</option>
-                   <option value="VAP">VAP/VAE</option>
-                   <option value="CAUTI">CAUTI</option>
-                   <option value="SSI">SSI</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Action Type</label>
-                <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold outline-none" value={formData.action} onChange={e => setFormData({...formData, action: e.target.value})}>
-                   <option value="Education">Education</option>
-                   <option value="Reinforcement">Reinforcement</option>
-                   <option value="Escalation">Escalation</option>
-                   <option value="Case Review">Case Review</option>
-                </select>
-              </div>
-           </div>
-           <button type="submit" className="w-full py-4 bg-brand-primary text-white font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-teal-900/10">Log Action</button>
-        </form>
-      </motion.div>
     </div>
   );
 }

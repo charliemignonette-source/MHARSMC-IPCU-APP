@@ -46,6 +46,14 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
   
   const [selectedItem, setSelectedItem] = useState<PendingItem | null>(null);
   const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
+  const [isAddingManualAction, setIsAddingManualAction] = useState(false);
+  const [actionForm, setActionForm] = useState<Partial<IPCUAction>>({
+    patientName: '',
+    hospNo: '',
+    haiType: 'CLABSI',
+    action: 'Education',
+    date: new Date().toISOString().split('T')[0]
+  });
   
   // States for Sections 3-7
   const [ipcuActions, setIpcuActions] = useState<IPCUAction[]>([]);
@@ -325,6 +333,13 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
             Central Verification Agency • MHARSMC
           </p>
         </div>
+        <button 
+          onClick={() => setIsAddingManualAction(true)}
+          className="px-6 py-3 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-slate-900/10 hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
+        >
+          <ClipboardList className="w-4 h-4" />
+          Log Manual Action
+        </button>
       </div>
 
       {/* Modern Switcher */}
@@ -609,7 +624,127 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
             onSubmit={handleValidationSubmit}
           />
         )}
+        {isAddingManualAction && (
+          <ActionModal 
+            onClose={() => setIsAddingManualAction(false)}
+            formData={actionForm}
+            setFormData={setActionForm}
+            onSubmit={async (e: React.FormEvent) => {
+              e.preventDefault();
+              if (!user) return;
+              try {
+                await addDoc(collection(db, 'ipcu_actions'), {
+                  ...actionForm,
+                  staffId: user.uid,
+                  staffName: user.name,
+                  createdAt: serverTimestamp()
+                });
+                setIsAddingManualAction(false);
+                setActionForm({
+                  patientName: '',
+                  hospNo: '',
+                  haiType: 'CLABSI',
+                  action: 'Education',
+                  date: new Date().toISOString().split('T')[0]
+                });
+              } catch (error) {
+                handleFirestoreError(error, OperationType.WRITE, 'ipcu_actions');
+              }
+            }}
+          />
+        )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function ActionModal({ onClose, formData, setFormData, onSubmit }: any) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/10 backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
+        <div className="p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center text-white">
+          <div className="flex items-center gap-3">
+             <ClipboardList className="w-5 h-5 text-brand-primary" />
+             <div>
+               <h3 className="text-lg font-black uppercase tracking-tight italic">Manual IPCU Action Log</h3>
+               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Post-Validation Documentation</p>
+             </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-500"><XCircle className="w-6 h-6" /></button>
+        </div>
+        <form onSubmit={onSubmit} className="p-8 space-y-6">
+           <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Patient Name</label>
+                 <input 
+                   required
+                   className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold"
+                   value={formData.patientName}
+                   onChange={e => setFormData({...formData, patientName: e.target.value})}
+                 />
+              </div>
+              <div className="space-y-1.5">
+                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Hosp Number</label>
+                 <input 
+                   required
+                   className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold"
+                   value={formData.hospNo}
+                   onChange={e => setFormData({...formData, hospNo: e.target.value})}
+                 />
+              </div>
+           </div>
+           
+           <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Related Issue</label>
+                 <select 
+                   className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold"
+                   value={formData.haiType}
+                   onChange={e => setFormData({...formData, haiType: e.target.value})}
+                 >
+                    <option value="CLABSI">CLABSI</option>
+                    <option value="CAUTI">CAUTI</option>
+                    <option value="VAP">VAP</option>
+                    <option value="SSI">SSI</option>
+                    <option value="AMS">AMS Violation</option>
+                    <option value="AUDIT">Audit Failure</option>
+                    <option value="BUNDLE">Bundle Non-compliance</option>
+                 </select>
+              </div>
+              <div className="space-y-1.5">
+                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Action Type</label>
+                 <select 
+                   className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold"
+                   value={formData.action}
+                   onChange={e => setFormData({...formData, action: e.target.value})}
+                 >
+                    <option value="Education">Education / Coaching</option>
+                    <option value="Verbal Warning">Verbal Warning</option>
+                    <option value="Written Warning">Written Warning</option>
+                    <option value="Escalation">Formal Escalation</option>
+                 </select>
+              </div>
+           </div>
+
+           <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Action Date</label>
+              <input 
+                type="date"
+                required
+                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold"
+                value={formData.date}
+                onChange={e => setFormData({...formData, date: e.target.value})}
+              />
+           </div>
+
+           <button 
+             type="submit"
+             className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-slate-900/20 active:scale-95 transition-all"
+           >
+             Save Action Entry
+           </button>
+        </form>
+      </motion.div>
     </div>
   );
 }
