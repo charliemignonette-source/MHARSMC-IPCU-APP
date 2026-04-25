@@ -11,10 +11,11 @@ import {
   ChevronRight,
   Microscope,
   Calendar,
-  XCircle
+  XCircle,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, orderBy, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, serverTimestamp, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, HAICase, BOCLog, HAIType, IPCUAction } from '../types';
 import { UNITS, DEVICES, BUNDLE_ELEMENTS } from '../constants';
@@ -219,6 +220,17 @@ export default function HAI({ user }: { user: UserProfile | null }) {
     }
   };
 
+  const handleDelete = async (collectionName: string, id: string) => {
+    if (!user || user.role !== 'ADMIN') return;
+    if (!confirm('Are you sure you want to delete this entry? This action cannot be undone.')) return;
+    
+    try {
+      await deleteDoc(doc(db, collectionName, id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `${collectionName}/${id}`);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -339,18 +351,29 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                            )} />
                         </td>
                         <td className="px-6 py-4 text-right">
-                           {isIPCU ? (
-                             <button 
-                               onClick={() => { setSelectedCase(c); setIsValidating(true); }}
-                               className="text-[9px] font-black uppercase tracking-widest text-brand-primary p-2 hover:bg-teal-50 rounded-lg transition-colors border border-transparent hover:border-teal-100"
-                             >
-                               Validate
-                             </button>
-                           ) : (
-                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2">
-                               {c.status}
-                             </span>
-                           )}
+                           <div className="flex items-center justify-end gap-2">
+                             {user?.role === 'ADMIN' && (
+                               <button 
+                                 onClick={() => handleDelete('hai_cases', c.id)}
+                                 className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                                 title="Delete Entry"
+                               >
+                                 <Trash2 className="w-3.5 h-3.5" />
+                               </button>
+                             )}
+                             {isIPCU ? (
+                               <button 
+                                 onClick={() => { setSelectedCase(c); setIsValidating(true); }}
+                                 className="text-[9px] font-black uppercase tracking-widest text-brand-primary p-2 hover:bg-teal-50 rounded-lg transition-colors border border-transparent hover:border-teal-100"
+                               >
+                                 Validate
+                               </button>
+                             ) : (
+                               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2">
+                                 {c.status}
+                               </span>
+                             )}
+                           </div>
                         </td>
                       </tr>
                     ))}
@@ -424,6 +447,16 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                         </td>
                         <td className="px-6 py-4 text-xs font-medium text-slate-600">{c.triggerDate}</td>
                         <td className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-tight">{c.validatorName || 'System'}</td>
+                        {user?.role === 'ADMIN' && (
+                          <td className="px-6 py-4 text-right">
+                            <button 
+                              onClick={() => handleDelete('hai_cases', c.id)}
+                              className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -485,6 +518,14 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
+                      {user?.role === 'ADMIN' && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleDelete('boc_logs', log.id); }}
+                          className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       {(user?.role === 'IPCN' || user?.role === 'ADMIN') && !log.isValidated && (
                         <button 
                           onClick={(e) => {

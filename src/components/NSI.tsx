@@ -33,7 +33,8 @@ import {
   serverTimestamp, 
   orderBy, 
   doc, 
-  updateDoc 
+  updateDoc,
+  deleteDoc 
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, NSIReport, NSIStatus, NSIExposureType, NSIDevice, NSIActivity } from '../types';
@@ -192,6 +193,17 @@ export default function NSI({ user }: NSIProps) {
       setSelectedReport(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'nsi_reports');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!user || user.role !== 'ADMIN') return;
+    if (!confirm('Are you sure you want to delete this exposure record? This action is permanent.')) return;
+    try {
+      await deleteDoc(doc(db, 'nsi_reports', id));
+      if (selectedReport?.id === id) setSelectedReport(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `nsi_reports/${id}`);
     }
   };
 
@@ -675,6 +687,15 @@ export default function NSI({ user }: NSIProps) {
                           >
                             <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-rose-600" />
                           </button>
+                          {user?.role === 'ADMIN' && (
+                            <button 
+                              onClick={() => handleDelete(report.id!)}
+                              className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="Delete Record"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -712,9 +733,20 @@ export default function NSI({ user }: NSIProps) {
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Source: {selectedReport.reporterEmail}</p>
                     </div>
                  </div>
-                 <button onClick={() => setSelectedReport(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors font-bold text-slate-400">
-                   <Plus className="w-6 h-6 rotate-45" />
-                 </button>
+                 <div className="flex items-center gap-4">
+                    {user?.role === 'ADMIN' && (
+                      <button 
+                        onClick={() => handleDelete(selectedReport.id!)}
+                        className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50/10 rounded-lg transition-colors"
+                        title="Delete Record"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    )}
+                    <button onClick={() => setSelectedReport(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors font-bold text-slate-400">
+                      <Plus className="w-6 h-6 rotate-45" />
+                    </button>
+                 </div>
               </div>
 
               <div className="flex-1 overflow-y-auto p-8 grid grid-cols-1 md:grid-cols-2 gap-12">

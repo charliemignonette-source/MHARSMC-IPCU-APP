@@ -9,7 +9,7 @@ import {
 import { 
   collection, addDoc, query, orderBy, 
   onSnapshot, serverTimestamp, where,
-  doc, updateDoc
+  doc, updateDoc, deleteDoc
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserProfile, OutbreakReport, OutbreakCase, OutbreakStatus } from '../types';
@@ -183,6 +183,16 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     });
   };
 
+  const handleDelete = async (id: string) => {
+    if (!user || user.role !== 'ADMIN') return;
+    if (!confirm('Are you sure you want to delete this outbreak report? This action is permanent.')) return;
+    try {
+      await deleteDoc(doc(db, 'outbreaks', id));
+    } catch (err) {
+      console.error('Delete error:', err);
+    }
+  };
+
   const toggleArrayItem = (field: keyof OutbreakReport | string, item: string, path?: string) => {
     if (path) {
       // Handle nested arrays like epidemiology.transmissionMode
@@ -265,16 +275,27 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Detected: {report.detectedAt} • {report.lineList?.length || 0} Cases</p>
                          </div>
                       </div>
-                      <button 
-                        onClick={() => {
-                          setActiveReport(report);
-                          setFormData(report);
-                          setView('FORM');
-                        }}
-                        className="p-2 hover:bg-slate-50 rounded-xl transition-colors"
-                      >
-                         <ChevronRight className="w-5 h-5 text-slate-400" />
-                      </button>
+                       <div className="flex items-center gap-2">
+                          {user?.role === 'ADMIN' && (
+                            <button 
+                              onClick={() => handleDelete(report.id!)}
+                              className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="Delete Report"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button 
+                            onClick={() => {
+                              setActiveReport(report);
+                              setFormData(report);
+                              setView('FORM');
+                            }}
+                            className="p-2 hover:bg-slate-50 rounded-xl transition-colors"
+                          >
+                             <ChevronRight className="w-5 h-5 text-slate-400" />
+                          </button>
+                       </div>
                    </div>
                    
                    <div className="grid grid-cols-4 gap-4 p-4 bg-slate-50 rounded-2xl">

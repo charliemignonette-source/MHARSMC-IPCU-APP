@@ -36,17 +36,24 @@ export default function Reports({ user }: { user: UserProfile | null }) {
       return;
     }
 
-    const headers = Object.keys(data[0]).join(',');
-    const rows = data.map(obj => 
-      Object.values(obj)
-        .map(v => {
-          const str = String(v ?? '').replace(/"/g, '""');
-          return `"${str}"`;
-        })
-        .join(',')
-    ).join('\n');
+    // Collect all unique keys from all objects to ensure comprehensive headers
+    const allKeys = new Set<string>();
+    data.forEach(obj => {
+      Object.keys(obj).forEach(key => allKeys.add(key));
+    });
+    const headers = Array.from(allKeys);
 
-    const csvContent = `${headers}\n${rows}`;
+    const csvContent = [
+      headers.join(','),
+      ...data.map(obj => 
+        headers.map(header => {
+          const v = obj[header];
+          const str = (v === null || v === undefined) ? '' : String(v).replace(/"/g, '""');
+          return `"${str}"`;
+        }).join(',')
+      )
+    ].join('\n');
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -55,6 +62,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
     
     setMessage({ type: 'success', text: `Successfully exported ${data.length} records.` });
   };

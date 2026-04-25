@@ -13,7 +13,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, addDoc, serverTimestamp, query, where, onSnapshot, orderBy, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, where, onSnapshot, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, AuditType, Audit } from '../types';
 import { UNITS, STAFF_TYPES } from '../constants';
@@ -974,7 +974,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
   );
 }
 
-function AuditEntry({ type, unit, score, total, timestamp, auditorEmail, isValidated, validatedBy, onValidate, isAdmin }: any) {
+function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, isValidated, validatedBy, onValidate, isAdmin }: any) {
   const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
   const colorClass = percentage >= 90 ? 'text-emerald-600' : percentage >= 80 ? 'text-amber-600' : 'text-rose-600';
   const barClass = percentage >= 90 ? 'bg-emerald-500' : percentage >= 80 ? 'bg-amber-500' : 'bg-rose-500';
@@ -1026,17 +1026,36 @@ function AuditEntry({ type, unit, score, total, timestamp, auditorEmail, isValid
           </div>
         </div>
 
-        {isAdmin && !isValidated && (
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              onValidate();
-            }}
-            className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
-            title="IPCN Validation"
-          >
-            <CheckCircle2 className="w-4 h-4" />
-          </button>
+        {isAdmin && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button 
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (!confirm('Are you sure you want to delete this audit record?')) return;
+                try {
+                  await deleteDoc(doc(db, 'audits', id));
+                } catch (error) {
+                  handleFirestoreError(error, OperationType.DELETE, `audits/${id}`);
+                }
+              }}
+              className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+              title="Delete Audit"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+            {!isValidated && (
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onValidate();
+                }}
+                className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
+                title="IPCN Validation"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

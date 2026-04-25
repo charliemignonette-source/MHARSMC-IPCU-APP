@@ -17,7 +17,8 @@ import {
   Microscope,
   Info,
   AlertOctagon,
-  ShieldAlert
+  ShieldAlert,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
@@ -46,17 +47,8 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
   
   const [selectedItem, setSelectedItem] = useState<PendingItem | null>(null);
   const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
-  const [isAddingManualAction, setIsAddingManualAction] = useState(false);
-  const [actionForm, setActionForm] = useState<Partial<IPCUAction>>({
-    patientName: '',
-    hospNo: '',
-    haiType: 'CLABSI',
-    action: 'Education',
-    date: new Date().toISOString().split('T')[0]
-  });
   
-  // States for Sections 3-7
-  const [ipcuActions, setIpcuActions] = useState<IPCUAction[]>([]);
+  // States for Sections 4-7
   const [confirmedHAI, setConfirmedHAI] = useState<HAICase[]>([]);
   const [validatedAMS, setValidatedAMS] = useState<AMSRequest[]>([]);
   const [validatedAudits, setValidatedAudits] = useState<Audit[]>([]);
@@ -172,12 +164,6 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
       updatePendingList('OUTBREAK', items);
     });
 
-    // Section 3: IPCU Action Log
-    const qActions = query(collection(db, 'ipcu_actions'), orderBy('createdAt', 'desc'));
-    const unsubActions = onSnapshot(qActions, (snap) => {
-      setIpcuActions(snap.docs.map(d => ({ id: d.id, ...d.data() } as IPCUAction)));
-    });
-
     // History Queries (Validated MTD)
     const qConfirmedHAI = query(collection(db, 'hai_cases'), where('status', '==', 'CONFIRMED'));
     const unsubConfirmedHAI = onSnapshot(qConfirmedHAI, (snap) => {
@@ -216,7 +202,6 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
       unsubBundles();
       unsubNSI();
       unsubOutbreaks();
-      unsubActions();
       unsubConfirmedHAI();
       unsubValidatedAMS();
       unsubValidatedAudits();
@@ -302,20 +287,6 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
     try {
       await updateDoc(doc(db, collectionName, id), updateData);
       
-      // Log an IPCU Action for Section 3 tracking
-      await addDoc(collection(db, 'ipcu_actions'), {
-        patientName: selectedItem.patientName || 'N/A',
-        hospNo: selectedItem.originalData.hospNo || 'N/A',
-        haiType: type === 'BUNDLE' ? 'Bundle' : (type === 'HAI' ? selectedItem.subType : type),
-        unit: selectedItem.unit,
-        action: `${decision.status}: ${decision.reason}`,
-        discrepancyFound: decision.notes || 'None logged',
-        date: new Date().toLocaleDateString(),
-        staffId: user.uid,
-        staffName: user.name,
-        createdAt: serverTimestamp()
-      });
-
       setIsValidationModalOpen(false);
       setSelectedItem(null);
     } catch (e) {
@@ -333,13 +304,6 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
             Central Verification Agency • MHARSMC
           </p>
         </div>
-        <button 
-          onClick={() => setIsAddingManualAction(true)}
-          className="px-6 py-3 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-slate-900/10 hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
-        >
-          <ClipboardList className="w-4 h-4" />
-          Log Manual Action
-        </button>
       </div>
 
       {/* Modern Switcher */}
@@ -460,12 +424,27 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
                            </div>
                         </td>
                         <td className="px-6 py-5 text-right">
-                           <button 
-                             onClick={() => openValidation(item)}
+                             <div className="flex items-center gap-2">
+                               {user?.role === 'ADMIN' && (
+                                 <button 
+                                   onClick={async (e) => {
+                                     e.stopPropagation();
+                                     if (!confirm('Are you sure?')) return;
+                                     const colMap: Record<string, string> = { HAI: 'hai_cases', AMS: 'ams_requests', AUDIT: 'audits', BUNDLE: 'boc_logs', NSI: 'nsi_reports', OUTBREAK: 'outbreaks' };
+                                     try { await deleteDoc(doc(db, colMap[item.type], item.id)); } catch (e) { handleFirestoreError(e, OperationType.DELETE, item.id); }
+                                   }}
+                                   className="p-1.5 text-rose-400 hover:text-rose-600"
+                                 >
+                                   <Trash2 className="w-4 h-4" />
+                                 </button>
+                               )}
+                               <button 
+                                 onClick={() => openValidation(item)}
                              className="px-4 py-2 bg-white border border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-900 rounded-xl hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-all shadow-sm"
                            >
-                              Review Case
+                               Review Case
                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -495,24 +474,6 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
             exit={{ opacity: 0, scale: 0.98 }}
             className="space-y-12"
           >
-            {/* IPCU Action Log */}
-            <HistorySection 
-              title="IPCU Validation Action Log" 
-              icon={<ShieldCheck className="w-5 h-5 text-slate-900" />}
-              headers={['Patient', 'Hosp Number', 'Type', 'Unit', 'Action Taken', 'Date']}
-              items={ipcuActions.map(a => [
-                a.patientName,
-                a.hospNo,
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{a.haiType}</span>,
-                a.unit || '-',
-                <div className="flex flex-col">
-                  <span className="text-xs font-black text-slate-900">{a.action}</span>
-                  <span className="text-[9px] text-slate-500 font-medium italic">{a.discrepancyFound}</span>
-                </div>,
-                a.date
-              ])}
-            />
-
             {/* Confirmed HAI Events */}
             <HistorySection 
               title="Confirmed HAI Primary Events" 
@@ -624,127 +585,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
             onSubmit={handleValidationSubmit}
           />
         )}
-        {isAddingManualAction && (
-          <ActionModal 
-            onClose={() => setIsAddingManualAction(false)}
-            formData={actionForm}
-            setFormData={setActionForm}
-            onSubmit={async (e: React.FormEvent) => {
-              e.preventDefault();
-              if (!user) return;
-              try {
-                await addDoc(collection(db, 'ipcu_actions'), {
-                  ...actionForm,
-                  staffId: user.uid,
-                  staffName: user.name,
-                  createdAt: serverTimestamp()
-                });
-                setIsAddingManualAction(false);
-                setActionForm({
-                  patientName: '',
-                  hospNo: '',
-                  haiType: 'CLABSI',
-                  action: 'Education',
-                  date: new Date().toISOString().split('T')[0]
-                });
-              } catch (error) {
-                handleFirestoreError(error, OperationType.WRITE, 'ipcu_actions');
-              }
-            }}
-          />
-        )}
       </AnimatePresence>
-    </div>
-  );
-}
-
-function ActionModal({ onClose, formData, setFormData, onSubmit }: any) {
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/10 backdrop-blur-md">
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
-        <div className="p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center text-white">
-          <div className="flex items-center gap-3">
-             <ClipboardList className="w-5 h-5 text-brand-primary" />
-             <div>
-               <h3 className="text-lg font-black uppercase tracking-tight italic">Manual IPCU Action Log</h3>
-               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Post-Validation Documentation</p>
-             </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-500"><XCircle className="w-6 h-6" /></button>
-        </div>
-        <form onSubmit={onSubmit} className="p-8 space-y-6">
-           <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Patient Name</label>
-                 <input 
-                   required
-                   className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold"
-                   value={formData.patientName}
-                   onChange={e => setFormData({...formData, patientName: e.target.value})}
-                 />
-              </div>
-              <div className="space-y-1.5">
-                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Hosp Number</label>
-                 <input 
-                   required
-                   className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold"
-                   value={formData.hospNo}
-                   onChange={e => setFormData({...formData, hospNo: e.target.value})}
-                 />
-              </div>
-           </div>
-           
-           <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Related Issue</label>
-                 <select 
-                   className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold"
-                   value={formData.haiType}
-                   onChange={e => setFormData({...formData, haiType: e.target.value})}
-                 >
-                    <option value="CLABSI">CLABSI</option>
-                    <option value="CAUTI">CAUTI</option>
-                    <option value="VAP">VAP</option>
-                    <option value="SSI">SSI</option>
-                    <option value="AMS">AMS Violation</option>
-                    <option value="AUDIT">Audit Failure</option>
-                    <option value="BUNDLE">Bundle Non-compliance</option>
-                 </select>
-              </div>
-              <div className="space-y-1.5">
-                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Action Type</label>
-                 <select 
-                   className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold"
-                   value={formData.action}
-                   onChange={e => setFormData({...formData, action: e.target.value})}
-                 >
-                    <option value="Education">Education / Coaching</option>
-                    <option value="Verbal Warning">Verbal Warning</option>
-                    <option value="Written Warning">Written Warning</option>
-                    <option value="Escalation">Formal Escalation</option>
-                 </select>
-              </div>
-           </div>
-
-           <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Action Date</label>
-              <input 
-                type="date"
-                required
-                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold"
-                value={formData.date}
-                onChange={e => setFormData({...formData, date: e.target.value})}
-              />
-           </div>
-
-           <button 
-             type="submit"
-             className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-slate-900/20 active:scale-95 transition-all"
-           >
-             Save Action Entry
-           </button>
-        </form>
-      </motion.div>
     </div>
   );
 }
