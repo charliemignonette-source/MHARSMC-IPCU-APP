@@ -1,6 +1,6 @@
 {
   "name": "MHARSMC IPC Guard",
-  "description": "Infection Prevention and Control monitoring system with HAI tracking, AMS stewardship, and audit compliance.",
+  "description": "Infection Prevention and Control monitoring system with HAI tracking, Antimicrobial Stewardship, Cumulative Antibiograms, and audit compliance.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
