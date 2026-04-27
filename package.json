@@ -1,5 +1,6 @@
 {
-  "name": "react-example",
+  "name": "ipc-guard",
+  "description": "MHARSMC Infection Prevention and Control (IPC) Guard App",
   "private": true,
   "version": "0.0.0",
   "type": "module",
