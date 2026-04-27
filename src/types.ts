@@ -60,6 +60,7 @@ export interface NSIReport {
     deviceOther?: string;
     activity: NSIActivity;
     activityOther?: string;
+    exposureOther?: string;
   };
   staff: {
     name: string;
@@ -72,6 +73,7 @@ export interface NSIReport {
     hospNo: string;
     diagnosis: string;
     risks: string[]; // HBV, HCV, HIV, Unknown
+    riskOther?: string;
   };
   description: {
     narrative: string;
@@ -92,6 +94,7 @@ export interface NSIReport {
     contributingFactors: string[];
     decision: NSIStatus;
     correctiveActions: string[];
+    actionOther?: string;
     validatorName: string;
     validatorId: string;
     validatedAt: any;
@@ -143,6 +146,7 @@ export interface AMSRequest {
   dosingRegimen: string;
   indicationForUse: 'Prophylactic' | 'Empiric' | 'Definitive';
   focusOfInfection: string[];
+  focusOther?: string;
   infectiousDiagnosis?: string;
   cultureSent: string[];
   cultureDateSent?: string;
@@ -163,7 +167,9 @@ export interface AMSRequest {
   // Critical Illness Criteria
   criticallyIll?: {
     sepsisCriteria: string[];
+    sepsisOther?: string;
     organDysfunctionCriteria: string[];
+    organOther?: string;
   };
 
   // Legacy/Required fields
@@ -180,6 +186,7 @@ export interface AMSRequest {
   durationRequested?: string;
   status: AMSStatus;
   reviewerId?: string;
+  reviewerEmail?: string;
   reviewedAt?: string;
   dateTimeApproved?: string;
   remarks?: string;
@@ -202,9 +209,12 @@ export interface HAICase {
   hospNo: string;
   unit: string;
   deviceType?: string;
+  deviceTypeOther?: string;
   procedureType?: string;
   triggeredCriteria: string[];
+  criteriaOther?: string;
   triggeredLabs: string[];
+  labOther?: string;
   triggerDate: string;
   status: HAIStatus;
   riskLevel: 'RED' | 'YELLOW' | 'BLUE' | 'BLACK';
@@ -244,6 +254,14 @@ export interface BundleAssessment {
   remarks?: string;
 }
 
+export interface FormCompletionDetail {
+  section: 'Physician-in-Charge (PIC)' | 'Nurse-in-Charge (NIC)' | 'Clinical Criteria Section';
+  status: 'Complete' | 'Incomplete' | 'N/A';
+  isSigned: boolean;
+  remarks?: string;
+  physicianName?: string;
+}
+
 export interface BOCLog {
   id?: string;
   date: string;
@@ -263,6 +281,8 @@ export interface BOCLog {
   staffId: string;
   staffEmail?: string;
   createdAt?: any;
+  
+  formMonitoring?: FormCompletionDetail[];
   
   isValidated?: boolean;
   verification?: {
@@ -303,6 +323,7 @@ export interface OutbreakReport {
   type: string[]; 
   typeOther?: string;
   triggerCriteria: string[]; 
+  triggerCriteriaOther?: string;
   lineList: OutbreakCase[];
   
   epidemiology: {
@@ -312,6 +333,7 @@ export interface OutbreakReport {
     unitsAffected: string;
     possibleSource: string;
     transmissionMode: string[]; 
+    transmissionModeOther?: string;
   };
   
   findings: {

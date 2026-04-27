@@ -1,27 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  ShieldCheck, 
-  AlertTriangle, 
-  CheckCircle2, 
-  Clock, 
-  Search, 
-  Filter, 
-  ChevronRight, 
-  Activity, 
-  Stethoscope, 
-  ClipboardList, 
-  Layers,
-  XCircle,
-  Mail,
-  Calendar,
-  Microscope,
-  Info,
-  AlertOctagon,
-  ShieldAlert,
-  Trash2
-} from 'lucide-react';
+import { Trash2, AlertOctagon, ShieldAlert, ShieldCheck, AlertTriangle, CheckCircle2, Clock, Search, Filter, ChevronRight, Activity, Stethoscope, ClipboardList, Layers, XCircle, Mail, Calendar, Microscope, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, HAICase, AMSRequest, Audit, BOCLog, Role, IPCUAction, NSIReport, OutbreakReport } from '../types';
 import { cn, formatDate } from '../lib/utils';
@@ -354,8 +334,9 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
               </div>
               
               <div className="bento-card bg-white overflow-hidden shadow-2xl shadow-slate-200/50">
-                <table className="w-full text-left border-collapse border-spacing-0">
-                  <thead className="bg-slate-900 text-white">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse border-spacing-0 min-w-[800px] lg:min-w-0">
+                    <thead className="bg-slate-900 text-white">
                     <tr>
                       <th className="px-6 py-5 text-[10px] font-black uppercase tracking-[0.2em]">Flagged Entity</th>
                       <th className="px-6 py-5 text-[10px] font-black uppercase tracking-[0.2em]">Context / Unit</th>
@@ -465,7 +446,8 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
                 </table>
               </div>
             </div>
-          </motion.div>
+          </div>
+        </motion.div>
         ) : (
           <motion.div 
             key="history"
@@ -651,33 +633,34 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 sm:p-6 bg-slate-900/40 backdrop-blur-sm">
       <motion.div 
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="w-full max-w-4xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="w-full h-full sm:h-auto sm:max-w-4xl bg-white sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
       >
-        <div className="p-8 bg-slate-900 text-white flex justify-between items-center shrink-0">
+        <div className="p-4 sm:p-8 bg-slate-900 text-white flex justify-between items-center shrink-0">
           <div className="flex items-center gap-4">
             <div className={cn(
-              "p-3 rounded-2xl",
+              "p-2 sm:p-3 rounded-2xl",
               item.type === 'HAI' ? "bg-rose-500" : "bg-brand-primary"
             )}>
-              <ShieldCheck className="w-6 h-6" />
+              <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
-              <h3 className="text-xl font-black uppercase tracking-tight italic">IPCU Validation Protocol</h3>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Reference: {item.id.slice(0, 8)} • Verification Stage</p>
+              <h3 className="text-base sm:text-xl font-black uppercase tracking-tight italic leading-tight">IPCU Validation Protocol</h3>
+              <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-widest">Ref: {item.id.slice(0, 8)} • Verification Stage</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-400"><XCircle className="w-8 h-8" /></button>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-400 shrink-0"><XCircle className="w-6 h-6 sm:w-8 sm:h-8" /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-10 bg-slate-50">
-          <form onSubmit={handleSubmit} className="space-y-10">
+        <div className="flex-1 overflow-hidden flex flex-col bg-slate-50">
+          <form onSubmit={handleSubmit} className="flex-1 overflow-hidden flex flex-col">
+            <div className="flex-1 p-4 sm:p-10 overflow-y-auto space-y-8 sm:space-y-10">
             
             {/* Source Data Review */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-10">
               <div className="space-y-6">
                 <div className="flex items-center gap-3">
                    <Info className="w-4 h-4 text-brand-primary" />
@@ -983,15 +966,16 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                </div>
             </div>
 
-            {/* Validator Info */}
-            <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-8 bg-slate-100 rounded-[2rem]">
-               <div className="flex items-center gap-4">
+            </div>
+            {/* Validator Info & Footer */}
+            <div className="shrink-0 p-4 sm:p-8 bg-white border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-6">
+               <div className="flex items-center gap-4 hidden sm:flex">
                   <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-900 border border-slate-200">
                      <ShieldCheck className="w-6 h-6" />
                   </div>
                   <div>
                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Logged Validator</p>
-                     <p className="text-sm font-black text-slate-900">{user?.name} · {user?.email}</p>
+                     <p className="text-sm font-black text-slate-900">{user?.name}</p>
                   </div>
                </div>
                
@@ -999,20 +983,19 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                   <button 
                     type="button" 
                     onClick={onClose}
-                    className="flex-1 md:flex-none px-8 py-4 text-[11px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600"
+                    className="flex-1 md:flex-none px-6 sm:px-8 py-3 sm:py-4 text-[10px] sm:text-[11px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600"
                   >
                     Cancel
                   </button>
                   <button 
                     type="submit"
                     disabled={loading || !decision.status}
-                    className="flex-1 md:flex-none px-12 py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-slate-900/20 active:scale-95 transition-all disabled:opacity-50"
+                    className="flex-1 md:flex-none px-8 sm:px-12 py-3 sm:py-4 bg-slate-900 text-white rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-slate-900/20 active:scale-95 transition-all disabled:opacity-50"
                   >
-                     {loading ? 'Finalizing...' : 'Submit Final Validation'}
+                     {loading ? 'Finalizing...' : 'Submit Validation'}
                   </button>
                </div>
             </div>
-
           </form>
         </div>
       </motion.div>

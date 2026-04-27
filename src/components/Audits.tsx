@@ -68,6 +68,38 @@ export default function Audits({ user }: { user: UserProfile | null }) {
     { id: 'ENV_CLEANING', label: 'Environmental', icon: Trash2 },
   ];
 
+  const [selectedAuditForValidation, setSelectedAuditForValidation] = useState<Audit | null>(null);
+  const [validationForm, setValidationForm] = useState({
+    validatorName: '',
+    date: new Date().toISOString().split('T')[0],
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+    remarks: ''
+  });
+
+  const handleValidateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAuditForValidation || !user) return;
+
+    try {
+      await updateDoc(doc(db, 'audits', selectedAuditForValidation.id), {
+        isValidated: true,
+        validatedBy: user.email,
+        validatorName: validationForm.validatorName,
+        validatedAt: `${validationForm.date}T${validationForm.time}`,
+        validationRemarks: validationForm.remarks
+      });
+      setSelectedAuditForValidation(null);
+      setValidationForm({
+        validatorName: '',
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+        remarks: ''
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'audits');
+    }
+  };
+
   const [checklist, setChecklist] = useState<Record<string, any>>({
     abhr: { poc: false, notEmpty: false, expiry: '', notIndicated: false, functional: false, mounted: false },
     sink: { sink: false, water: false, soap: false, expiry: '', notIndicated: false, towels: false, notClogged: false },
@@ -152,7 +184,8 @@ export default function Audits({ user }: { user: UserProfile | null }) {
         monitorCables: 'cleaned',
         ventilatorPanel: 'cleaned'
       },
-      monitoringMethod: 'direct'
+      monitoringMethod: 'direct',
+      monitoringOther: ''
     }
   });
 
@@ -334,17 +367,17 @@ export default function Audits({ user }: { user: UserProfile | null }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900 uppercase">Field Surveillance</h2>
-          <p className="text-xs text-slate-500 font-medium tracking-tight">Systematic validation of clinical hygiene standards</p>
+          <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 uppercase">Field Surveillance</h2>
+          <p className="text-[10px] sm:text-xs text-slate-500 font-bold uppercase tracking-widest">Systematic validation of clinical hygiene standards</p>
         </div>
         <button 
           onClick={() => setIsAdding(true)}
-          className="btn-primary px-6 py-2.5 flex items-center gap-2 shadow-lg shadow-teal-900/10 active:scale-95 transition-transform"
+          className="w-full sm:w-auto btn-primary px-6 py-2.5 flex items-center justify-center gap-2 shadow-lg shadow-teal-900/10 active:scale-95 transition-transform"
         >
           <Plus className="w-4 h-4" />
-          <span className="text-xs font-bold uppercase tracking-widest">New Inspection</span>
+          <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest">New Inspection</span>
         </button>
       </div>
 
@@ -372,16 +405,16 @@ export default function Audits({ user }: { user: UserProfile | null }) {
 
           {/* Large Feed Section */}
           <div className="col-span-full bento-card bg-white min-h-[400px] flex flex-col">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-tight text-slate-400 flex items-center gap-2">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-[10px] sm:text-xs font-bold uppercase tracking-tight text-slate-400 flex items-center gap-2">
                 <Search className="w-3.5 h-3.5" />
                 Audit Registry
               </h3>
               <div className="flex gap-2">
-                <button className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors">
+                <button className="p-1.5 sm:p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors">
                   <Filter className="w-3.5 h-3.5" />
                 </button>
-                <button className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors">
+                <button className="p-1.5 sm:p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors">
                   <Calendar className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -397,18 +430,12 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                   <AuditEntry 
                     key={audit.id} 
                     {...audit} 
-                    onValidate={async () => {
-                      if (user?.role === 'IPCN' || user?.role === 'ADMIN') {
-                        try {
-                          await updateDoc(doc(db, 'audits', audit.id), {
-                            isValidated: !audit.isValidated,
-                            validatedBy: user.email,
-                            validatedAt: serverTimestamp()
-                          });
-                        } catch (error) {
-                          handleFirestoreError(error, OperationType.UPDATE, 'audits');
-                        }
-                      }
+                    onValidate={() => {
+                      setSelectedAuditForValidation(audit);
+                      setValidationForm({
+                         ...validationForm,
+                         validatorName: user?.name || ''
+                      });
                     }}
                     isAdmin={user?.role === 'IPCN' || user?.role === 'ADMIN'}
                   />
@@ -454,48 +481,48 @@ export default function Audits({ user }: { user: UserProfile | null }) {
         </div>
       </div>
 
-      {/* Modal Tool */}
       <AnimatePresence>
         {isAdding && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/10 backdrop-blur-md">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden"
+              className="w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-2xl bg-white sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col"
             >
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="bg-brand-primary p-2 rounded-xl text-white">
                     <ClipboardCheck className="w-5 h-5" />
                   </div>
-                  <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">Audit Protocol Entry</h3>
+                  <h3 className="text-sm sm:text-lg font-bold text-slate-900 uppercase tracking-tight">Audit Protocol Entry</h3>
                 </div>
                 <button onClick={() => setIsAdding(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
                   <XCircle className="w-6 h-6" />
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit} className="p-8 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <form onSubmit={handleSubmit} className="flex-1 overflow-hidden flex flex-col">
+                <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Observation Vector</label>
-                    <div className="space-y-2">
+                    <div className="grid grid-cols-2 md:grid-cols-1 gap-2">
                       {AUDIT_OPTIONS.map((opt) => (
                         <button
                           key={opt.id}
                           type="button"
                           onClick={() => setSelectedType(opt.id as AuditType)}
                           className={cn(
-                            "w-full flex items-center gap-4 p-3.5 rounded-2xl border transition-all text-sm font-semibold",
+                            "w-full flex items-center gap-3 sm:gap-4 p-2 sm:p-3.5 rounded-xl sm:rounded-2xl border transition-all text-[11px] sm:text-sm font-bold sm:font-semibold",
                             selectedType === opt.id 
                               ? "bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-900/10" 
                               : "bg-white text-slate-500 border-slate-200 hover:border-slate-400"
                           )}
                         >
-                          <opt.icon className="w-5 h-5" />
-                          <span className="flex-1 text-left">{opt.label}</span>
-                          {selectedType === opt.id && <div className="w-1.5 h-1.5 bg-teal-400 rounded-full" />}
+                          <opt.icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                          <span className="flex-1 text-left truncate">{opt.label}</span>
+                          {selectedType === opt.id && <div className="w-1.5 h-1.5 bg-teal-400 rounded-full shrink-0" />}
                         </button>
                       ))}
                     </div>
@@ -659,7 +686,8 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                                { id: 'fluorescent', label: 'Fluorescent gel' },
                                { id: 'swab', label: 'Swab cultures' },
                                { id: 'atp', label: 'ATP system' },
-                               { id: 'agar', label: 'Agar slide cultures' }
+                               { id: 'agar', label: 'Agar slide cultures' },
+                                { id: 'other', label: 'Other' }
                              ].map(method => (
                                <button
                                  key={method.id}
@@ -676,6 +704,14 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                                </button>
                              ))}
                           </div>
+                          {checklist.envCleaning.monitoringMethod === 'other' && (
+                            <input 
+                              placeholder="Specify other monitoring method..." 
+                              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 mt-3 font-semibold outline-none focus:ring-2 focus:ring-slate-900" 
+                              value={checklist.envCleaning.monitoringOther || ''}
+                              onChange={e => setChecklist({...checklist, envCleaning: {...checklist.envCleaning, monitoringOther: e.target.value}})}
+                            />
+                          )}
                         </div>
                       </div>
                     ) : selectedType === 'SAFE_INJECTION' ? (
@@ -818,6 +854,14 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                                  {type}
                                </button>
                              ))}
+                             {checklist.ppeCompliance.staffType === 'Other' && (
+                               <input 
+                                 placeholder="Specify other staff type..." 
+                                 className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 mt-2 font-semibold" 
+                                 value={checklist.ppeCompliance.staffTypeOther || ''}
+                                 onChange={e => setChecklist({...checklist, ppeCompliance: {...checklist.ppeCompliance, staffTypeOther: e.target.value}})}
+                               />
+                             )}
                           </div>
                         </div>
 
@@ -875,6 +919,16 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                             <option value="3">Medical Doctor</option>
                             <option value="4">Other HCW</option>
                           </select>
+                          {formData.profession === '4' && (
+                            <motion.input 
+                              initial={{ opacity: 0, y: -10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              placeholder="Specify other HCW profession..." 
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold mt-2 outline-none focus:ring-2 focus:ring-brand-primary" 
+                              value={formData.professionOther || ''}
+                              onChange={e => setFormData({...formData, professionOther: e.target.value})}
+                            />
+                          )}
                         </div>
 
                         <div className="space-y-4">
@@ -950,21 +1004,58 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                   </div>
                 </div>
 
-                <div className="flex gap-4 pt-4">
+                </div>
+                <div className="flex flex-col sm:flex-row gap-4 p-4 sm:p-6 bg-slate-50 border-t border-slate-100 shrink-0">
                   <button 
                     type="button"
                     onClick={() => setIsAdding(false)}
-                    className="flex-1 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest hover:text-slate-900 transition-colors"
+                    className="flex-1 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest hover:text-slate-900 transition-colors border border-slate-200 sm:border-none rounded-2xl sm:rounded-none"
                   >
                     Discard Changes
                   </button>
                   <button 
                     type="submit"
-                    className="btn-primary flex-1 py-4 shadow-xl shadow-teal-900/10 active:scale-[0.98] transition-transform font-bold uppercase tracking-widest text-[10px]"
+                    className="btn-primary flex-[2] sm:flex-1 py-4 shadow-xl shadow-teal-900/10 active:scale-[0.98] transition-transform font-bold uppercase tracking-widest text-[10px]"
                   >
                     Validate & Transmit Audit
                   </button>
                 </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+        {selectedAuditForValidation && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full h-full sm:h-auto sm:max-w-md bg-white sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+              <div className="p-4 sm:p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-3">
+                   <ShieldCheck className="w-5 h-5 text-brand-primary" />
+                   <h3 className="text-sm font-bold text-white uppercase tracking-tight">Audit Validation</h3>
+                </div>
+                <button onClick={() => setSelectedAuditForValidation(null)} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-500"><XCircle className="w-6 h-6" /></button>
+              </div>
+              <form onSubmit={handleValidateSubmit} className="p-6 space-y-6">
+                 <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Date</label>
+                          <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={validationForm.date} onChange={e => setValidationForm({...validationForm, date: e.target.value})} />
+                       </div>
+                       <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Time</label>
+                          <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={validationForm.time} onChange={e => setValidationForm({...validationForm, time: e.target.value})} />
+                       </div>
+                    </div>
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Validator Name</label>
+                       <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none" value={validationForm.validatorName} onChange={e => setValidationForm({...validationForm, validatorName: e.target.value})} />
+                    </div>
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Remarks</label>
+                       <textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs h-24 resize-none outline-none" value={validationForm.remarks} onChange={e => setValidationForm({...validationForm, remarks: e.target.value})} placeholder="Validation notes..." />
+                    </div>
+                 </div>
+                 <button type="submit" className="w-full py-4 bg-brand-primary text-white font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-teal-900/10 active:scale-95 transition-all">Submit IPCN Validation</button>
               </form>
             </motion.div>
           </div>
@@ -980,16 +1071,26 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, isV
   const barClass = percentage >= 90 ? 'bg-emerald-500' : percentage >= 80 ? 'bg-amber-500' : 'bg-rose-500';
 
   return (
-    <div className="p-4 flex items-center gap-5 hover:bg-slate-50/80 transition-all rounded-2xl group relative">
-      <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-white group-hover:shadow-sm transition-all text-xs font-bold">
-        {type === 'HH_COMPLIANCE' && <HandMetal className="w-5 h-5" />}
-        {type === 'HH_AVAILABILITY' && <ClipboardCheck className="w-5 h-5" />}
-        {type === 'PPE_AVAILABILITY' && <ShieldCheck className="w-5 h-5" />}
-        {type === 'PPE_COMPLIANCE' && <ShieldCheck className="w-5 h-5" />}
-        {type === 'ENV_CLEANING' && <Trash2 className="w-5 h-5" />}
-        {type === 'SAFE_INJECTION' && <Syringe className="w-5 h-5" />}
+    <div className="p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-5 hover:bg-slate-50/80 transition-all rounded-2xl group relative">
+      <div className="flex items-center gap-4 w-full sm:w-auto">
+        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-white group-hover:shadow-sm transition-all text-xs font-bold">
+          {type === 'HH_COMPLIANCE' && <HandMetal className="w-5 h-5" />}
+          {type === 'HH_AVAILABILITY' && <ClipboardCheck className="w-5 h-5" />}
+          {type === 'PPE_AVAILABILITY' && <ShieldCheck className="w-5 h-5" />}
+          {type === 'PPE_COMPLIANCE' && <ShieldCheck className="w-5 h-5" />}
+          {type === 'ENV_CLEANING' && <Trash2 className="w-5 h-5" />}
+          {type === 'SAFE_INJECTION' && <Syringe className="w-5 h-5" />}
+        </div>
+        <div className="flex-1 sm:hidden">
+           <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest truncate">{type.replace('_', ' ')}</span>
+            {isValidated && <CheckCircle2 className="w-3 h-3 text-brand-primary" />}
+          </div>
+          <p className="text-xs font-bold text-slate-900">{unit}</p>
+        </div>
       </div>
-      <div className="flex-1 overflow-hidden">
+      
+      <div className="flex-1 overflow-hidden hidden sm:block">
         <div className="flex items-center gap-2 mb-0.5">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{type.replace('_', ' ')}</span>
@@ -1011,11 +1112,25 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, isV
            )}
         </div>
       </div>
-      <div className="flex items-center gap-4">
-        <div className="flex flex-col items-end gap-1.5 w-24">
+
+      <div className="sm:hidden w-full flex items-center justify-between border-t border-slate-50 pt-2">
+         <div className="flex flex-col">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{formatDate(timestamp)}</span>
+            <span className="text-[10px] font-bold text-slate-700 truncate max-w-[120px]">{auditorEmail || 'System'}</span>
+         </div>
+         {isValidated && (
+             <div className="flex items-center gap-1 text-[8px] font-bold text-emerald-600 uppercase tracking-tight">
+                <CheckCircle2 className="w-2 h-2" />
+                <span>Validated</span>
+             </div>
+           )}
+      </div>
+
+      <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
+        <div className="flex flex-col items-start sm:items-end gap-1.5 w-full sm:w-24">
           <div className="flex items-baseline gap-1">
             <span className="text-[10px] font-bold text-slate-400">{score}/{total}</span>
-            <span className={cn("text-lg font-black tracking-tighter", colorClass)}>{percentage}%</span>
+            <span className={cn("text-base sm:text-lg font-black tracking-tighter", colorClass)}>{percentage}%</span>
           </div>
           <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
             <motion.div 
@@ -1027,7 +1142,7 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, isV
         </div>
 
         {isAdmin && (
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
             <button 
               onClick={async (e) => {
                 e.stopPropagation();
@@ -1038,10 +1153,10 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, isV
                   handleFirestoreError(error, OperationType.DELETE, `audits/${id}`);
                 }
               }}
-              className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+              className="p-1.5 sm:p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
               title="Delete Audit"
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
             {!isValidated && (
               <button 
@@ -1049,10 +1164,10 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, isV
                   e.stopPropagation();
                   onValidate();
                 }}
-                className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
+                className="p-1.5 sm:p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
                 title="IPCN Validation"
               >
-                <CheckCircle2 className="w-4 h-4" />
+                <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
             )}
           </div>

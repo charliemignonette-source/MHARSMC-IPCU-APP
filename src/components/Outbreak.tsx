@@ -29,11 +29,11 @@ const OUTBREAK_TYPES = [
 
 const TRIGGER_CRITERIA = [
   '≥2 epidemiologically linked cases', 'Sudden increase above baseline',
-  'Unusual organism', 'Sentinel event', 'Lab alert'
+  'Unusual organism', 'Sentinel event', 'Lab alert', 'Other'
 ];
 
 const TRANSMISSION_MODES = [
-  'Contact', 'Droplet', 'Airborne', 'Common Source', 'Unknown'
+  'Contact', 'Droplet', 'Airborne', 'Common Source', 'Unknown', 'Other'
 ];
 
 const CONTROL_MEASURES = [
@@ -217,10 +217,10 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
 
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Outbreak Management</h2>
-          <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">Surveillance, Detection & Investigation Registry</p>
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tight">Outbreak Management</h2>
+          <p className="text-slate-500 text-[9px] sm:text-xs font-bold uppercase tracking-widest mt-1">Surveillance, Detection & Investigation Registry</p>
         </div>
         <button
           onClick={() => {
@@ -231,7 +231,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
             }
           }}
           className={cn(
-            "px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] transition-all flex items-center gap-2",
+            "w-full sm:w-auto px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] transition-all flex items-center justify-center gap-2",
             view === 'LIST' 
               ? "bg-brand-primary text-white shadow-lg shadow-brand-primary/20 hover:scale-105 active:scale-95"
               : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -298,24 +298,24 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                        </div>
                    </div>
                    
-                   <div className="grid grid-cols-4 gap-4 p-4 bg-slate-50 rounded-2xl">
-                      <div className="space-y-1">
-                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Attack Rate</span>
-                         <p className="text-xs font-bold text-slate-700">{report.epidemiology?.attackRate || 'N/A'}</p>
-                      </div>
-                      <div className="space-y-1 text-center border-x border-slate-200 px-2">
-                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Units</span>
-                         <p className="text-xs font-bold text-slate-700 truncate">{report.epidemiology?.unitsAffected || 'N/A'}</p>
-                      </div>
-                      <div className="space-y-1 text-center">
-                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Validation</span>
-                         <p className="text-[10px] font-black uppercase text-brand-primary">{report.validation?.decision || 'PENDING'}</p>
-                      </div>
-                      <div className="space-y-1 text-right">
-                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Reporter</span>
-                         <p className="text-xs font-bold text-slate-700 truncate">{report.reportedBy}</p>
-                      </div>
-                   </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-2xl">
+                       <div className="space-y-1">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Attack Rate</span>
+                          <p className="text-xs font-bold text-slate-700">{report.epidemiology?.attackRate || 'N/A'}</p>
+                       </div>
+                       <div className="space-y-1 sm:text-center sm:border-x border-slate-200 px-2 truncate">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Units</span>
+                          <p className="text-xs font-bold text-slate-700 truncate">{report.epidemiology?.unitsAffected || 'N/A'}</p>
+                       </div>
+                       <div className="space-y-1 sm:text-center">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Validation</span>
+                          <p className="text-[10px] font-black uppercase text-brand-primary">{report.validation?.decision || 'PENDING'}</p>
+                       </div>
+                       <div className="space-y-1 text-right">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Reporter</span>
+                          <p className="text-xs font-bold text-slate-700 truncate">{report.reportedBy}</p>
+                       </div>
+                    </div>
                  </motion.div>
                ))
              )}
@@ -406,15 +406,25 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                      </div>
                      <div className="grid grid-cols-2 gap-3">
                         {REPORTING_SOURCES.map(src => (
-                          <label key={src} className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all">
-                             <input 
-                               type="checkbox" 
-                               className="w-4 h-4 rounded-lg border-slate-300 text-brand-primary focus:ring-brand-primary/20"
-                               checked={formData.reportingSrc?.includes(src)}
-                               onChange={() => toggleArrayItem('reportingSrc', src)}
-                             />
-                             <span className="text-[11px] font-bold text-slate-700">{src}</span>
-                          </label>
+                          <div key={src} className="space-y-2">
+                             <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all">
+                                <input 
+                                  type="checkbox" 
+                                  className="w-4 h-4 rounded-lg border-slate-300 text-brand-primary focus:ring-brand-primary/20"
+                                  checked={formData.reportingSrc?.includes(src)}
+                                  onChange={() => toggleArrayItem('reportingSrc', src)}
+                                />
+                                <span className="text-[11px] font-bold text-slate-700">{src}</span>
+                             </label>
+                             {src === 'Other' && formData.reportingSrc?.includes('Other') && (
+                               <input 
+                                 placeholder="Specify source..."
+                                 className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-brand-primary/20"
+                                 value={formData.reportingSrcOther || ''}
+                                 onChange={e => setFormData({...formData, reportingSrcOther: e.target.value})}
+                               />
+                             )}
+                          </div>
                         ))}
                      </div>
                   </div>
@@ -426,15 +436,25 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                      </div>
                      <div className="grid grid-cols-2 gap-3">
                         {OUTBREAK_TYPES.map(t => (
-                          <label key={t} className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all">
-                             <input 
-                               type="checkbox" 
-                               className="w-4 h-4 rounded-lg border-slate-300 text-brand-primary focus:ring-brand-primary/20"
-                               checked={formData.type?.includes(t)}
-                               onChange={() => toggleArrayItem('type', t)}
-                             />
-                             <span className="text-[11px] font-bold text-slate-700">{t}</span>
-                          </label>
+                          <div key={t} className="space-y-2">
+                             <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all">
+                                <input 
+                                  type="checkbox" 
+                                  className="w-4 h-4 rounded-lg border-slate-300 text-brand-primary focus:ring-brand-primary/20"
+                                  checked={formData.type?.includes(t)}
+                                  onChange={() => toggleArrayItem('type', t)}
+                                />
+                                <span className="text-[11px] font-bold text-slate-700">{t}</span>
+                             </label>
+                             {t === 'Other' && formData.type?.includes('Other') && (
+                               <input 
+                                 placeholder="Specify type..."
+                                 className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-brand-primary/20"
+                                 value={formData.typeOther || ''}
+                                 onChange={e => setFormData({...formData, typeOther: e.target.value})}
+                               />
+                             )}
+                          </div>
                         ))}
                      </div>
                   </div>
@@ -448,15 +468,25 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                   </div>
                   <div className="space-y-3">
                      {TRIGGER_CRITERIA.map(c => (
-                        <label key={c} className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer hover:border-brand-primary/30 transition-all group">
-                           <input 
-                             type="checkbox" 
-                             className="w-5 h-5 rounded-lg border-slate-300 text-rose-500 focus:ring-rose-500/20"
-                             checked={formData.triggerCriteria?.includes(c)}
-                             onChange={() => toggleArrayItem('triggerCriteria', c)}
-                           />
-                           <span className="text-[11px] font-black uppercase tracking-wider text-slate-600 group-hover:text-slate-900">{c}</span>
-                        </label>
+                        <div key={c} className="space-y-2">
+                           <label className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer hover:border-brand-primary/30 transition-all group">
+                              <input 
+                                type="checkbox" 
+                                className="w-5 h-5 rounded-lg border-slate-300 text-rose-500 focus:ring-rose-500/20"
+                                checked={formData.triggerCriteria?.includes(c)}
+                                onChange={() => toggleArrayItem('triggerCriteria', c)}
+                              />
+                              <span className="text-[11px] font-black uppercase tracking-wider text-slate-600 group-hover:text-slate-900">{c}</span>
+                           </label>
+                           {c === 'Other' && formData.triggerCriteria?.includes('Other') && (
+                             <input 
+                               placeholder="Specify trigger..."
+                               className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-[10px] font-bold outline-none focus:ring-2 focus:ring-brand-primary/20"
+                               value={formData.triggerCriteriaOther || ''}
+                               onChange={e => setFormData({...formData, triggerCriteriaOther: e.target.value})}
+                             />
+                           )}
+                        </div>
                      ))}
                   </div>
                </div>
@@ -560,19 +590,29 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Transmission Mode</label>
                      <div className="grid grid-cols-2 gap-2">
                         {TRANSMISSION_MODES.map(m => (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => toggleArrayItem('transmissionMode', m, 'epidemiology.transmissionMode')}
-                            className={cn(
-                              "px-3 py-2.5 rounded-xl text-[10px] font-bold transition-all border",
-                              formData.epidemiology?.transmissionMode.includes(m)
-                                ? "bg-brand-primary/10 text-brand-primary border-brand-primary/20"
-                                : "bg-white text-slate-500 border-slate-100 hover:bg-slate-50"
-                            )}
-                          >
-                            {m}
-                          </button>
+                          <div key={m} className="space-y-2">
+                             <button
+                               key={m}
+                               type="button"
+                               onClick={() => toggleArrayItem('transmissionMode', m, 'epidemiology.transmissionMode')}
+                               className={cn(
+                                 "w-full px-3 py-2.5 rounded-xl text-[10px] font-bold transition-all border",
+                                 formData.epidemiology?.transmissionMode.includes(m)
+                                   ? "bg-brand-primary/10 text-brand-primary border-brand-primary/20"
+                                   : "bg-white text-slate-500 border-slate-100 hover:bg-slate-50"
+                               )}
+                             >
+                               {m}
+                             </button>
+                             {m === 'Other' && formData.epidemiology?.transmissionMode.includes('Other') && (
+                               <input 
+                                 placeholder="Specify mode..."
+                                 className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-brand-primary/20"
+                                 value={formData.epidemiology?.transmissionModeOther || ''}
+                                 onChange={e => setFormData({...formData, epidemiology: {...formData.epidemiology!, transmissionModeOther: e.target.value}})}
+                               />
+                             )}
+                          </div>
                         ))}
                      </div>
                   </div>
@@ -625,19 +665,29 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="flex flex-wrap gap-2">
                      {CONTROL_MEASURES.map(m => (
-                       <button
-                         key={m}
-                         type="button"
-                         onClick={() => toggleArrayItem('actions', m, 'controlMeasures.actions')}
-                         className={cn(
-                           "px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border",
-                           formData.controlMeasures?.actions.includes(m)
-                             ? "bg-white text-emerald-600 border-white shadow-md"
-                             : "bg-slate-200/50 text-slate-500 border-transparent hover:bg-white/50"
-                         )}
-                       >
-                         {m}
-                       </button>
+                       <div key={m} className="space-y-2">
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => toggleArrayItem('actions', m, 'controlMeasures.actions')}
+                            className={cn(
+                              "px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                              formData.controlMeasures?.actions.includes(m)
+                                ? "bg-white text-emerald-600 border-white shadow-md"
+                                : "bg-slate-200/50 text-slate-500 border-transparent hover:bg-white/50"
+                            )}
+                          >
+                            {m}
+                          </button>
+                          {m === 'Other' && formData.controlMeasures?.actions.includes('Other') && (
+                            <input 
+                              placeholder="Specify measure..."
+                              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-emerald-500/20"
+                              value={formData.controlMeasures?.actionsOther || ''}
+                              onChange={e => setFormData({...formData, controlMeasures: {...formData.controlMeasures!, actionsOther: e.target.value}})}
+                            />
+                          )}
+                       </div>
                      ))}
                   </div>
                   <div className="space-y-4">

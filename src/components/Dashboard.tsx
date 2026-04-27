@@ -290,14 +290,14 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-black tracking-tight text-slate-900 uppercase">IPC COMMAND</h2>
-          <p className="text-xs text-slate-500 font-medium tracking-tight">Period: {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 uppercase">IPC COMMAND</h2>
+          <p className="text-[10px] sm:text-xs text-slate-500 font-medium tracking-tight">Period: {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex bg-slate-100 p-1.5 rounded-2xl overflow-x-auto">
+        <div className="flex items-center overflow-x-auto -mx-6 px-6 lg:mx-0 lg:px-0 no-scrollbar">
+          <div className="flex bg-slate-100 p-1.5 rounded-2xl shrink-0">
             {[
               { id: 'OVERALL', label: 'Summary' },
               { id: 'IPCU', label: 'Verif' },
@@ -312,7 +312,7 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
                 className={cn(
-                  "px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all whitespace-nowrap",
+                  "px-3 sm:px-4 py-2 text-[9px] sm:text-[10px] font-black uppercase tracking-widest rounded-xl transition-all whitespace-nowrap",
                   activeTab === tab.id ? "bg-white text-brand-primary shadow-sm" : "text-slate-400 hover:text-slate-600"
                 )}
               >
@@ -327,37 +327,37 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
       {activeTab === 'OVERALL' ? (
         <div className="space-y-6">
           {/* High-Level Highlight Matrix */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bento-card p-6 bg-brand-primary text-white">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-teal-100 mb-6">Device Bundle Adherence</h4>
-               <div className="text-4xl font-black tracking-tighter mb-4">{Math.round(stats.bundles.today.overall)}%</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+            <div className="bento-card p-4 sm:p-6 bg-brand-primary text-white">
+               <h4 className="text-[10px] font-black uppercase tracking-widest text-teal-100 mb-4 sm:mb-6">Device Bundle Adherence</h4>
+               <div className="text-3xl sm:text-4xl font-black tracking-tighter mb-2 sm:mb-4">{Math.round(stats.bundles.today.overall)}%</div>
                <div className="flex items-center justify-between pt-4 border-t border-white/10 text-[10px] font-bold">
                   <span className="text-teal-200">MTD AVG</span>
                   <span>{Math.round(stats.bundles.mtd.overall)}%</span>
                </div>
             </div>
 
-            <div className="bento-card p-6 bg-emerald-600 text-white">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-6">Hand Hygiene Compliance</h4>
-               <div className="text-4xl font-black tracking-tighter mb-4">{Math.round(stats.hhCompliance)}%</div>
+            <div className="bento-card p-4 sm:p-6 bg-emerald-600 text-white">
+               <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-4 sm:mb-6">Hand Hygiene Compliance</h4>
+               <div className="text-3xl sm:text-4xl font-black tracking-tighter mb-2 sm:mb-4">{Math.round(stats.hhCompliance)}%</div>
                <div className="flex items-center justify-between pt-4 border-t border-white/10 text-[10px] font-bold">
                   <span className="text-emerald-200">AUDITS MTD</span>
                   <span>{stats.auditsCount}</span>
                </div>
             </div>
 
-            <div className="bento-card p-6 bg-amber-500 text-white">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-100 mb-6">AMS Stewardship</h4>
-               <div className="text-4xl font-black tracking-tighter mb-4">{stats.activeAMS}</div>
+            <div className="bento-card p-4 sm:p-6 bg-amber-500 text-white">
+               <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-100 mb-4 sm:mb-6">AMS Stewardship</h4>
+               <div className="text-3xl sm:text-4xl font-black tracking-tighter mb-2 sm:mb-4">{stats.activeAMS}</div>
                <div className="flex items-center justify-between pt-4 border-t border-white/10 text-[10px] font-bold">
                   <span className="text-amber-200">PENDING ACTIONS</span>
                   <span>{stats.amsCount} TOTAL</span>
                </div>
             </div>
 
-            <div className="bento-card p-6 bg-rose-600 text-white">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-rose-100 mb-6">Workplace Safety (NSI)</h4>
-               <div className="text-4xl font-black tracking-tighter mb-4">{stats.safety.nsiMTD}</div>
+            <div className="bento-card p-4 sm:p-6 bg-rose-600 text-white">
+               <h4 className="text-[10px] font-black uppercase tracking-widest text-rose-100 mb-4 sm:mb-6">Workplace Safety (NSI)</h4>
+               <div className="text-3xl sm:text-4xl font-black tracking-tighter mb-2 sm:mb-4">{stats.safety.nsiMTD}</div>
                <div className="flex items-center justify-between pt-4 border-t border-white/10 text-[10px] font-bold">
                   <span className="text-rose-200">INJURIES MTD</span>
                   <span>{stats.safety.exposedStaff} HIGH RISK</span>
@@ -365,7 +365,7 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             <BundleSummaryCard 
               label="CLABSI Protocol" 
               today={stats.bundles.today.CLABSI} 
@@ -402,17 +402,17 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
 
           <div className="grid grid-cols-12 gap-6">
             {/* Daily Trend Chart */}
-            <div className="col-span-12 lg:col-span-8 bento-card p-6">
-               <div className="flex justify-between items-center mb-10">
-                  <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">Daily Bundle Compliance Trend (30D)</h3>
-                  <div className="flex gap-4 text-[8px] font-black uppercase tracking-tight text-slate-400">
+            <div className="col-span-12 lg:col-span-8 bento-card p-4 sm:p-6">
+               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-10">
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-700">Daily Bundle Compliance Trend (30D)</h3>
+                  <div className="flex flex-wrap gap-3 sm:gap-4 text-[8px] font-black uppercase tracking-tight text-slate-400">
                     <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-emerald-500 rounded-full" /> CLABSI</span>
                     <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-amber-500 rounded-full" /> CAUTI</span>
                     <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-sky-500 rounded-full" /> VAP</span>
                     <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-rose-500 rounded-full" /> SSI</span>
                   </div>
                </div>
-               <div className="h-[300px]">
+               <div className="h-[250px] sm:h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={stats.bundles.trends}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -432,36 +432,36 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
 
             {/* Non-Compliance Flags */}
             <div className="col-span-12 lg:col-span-4 space-y-6">
-               <div className="bento-card p-6 bg-slate-900 text-white">
+               <div className="bento-card p-4 sm:p-6 bg-slate-900 text-white">
                   <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-primary mb-6">Non-Compliance Flags</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                     <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                     <div className="bg-white/5 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10">
                         <div className="flex items-center gap-2 mb-2">
-                           <div className="w-2 h-2 bg-rose-500 rounded-full" />
-                           <span className="text-[10px] font-bold text-slate-400">RED FLAGS</span>
+                           <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-rose-500 rounded-full" />
+                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">RED FLAGS</span>
                         </div>
-                        <div className="text-2xl font-black">{stats.bundles.flags.red}</div>
+                        <div className="text-xl sm:text-2xl font-black">{stats.bundles.flags.red}</div>
                      </div>
-                     <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                     <div className="bg-white/5 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10">
                         <div className="flex items-center gap-2 mb-2">
-                           <div className="w-2 h-2 bg-amber-500 rounded-full" />
-                           <span className="text-[10px] font-bold text-slate-400">YELLOW</span>
+                           <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-amber-500 rounded-full" />
+                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">YELLOW</span>
                         </div>
-                        <div className="text-2xl font-black">{stats.bundles.flags.yellow}</div>
+                        <div className="text-xl sm:text-2xl font-black">{stats.bundles.flags.yellow}</div>
                      </div>
-                     <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                     <div className="bg-white/5 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10">
                         <div className="flex items-center gap-2 mb-2">
-                           <div className="w-2 h-2 bg-sky-500 rounded-full" />
-                           <span className="text-[10px] font-bold text-slate-400">BLUE</span>
+                           <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-sky-500 rounded-full" />
+                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">BLUE</span>
                         </div>
-                        <div className="text-2xl font-black">{stats.bundles.flags.blue}</div>
+                        <div className="text-xl sm:text-2xl font-black">{stats.bundles.flags.blue}</div>
                      </div>
-                     <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                     <div className="bg-white/5 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10">
                         <div className="flex items-center gap-2 mb-2">
-                           <div className="w-2 h-2 bg-slate-500 rounded-full" />
-                           <span className="text-[10px] font-bold text-slate-400">BLACK</span>
+                           <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-slate-500 rounded-full" />
+                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">BLACK</span>
                         </div>
-                        <div className="text-2xl font-black">{stats.bundles.flags.black}</div>
+                        <div className="text-xl sm:text-2xl font-black">{stats.bundles.flags.black}</div>
                      </div>
                   </div>
                </div>
@@ -490,40 +490,42 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
             </div>
 
             {/* Unit Level Compliance Map */}
-            <div className="col-span-12 bento-card p-6">
-               <h3 className="text-sm font-black uppercase tracking-widest text-slate-700 mb-8">Unit-Level Compliance Matrix</h3>
-               <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="border-b border-slate-100">
-                        <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Unit Name</th>
-                        <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">CLABSI %</th>
-                        <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">CAUTI %</th>
-                        <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">VAP %</th>
-                        <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">SSI %</th>
-                        <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">OVERALL</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {stats.bundles.units.map(unit => (
-                        <tr key={unit.name} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="py-4 text-xs font-bold text-slate-900">{unit.name}</td>
-                          <ComplianceCell value={unit.CLABSI} />
-                          <ComplianceCell value={unit.CAUTI} />
-                          <ComplianceCell value={unit.VENTILATOR} />
-                          <ComplianceCell value={unit.SURGICAL_SITE} />
-                          <td className="py-4 text-center">
-                            <span className={cn(
-                              "px-2 py-1 rounded-lg text-[10px] font-black",
-                              unit.overall >= 95 ? "bg-emerald-500 text-white" : unit.overall >= 80 ? "bg-amber-500 text-white" : "bg-rose-500 text-white"
-                            )}>
-                              {Math.round(unit.overall)}%
-                            </span>
-                          </td>
+            <div className="col-span-12 bento-card p-4 sm:p-6">
+               <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-700 mb-6 sm:mb-8">Unit-Level Compliance Matrix</h3>
+               <div className="overflow-x-auto -mx-4 sm:mx-0">
+                  <div className="min-w-[600px] px-4 sm:px-0">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-slate-100">
+                          <th className="pb-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-slate-400">Unit Name</th>
+                          <th className="pb-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">CLABSI %</th>
+                          <th className="pb-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">CAUTI %</th>
+                          <th className="pb-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">VAP %</th>
+                          <th className="pb-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">SSI %</th>
+                          <th className="pb-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">OVERALL</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {stats.bundles.units.map(unit => (
+                          <tr key={unit.name} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="py-4 text-[11px] sm:text-xs font-bold text-slate-900">{unit.name}</td>
+                            <ComplianceCell value={unit.CLABSI} />
+                            <ComplianceCell value={unit.CAUTI} />
+                            <ComplianceCell value={unit.VENTILATOR} />
+                            <ComplianceCell value={unit.SURGICAL_SITE} />
+                            <td className="py-4 text-center">
+                              <span className={cn(
+                                "px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg text-[9px] sm:text-[10px] font-black",
+                                unit.overall >= 95 ? "bg-emerald-500 text-white" : unit.overall >= 80 ? "bg-amber-500 text-white" : "bg-rose-500 text-white"
+                              )}>
+                                {Math.round(unit.overall)}%
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                </div>
             </div>
 
@@ -664,20 +666,20 @@ function AmsSafetyDashboard({ stats }: any) {
 
 function BundleSummaryCard({ label, today, mtd, icon, color, bgColor }: any) {
   return (
-    <div className="bento-card p-6 hover:shadow-xl transition-all">
-       <div className="flex justify-between items-start mb-6">
-          <div className={cn("p-2.5 rounded-2xl", bgColor, color)}>
-             {icon}
+    <div className="bento-card p-4 sm:p-6 hover:shadow-xl transition-all">
+       <div className="flex justify-between items-start mb-4 sm:mb-6">
+          <div className={cn("p-2 sm:p-2.5 rounded-xl sm:rounded-2xl", bgColor, color)}>
+             {React.cloneElement(icon as React.ReactElement, { className: "w-4 h-4 sm:w-5 sm:h-5" })}
           </div>
           <div className="text-right">
-             <div className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Today</div>
-             <div className={cn("text-2xl font-black tracking-tighter", color)}>{Math.round(today)}%</div>
+             <div className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5 sm:mb-1">Today</div>
+             <div className={cn("text-xl sm:text-2xl font-black tracking-tighter", color)}>{Math.round(today)}%</div>
           </div>
        </div>
-       <h4 className="text-sm font-bold text-slate-900 mb-4">{label}</h4>
-       <div className="flex items-center justify-between pt-4 border-t border-slate-50">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">MTD Compliance</span>
-          <span className="text-xs font-black text-slate-900">{Math.round(mtd)}%</span>
+       <h4 className="text-xs sm:text-sm font-bold text-slate-900 mb-3 sm:mb-4">{label}</h4>
+       <div className="flex items-center justify-between pt-3 sm:pt-4 border-t border-slate-50">
+          <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-tight">MTD Compliance</span>
+          <span className="text-[10px] sm:text-xs font-black text-slate-900">{Math.round(mtd)}%</span>
        </div>
     </div>
   );
@@ -701,30 +703,30 @@ function DeviceSpecificDashboard({ type, stats }: any) {
   const variances = stats.bundles.mtd?.topVariances?.[deviceKey] || [];
   const count = stats.bundles.today?.counts?.[deviceKey] || 0;
 
-  return (
+   return (
     <div className="space-y-6">
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bento-card p-6 bg-slate-900 text-white">
+       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="bento-card p-4 sm:p-6 bg-slate-900 text-white">
              <h4 className="text-[10px] font-black uppercase tracking-widest text-brand-primary mb-6">Device Usage & Compliance</h4>
              <div className="space-y-6">
                 <div>
                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">In Use Today</div>
-                   <div className="text-3xl font-black">{count}</div>
+                   <div className="text-2xl sm:text-3xl font-black">{count}</div>
                 </div>
                 <div>
                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">MTD Compliance</div>
-                   <div className="text-3xl font-black text-brand-primary">{Math.round(stats.bundles.mtd?.[deviceKey] || 0)}%</div>
+                   <div className="text-2xl sm:text-3xl font-black text-brand-primary">{Math.round(stats.bundles.mtd?.[deviceKey] || 0)}%</div>
                 </div>
              </div>
           </div>
-          <div className="bento-card p-6">
+          <div className="bento-card p-4 sm:p-6">
              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">Top 3 Recurring Variance Items</h4>
              <div className="space-y-4">
                 {variances.length > 0 ? variances.map((v: string) => (
                   <div key={v} className="space-y-2">
-                    <div className="flex justify-between items-center text-[10px] font-bold uppercase">
+                    <div className="flex justify-between items-center text-[10px] font-bold uppercase gap-2">
                       <span className="text-slate-600 line-clamp-1">{v}</span>
-                      <span className="text-rose-500">Variance Found</span>
+                      <span className="text-rose-500 shrink-0">Variance</span>
                     </div>
                     <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
                        <div className="bg-rose-500 h-full w-[65%]" />
@@ -733,7 +735,7 @@ function DeviceSpecificDashboard({ type, stats }: any) {
                 )) : <div className="text-xs text-slate-400 font-bold uppercase tracking-tight">No variances logged</div>}
              </div>
           </div>
-          <div className="bento-card p-6">
+          <div className="bento-card p-4 sm:p-6">
              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-8">{type} Non-Compliance Distribution</h4>
              <div className="h-[150px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -744,7 +746,7 @@ function DeviceSpecificDashboard({ type, stats }: any) {
                 </ResponsiveContainer>
              </div>
           </div>
-          <div className="col-span-3 bento-card p-6">
+          <div className="col-span-1 sm:col-span-2 lg:col-span-3 bento-card p-4 sm:p-6">
              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-8">{type} Daily Trend (30D)</h4>
              <div className="h-[150px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -764,13 +766,13 @@ function VerificationDashboard({ stats }: any) {
   if (!v) return null;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-       <div className="bento-card p-6 bg-slate-900 text-white">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+       <div className="bento-card p-4 sm:p-6 bg-slate-900 text-white">
           <h4 className="text-[10px] font-black uppercase tracking-widest text-brand-primary mb-6">IPCU Verification Accuracy</h4>
-          <div className="flex items-end gap-4 mb-8">
-             <span className="text-5xl font-black tracking-tighter text-white">{Math.round(v.accuracy)}%</span>
+          <div className="flex items-end gap-3 sm:gap-4 mb-8">
+             <span className="text-4xl sm:text-5xl font-black tracking-tighter text-white">{Math.round(v.accuracy)}%</span>
              <span className="text-emerald-400 text-xs font-bold mb-2 flex items-center gap-1">
-                <ArrowUpRight className="w-3 h-3" /> Baseline Ref
+                <ArrowUpRight className="w-3 h-3" /> Baseline
              </span>
           </div>
           <div className="space-y-4">
@@ -784,16 +786,16 @@ function VerificationDashboard({ stats }: any) {
              </div>
           </div>
        </div>
-       <div className="bento-card p-6">
+       <div className="bento-card p-4 sm:p-6">
           <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">Most Common IPCU Errors Found</h4>
           <div className="space-y-4">
              {v.errors.length > 0 ? v.errors.map((err: any) => (
                <div key={err.label} className="space-y-2">
-                  <div className="flex justify-between text-[10px] font-bold uppercase">
-                    <span className="text-slate-600">{err.label}</span>
-                    <span className="text-slate-900">{err.count} cases</span>
+                  <div className="flex justify-between text-[10px] font-bold uppercase gap-2">
+                    <span className="text-slate-600 truncate">{err.label}</span>
+                    <span className="text-slate-900 shrink-0">{err.count} cases</span>
                   </div>
-                  <div className="w-full bg-slate-100 h-1 rounded-full">
+                  <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
                     <div className="bg-brand-primary h-1 rounded-full" style={{ width: `${(err.count / Math.max(v.discrepancies, 1)) * 100}%` }} />
                   </div>
                </div>
@@ -801,7 +803,7 @@ function VerificationDashboard({ stats }: any) {
           </div>
        </div>
 
-       <div className="col-span-1 md:col-span-2 bento-card p-6">
+       <div className="col-span-1 sm:col-span-2 bento-card p-4 sm:p-6">
           <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-8">Verification Accuracy Trend (30D)</h4>
           <div className="h-[200px]">
              <ResponsiveContainer width="100%" height="100%">

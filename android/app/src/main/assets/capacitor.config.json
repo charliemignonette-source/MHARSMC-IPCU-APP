@@ -1,0 +1,6 @@
+{
+	"appId": "com.mharsmc.ipcguard",
+	"appName": "MHARSMC IPC Guard",
+	"webDir": "dist",
+	"bundledWebRuntime": false
+}

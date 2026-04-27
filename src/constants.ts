@@ -10,12 +10,28 @@ export const STAFF_TYPES = [
 ];
 
 export const ANTIBIOTICS = {
-  RESTRICTED: [
-    'Meropenem', 'Imipenem', 'Linezolid', 'Colistin', 'Vancomycin',
-    'Tigecycline', 'Ceftriaxone (Special Use)', 'Piperacillin-Tazobactam'
+  ACCESS: [
+    'Amoxicillin-Clavulanate', 'Cefazolin', 'Cloxacillin', 'Gentamicin', 
+    'Metronidazole', 'Nitrofurantoin', 'Oxacillin', 'Benzylpenicillin'
   ],
   WATCH: [
-    'Amoxicillin-Clavulanate', 'Ciprofloxacin', 'Ceftriaxone', 'Azithromycin'
+    'Amikacin', 'Azithromycin', 'Cefixime', 'Cefotaxime', 'Ceftriaxone', 
+    'Cefuroxime', 'Ciprofloxacin', 'Clindamycin', 'Ertapenem', 'Fluconazole', 
+    'Levofloxacin', 'Piperacillin-Tazobactam'
+  ],
+  RESERVE: [
+    'Amphotericin B', 'Aztreonam', 'Cefepime + Tazobactam', 'Ceftazidime–Avibactam', 
+    'Colistin / Polymyxin', 'Imipenem–Cilastatin', 'Linezolid', 'Meropenem', 
+    'Micafungin', 'Tigecycline', 'Vancomycin', 'Voriconazole'
+  ],
+  FULL: [
+    'Amikacin', 'Amoxicillin-Clavulanate', 'Amphotericin B', 'Azithromycin', 'Aztreonam',
+    'Cefazolin', 'Cefepime', 'Cefepime + Tazobactam', 'Cefixime', 'Cefotaxime', 
+    'Ceftazidime', 'Ceftazidime–Avibactam', 'Ceftriaxone', 'Ceftriaxone (Special Use)', 
+    'Cefuroxime', 'Ciprofloxacin', 'Clindamycin', 'Cloxacillin', 'Colistin / Polymyxin', 
+    'Ertapenem', 'Fluconazole', 'Gentamicin', 'Imipenem–Cilastatin', 'Levofloxacin', 
+    'Linezolid', 'Meropenem', 'Metronidazole', 'Micafungin', 'Oxacillin', 
+    'Piperacillin-Tazobactam', 'Tigecycline', 'Vancomycin', 'Voriconazole'
   ]
 };
 
@@ -68,7 +84,7 @@ export const BUNDLE_ELEMENTS = {
 
 export const NSI_CONSTANTS = {
   EXPOSURE_TYPES: [
-    'Needle-stick', 'Sharp injury', 'Splash to mucous membrane', 'Splash to non-intact skin'
+    'Needle-stick', 'Sharp injury', 'Splash to mucous membrane', 'Splash to non-intact skin', 'Other'
   ],
   DEVICES: [
     'Hollow-bore needle', 'Suture needle', 'Scalpel', 'Lancet', 'Other'
@@ -76,7 +92,7 @@ export const NSI_CONSTANTS = {
   ACTIVITIES: [
     'Recapping', 'Disposal', 'Procedure', 'Cleaning', 'Handling sharps tray', 'Other'
   ],
-  RISKS: ['HBV', 'HCV', 'HIV', 'Unknown'],
+  RISKS: ['HBV', 'HCV', 'HIV', 'Unknown', 'Other'],
   POSITIONS: ['Nurse', 'Doctor', 'MedTech', 'Utility', 'Intern', 'Other'],
   FIRST_AID: [
     'Washed with soap and water', 'Encouraged bleeding', 'Irrigated mucous membrane', 'Other'

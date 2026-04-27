@@ -21,7 +21,8 @@ import {
   BarChart3,
   ChevronDown,
   ChevronUp,
-  Download
+  Download,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -65,6 +66,7 @@ export default function NSI({ user }: NSIProps) {
       time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
       unit: user?.unit || UNITS[0],
       exposureType: 'Needle-stick' as NSIExposureType,
+      exposureOther: '',
       deviceInvolved: 'Hollow-bore needle' as NSIDevice,
       deviceOther: '',
       activity: 'Recapping' as NSIActivity,
@@ -73,6 +75,7 @@ export default function NSI({ user }: NSIProps) {
     staff: {
       name: user?.name || '',
       position: 'Nurse',
+      positionOther: '',
       employmentStatus: 'Regular' as const,
       hepBStatus: 'Complete' as const
     },
@@ -80,7 +83,8 @@ export default function NSI({ user }: NSIProps) {
       name: '',
       hospNo: '',
       diagnosis: '',
-      risks: [] as string[]
+      risks: [] as string[],
+      riskOther: ''
     },
     description: {
       narrative: '',
@@ -101,9 +105,12 @@ export default function NSI({ user }: NSIProps) {
   const [validationData, setValidationData] = useState({
     classification: 'Significant Exposure' as const,
     rootCauses: [] as string[],
+    rootCauseOther: '',
     contributingFactors: [] as string[],
+    factorOther: '',
     decision: 'VALIDATED' as NSIStatus,
-    correctiveActions: [] as string[]
+    correctiveActions: [] as string[],
+    actionOther: ''
   });
 
   useEffect(() => {
@@ -209,22 +216,22 @@ export default function NSI({ user }: NSIProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-black tracking-tight text-slate-800 flex items-center gap-2">
-            <Syringe className="w-8 h-8 text-rose-600" />
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-800 flex items-center gap-2">
+            <Syringe className="w-6 h-6 sm:w-8 sm:h-8 text-rose-600" />
             NSI SURVEILLANCE
           </h2>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Needle-stick & Occupational Exposure Matrix</p>
+          <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Needle-stick & Occupational Exposure Matrix</p>
         </div>
 
-        <div className="flex bg-slate-100 p-1 rounded-2xl">
+        <div className="flex bg-slate-100 p-1 rounded-xl sm:rounded-2xl w-full lg:w-auto overflow-x-auto no-scrollbar">
           {(isValidator ? ['dashboard', 'list', 'form'] : ['form', 'list']).map((t) => (
             <button
               key={t}
               onClick={() => setActiveTab(t as any)}
               className={cn(
-                "px-6 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all",
+                "flex-1 lg:flex-none px-4 sm:px-6 py-2 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap",
                 activeTab === t ? "bg-white text-rose-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -235,23 +242,23 @@ export default function NSI({ user }: NSIProps) {
       </div>
 
       {activeTab === 'dashboard' && isValidator && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bento-card bg-rose-600 text-white p-6">
-            <h4 className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1 text-white">Monthly Incidents</h4>
-            <div className="text-4xl font-black">{stats.total}</div>
-            <p className="text-[9px] mt-2 opacity-80 uppercase font-bold tracking-tighter">Validated Cases Only</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+          <div className="bento-card bg-rose-600 text-white p-4 sm:p-6">
+            <h4 className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest opacity-60 mb-1 text-white">Monthly Incidents</h4>
+            <div className="text-2xl sm:text-4xl font-black">{stats.total}</div>
+            <p className="text-[8px] mt-2 opacity-80 uppercase font-bold tracking-tighter">Validated Cases Only</p>
           </div>
-          <div className="bento-card bg-white p-6 border border-slate-200">
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Highest Risk Unit</h4>
-            <div className="text-xl font-black text-slate-800">{stats.topUnit}</div>
+          <div className="bento-card bg-white p-4 sm:p-6 border border-slate-200">
+            <h4 className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Highest Risk Unit</h4>
+            <div className="text-sm sm:text-xl font-black text-slate-800 truncate">{stats.topUnit}</div>
           </div>
-          <div className="bento-card bg-white p-6 border border-slate-200">
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Primary Device</h4>
-            <div className="text-xl font-black text-slate-800">{stats.topDevice}</div>
+          <div className="bento-card bg-white p-4 sm:p-6 border border-slate-200">
+            <h4 className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Primary Device</h4>
+            <div className="text-sm sm:text-xl font-black text-slate-800 truncate">{stats.topDevice}</div>
           </div>
-          <div className="bento-card bg-white p-6 border border-slate-200">
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Most Common Cause</h4>
-            <div className="text-xs font-black text-slate-800 leading-tight">{stats.topCause}</div>
+          <div className="bento-card bg-white p-4 sm:p-6 border border-slate-200">
+            <h4 className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Common Cause</h4>
+            <div className="text-[10px] sm:text-xs font-black text-slate-800 leading-tight line-clamp-2">{stats.topCause}</div>
           </div>
         </div>
       )}
@@ -322,6 +329,14 @@ export default function NSI({ user }: NSIProps) {
                     >
                       {NSI_CONSTANTS.EXPOSURE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
+                    {formData.incident.exposureType === 'Other' && (
+                      <input 
+                        placeholder="Specify exposure type..."
+                        className="w-full mt-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500"
+                        value={formData.incident.exposureOther}
+                        onChange={e => setFormData({...formData, incident: {...formData.incident, exposureOther: e.target.value}})}
+                      />
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400">Device Involved</label>
@@ -332,6 +347,14 @@ export default function NSI({ user }: NSIProps) {
                     >
                       {NSI_CONSTANTS.DEVICES.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
+                    {formData.incident.deviceInvolved === 'Other' && (
+                      <input 
+                        placeholder="Specify device..."
+                        className="w-full mt-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500"
+                        value={formData.incident.deviceOther}
+                        onChange={e => setFormData({...formData, incident: {...formData.incident, deviceOther: e.target.value}})}
+                      />
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400">Activity</label>
@@ -342,6 +365,14 @@ export default function NSI({ user }: NSIProps) {
                     >
                       {NSI_CONSTANTS.ACTIVITIES.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
+                    {formData.incident.activity === 'Other' && (
+                      <input 
+                        placeholder="Specify activity..."
+                        className="w-full mt-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500"
+                        value={formData.incident.activityOther}
+                        onChange={e => setFormData({...formData, incident: {...formData.incident, activityOther: e.target.value}})}
+                      />
+                    )}
                   </div>
                 </div>
               </div>
@@ -372,6 +403,14 @@ export default function NSI({ user }: NSIProps) {
                     >
                       {NSI_CONSTANTS.POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
+                    {formData.staff.position === 'Other' && (
+                      <input 
+                        placeholder="Specify position..."
+                        className="w-full mt-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500"
+                        value={formData.staff.positionOther}
+                        onChange={e => setFormData({...formData, staff: {...formData.staff, positionOther: e.target.value}})}
+                      />
+                    )}
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -470,6 +509,14 @@ export default function NSI({ user }: NSIProps) {
                       </button>
                     ))}
                   </div>
+                  {formData.source?.risks.includes('Other') && (
+                    <input 
+                      placeholder="Specify other risks..."
+                      className="w-full mt-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-rose-500"
+                      value={formData.source?.riskOther || ''}
+                      onChange={e => setFormData({...formData, source: {...formData.source!, riskOther: e.target.value}})}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -560,6 +607,14 @@ export default function NSI({ user }: NSIProps) {
                             {f}
                           </button>
                         ))}
+                        {formData.actions.firstAid.includes('Other') && (
+                          <input 
+                            placeholder="Specify other first aid..."
+                            className="w-full mt-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500"
+                            value={formData.actions.firstAidOther || ''}
+                            onChange={e => setFormData({...formData, actions: {...formData.actions, firstAidOther: e.target.value}})}
+                          />
+                        )}
                       </div>
                    </div>
                    <div className="space-y-6">
@@ -642,7 +697,7 @@ export default function NSI({ user }: NSIProps) {
 
           <div className="bento-card bg-white border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[800px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date / Unit</th>
@@ -716,21 +771,21 @@ export default function NSI({ user }: NSIProps) {
       {/* Detail / Validation Modal */}
       <AnimatePresence>
         {selectedReport && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-md">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-6 bg-slate-900/40 backdrop-blur-md">
             <motion.div 
                initial={{ opacity: 0, scale: 0.95 }}
                animate={{ opacity: 1, scale: 1 }}
                exit={{ opacity: 0, scale: 0.95 }}
-               className="w-full max-w-5xl max-h-[90vh] bg-white rounded-[2rem] shadow-2xl border border-slate-200 overflow-hidden flex flex-col"
+               className="w-full h-full sm:h-auto sm:max-h-[95vh] sm:max-w-5xl bg-white sm:rounded-[2rem] shadow-2xl border border-slate-200 overflow-hidden flex flex-col"
             >
-              <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
+              <div className="p-4 sm:p-6 bg-slate-900 text-white flex items-center justify-between shrink-0">
                  <div className="flex items-center gap-4">
                     <div className="bg-rose-500 p-2 rounded-xl">
                       <FileText className="w-6 h-6" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-black uppercase tracking-tight">Record #{selectedReport.id?.slice(-6)}</h3>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Source: {selectedReport.reporterEmail}</p>
+                      <h3 className="text-sm sm:text-lg font-black uppercase tracking-tight">Record #{selectedReport.id?.slice(-6)}</h3>
+                      <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Source: {selectedReport.reporterEmail}</p>
                     </div>
                  </div>
                  <div className="flex items-center gap-4">
@@ -744,12 +799,12 @@ export default function NSI({ user }: NSIProps) {
                       </button>
                     )}
                     <button onClick={() => setSelectedReport(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors font-bold text-slate-400">
-                      <Plus className="w-6 h-6 rotate-45" />
+                      <XCircle className="w-6 h-6" />
                     </button>
                  </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-8 grid grid-cols-1 md:grid-cols-2 gap-12">
+              <div className="flex-1 overflow-y-auto p-4 sm:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 custom-scrollbar">
                  <div className="space-y-8">
                     <div className="space-y-4">
                        <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.2em] flex items-center gap-2">
@@ -849,9 +904,10 @@ export default function NSI({ user }: NSIProps) {
                             <div className="space-y-3">
                               <label className="text-[10px] font-black uppercase text-slate-400">Root Cause Analysis (RCA)</label>
                               <div className="grid grid-cols-2 gap-2">
-                                {NSI_CONSTANTS.ROOT_CAUSES.map(c => (
+                                 {NSI_CONSTANTS.ROOT_CAUSES.map(c => (
                                   <button
                                     key={c}
+                                    type="button"
                                     onClick={() => {
                                       const current = validationData.rootCauses;
                                       const next = current.includes(c) ? current.filter(i => i !== c) : [...current, c];
@@ -865,15 +921,24 @@ export default function NSI({ user }: NSIProps) {
                                     {c}
                                   </button>
                                 ))}
+                                {validationData.rootCauses.includes('Other') && (
+                                  <input 
+                                    placeholder="Specify root cause..."
+                                    className="col-span-2 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-slate-900"
+                                    value={validationData.rootCauseOther}
+                                    onChange={e => setValidationData({...validationData, rootCauseOther: e.target.value})}
+                                  />
+                                )}
                               </div>
                             </div>
 
                             <div className="space-y-3">
                               <label className="text-[10px] font-black uppercase text-slate-400">Contributing Factors</label>
                               <div className="grid grid-cols-2 gap-2">
-                                {NSI_CONSTANTS.CONTRIBUTING_FACTORS.map(f => (
+                                 {NSI_CONSTANTS.CONTRIBUTING_FACTORS.map(f => (
                                   <button
                                     key={f}
+                                    type="button"
                                     onClick={() => {
                                       const current = validationData.contributingFactors;
                                       const next = current.includes(f) ? current.filter(i => i !== f) : [...current, f];
@@ -887,6 +952,45 @@ export default function NSI({ user }: NSIProps) {
                                     {f}
                                   </button>
                                 ))}
+                                {validationData.contributingFactors.includes('Other') && (
+                                  <input 
+                                    placeholder="Specify factor..."
+                                    className="col-span-2 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-slate-900"
+                                    value={validationData.factorOther}
+                                    onChange={e => setValidationData({...validationData, factorOther: e.target.value})}
+                                  />
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-black uppercase text-slate-400">Corrective Actions</label>
+                              <div className="grid grid-cols-2 gap-2">
+                                 {NSI_CONSTANTS.CORRECTIVE_ACTIONS.map(a => (
+                                  <button
+                                    key={a}
+                                    type="button"
+                                    onClick={() => {
+                                      const current = validationData.correctiveActions;
+                                      const next = current.includes(a) ? current.filter(i => i !== a) : [...current, a];
+                                      setValidationData({...validationData, correctiveActions: next});
+                                    }}
+                                    className={cn(
+                                      "px-4 py-2 rounded-lg text-[9px] font-bold uppercase transition-all border",
+                                      validationData.correctiveActions.includes(a) ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-100 text-slate-400"
+                                    )}
+                                  >
+                                    {a}
+                                  </button>
+                                ))}
+                                {validationData.correctiveActions.includes('Other') && (
+                                  <input 
+                                    placeholder="Specify action..."
+                                    className="col-span-2 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-slate-900"
+                                    value={validationData.actionOther}
+                                    onChange={e => setValidationData({...validationData, actionOther: e.target.value})}
+                                  />
+                                )}
                               </div>
                             </div>
 

@@ -26,7 +26,8 @@ import {
   ChevronRight,
   KeyRound,
   Hospital,
-  FileBarChart
+  FileBarChart,
+  Microscope
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './lib/firebase';
@@ -43,6 +44,7 @@ import NSI from './components/NSI';
 import Outbreak from './components/Outbreak';
 import IPCUValidationConsole from './components/IPCUValidationConsole';
 import Reports from './components/Reports';
+import Antibiogram from './components/Antibiogram';
 
 const ADMIN_EMAILS = ['charliemignonette@gmail.com', 'beeohend@gmail.com'];
 
@@ -64,7 +66,8 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'IPCN'] },
     { id: 'validation', label: 'IPCU Validation', icon: ShieldAlert, roles: ['ADMIN', 'IPCN'] },
     { id: 'audits', label: 'IPC Audits', icon: ClipboardCheck, roles: ['ADMIN', 'IPCN', 'USER'] },
-    { id: 'ams', label: 'AMS Stewardship', icon: Stethoscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'PHARMACY', 'USER'] },
+    { id: 'ams', label: 'Antimicrobial Stewardship', icon: Stethoscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'PHARMACY', 'USER'] },
+    { id: 'antibiogram', label: 'Cumulative Antibiogram', icon: Microscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'PHARMACY', 'USER'] },
     { id: 'hai', label: 'HAI & Bundles', icon: Activity, roles: ['ADMIN', 'IPCN', 'USER'] },
     { id: 'nsi', label: 'NSI Reporting', icon: AlertTriangle, roles: ['ADMIN', 'IPCN', 'USER'] },
     { id: 'outbreak', label: 'Outbreak Mgmt', icon: ShieldAlert, roles: ['ADMIN', 'IPCN', 'USER'] },
@@ -303,11 +306,87 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
   }
 
   return (
-    <div className="min-h-screen bg-bg-main text-slate-800 flex">
-      {/* Sidebar */}
+    <div className="min-h-[100dvh] h-[100dvh] flex flex-col sm:flex-row bg-bg-main text-slate-800 overflow-hidden relative">
+      {/* Sidebar - Mobile Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[60] lg:hidden"
+              onClick={() => setIsSidebarOpen(false)}
+            />
+            <motion.aside
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed inset-y-0 left-0 w-72 bg-white z-[70] lg:hidden flex flex-col shadow-2xl border-r border-slate-200"
+            >
+              <div className="p-6 border-b border-slate-50 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-brand-primary p-2 rounded-lg text-white">
+                    <ShieldAlert className="w-6 h-6" />
+                  </div>
+                  <h1 className="text-sm font-black tracking-tight uppercase leading-tight">IPC Guard</h1>
+                </div>
+                <button onClick={() => setIsSidebarOpen(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+              
+              <nav className="flex-1 overflow-y-auto py-4 px-4 space-y-1">
+                {allowedTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => {
+                        setActiveTab(tab.id);
+                        setIsSidebarOpen(false);
+                      }}
+                      className={cn(
+                        "flex items-center gap-4 w-full px-4 py-3 text-sm font-bold rounded-2xl transition-all",
+                        activeTab === tab.id 
+                          ? "bg-slate-900 text-white shadow-xl shadow-slate-900/20" 
+                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                      )}
+                    >
+                      <Icon className={cn("w-5 h-5", activeTab === tab.id ? "text-white" : "text-slate-400")} />
+                      <span className="flex-1 text-left">{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+
+              <div className="p-4 border-t border-slate-100 mt-auto">
+                 <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold">
+                    {profile?.name?.[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-900">{profile?.name}</p>
+                    <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">{profile?.role}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={logout}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-xs font-black text-rose-500 hover:bg-rose-50 rounded-2xl transition-all uppercase tracking-widest"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Terminate Session
+                </button>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Sidebar - Desktop */}
       <aside className={cn(
-        "fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-transform duration-300 lg:translate-x-0 lg:static",
-        isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        "hidden lg:flex flex-col w-64 bg-white border-r border-slate-200 shrink-0",
       )}>
         <div className="p-6 flex flex-col gap-1">
           <div className="flex items-center gap-3">
@@ -369,8 +448,8 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
       {/* Main Content */}
       <main className="flex-1 flex flex-col relative overflow-hidden">
         {/* Header */}
-        <header className="h-16 bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 flex items-center justify-between px-6 lg:px-8">
-          <div className="flex items-center gap-4">
+        <header className="h-16 bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 flex items-center justify-between px-4 lg:px-8">
+          <div className="flex items-center gap-2 lg:gap-4">
             <button 
               className="lg:hidden p-2 rounded-lg hover:bg-slate-100"
               onClick={() => setIsSidebarOpen(true)}
@@ -378,55 +457,53 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
               <Menu className="w-5 h-5" />
             </button>
             
-            <div className="hidden lg:flex items-center gap-3">
-               <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-100 text-[10px] font-bold">
+            <div className="flex items-center gap-3">
+               <div className="flex items-center gap-2 px-2 py-1 bg-green-50 text-green-700 rounded-full border border-green-100 text-[10px] font-bold">
                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                 PROTECTION ACTIVE
+                 <span className="hidden xs:inline">PROTECTION ACTIVE</span>
+                 <span className="xs:hidden font-black">ACTIVE</span>
                </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 lg:gap-4">
              {profile?.role === 'USER' ? (
                 <button 
                    onClick={loginWithGoogle}
-                   className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 active:scale-95 transition-all shadow-md"
+                   className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 active:scale-95 transition-all shadow-md"
                 >
                    <KeyRound className="w-3.5 h-3.5" />
-                   Admin Access
+                   <span className="hidden sm:inline">Admin Access</span>
+                   <span className="sm:hidden">Admin</span>
                 </button>
              ) : (
-                <div className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm">
+                <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-brand-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm">
                    <ShieldAlert className="w-3.5 h-3.5" />
-                   Admin Mode
+                   <span className="hidden sm:inline">Admin Mode</span>
+                   <span className="sm:hidden">Admin</span>
                 </div>
              )}
-             <div className="h-4 w-px bg-slate-200 mx-2" />
-             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:block">
+             <div className="h-4 w-px bg-slate-200 mx-1 lg:mx-2" />
+             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden md:block">
                {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
              </span>
           </div>
         </header>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-6 lg:p-8">
+        <div className="flex-1 overflow-y-auto p-4 sm:px-8 sm:py-6 lg:p-8 pb-32 sm:pb-8 no-scrollbar relative min-h-0">
           <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
+            <div key={activeTab}>
               {activeTab === 'dashboard' && <Dashboard user={profile} />}
               {activeTab === 'validation' && <IPCUValidationConsole user={profile} />}
               {activeTab === 'audits' && <Audits user={profile} />}
               {activeTab === 'ams' && <AMS user={profile} />}
+              {activeTab === 'antibiogram' && <Antibiogram user={profile} />}
               {activeTab === 'hai' && <HAI user={profile} />}
               {activeTab === 'nsi' && <NSI user={profile} />}
               {activeTab === 'outbreak' && <Outbreak user={profile} />}
               {activeTab === 'reports' && <Reports user={profile} />}
-            </motion.div>
+            </div>
           </AnimatePresence>
         </div>
       </main>

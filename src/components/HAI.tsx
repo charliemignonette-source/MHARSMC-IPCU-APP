@@ -47,8 +47,11 @@ export default function HAI({ user }: { user: UserProfile | null }) {
     status: 'PENDING',
     riskLevel: 'YELLOW',
     triggeredCriteria: [],
+    criteriaOther: '',
     triggeredLabs: [],
-    deviceDays: 0
+    labOther: '',
+    deviceDays: 0,
+    deviceTypeOther: ''
   });
 
   const [bundleForm, setBundleForm] = useState<Partial<BOCLog>>({
@@ -61,6 +64,11 @@ export default function HAI({ user }: { user: UserProfile | null }) {
     sex: 'Male',
     devicesPresent: [],
     bundles: {},
+    formMonitoring: [
+      { section: 'Physician-in-Charge (PIC)', status: 'Complete', isSigned: false, physicianName: '' },
+      { section: 'Nurse-in-Charge (NIC)', status: 'Complete', isSigned: false },
+      { section: 'Clinical Criteria Section', status: 'Complete', isSigned: false }
+    ],
     totalApplicable: 0,
     totalCompliant: 0,
     compliancePercentage: 0,
@@ -175,6 +183,11 @@ export default function HAI({ user }: { user: UserProfile | null }) {
         sex: 'Male',
         devicesPresent: [],
         bundles: {},
+        formMonitoring: [
+          { section: 'Physician-in-Charge (PIC)', status: 'Complete', isSigned: false },
+          { section: 'Nurse-in-Charge (NIC)', status: 'Complete', isSigned: false },
+          { section: 'Clinical Criteria Section', status: 'Complete', isSigned: false }
+        ],
         totalApplicable: 0,
         totalCompliant: 0,
         compliancePercentage: 0,
@@ -233,40 +246,40 @@ export default function HAI({ user }: { user: UserProfile | null }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row shadow-sm sm:shadow-none items-start sm:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900 uppercase">Infection Surveillance</h2>
-          <p className="text-xs text-slate-500 font-medium tracking-tight">Active HAI detection and therapeutic bundle monitoring</p>
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 uppercase">Infection Surveillance</h2>
+          <p className="text-[10px] sm:text-xs text-slate-500 font-medium tracking-tight">Active HAI detection and therapeutic bundle monitoring</p>
         </div>
-        <div className="flex gap-4">
+        <div className="flex gap-4 w-full sm:w-auto">
            {activeView === 'surveillance' ? (
              <button 
               onClick={() => setIsAddingCase(true)}
-              className="btn-primary px-6 py-2.5 flex items-center gap-2 shadow-lg shadow-teal-900/10 active:scale-95 transition-transform"
+              className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2 shadow-lg shadow-teal-900/10 active:scale-95 transition-transform"
             >
               <Plus className="w-4 h-4" />
-              <span className="text-xs font-bold uppercase tracking-widest">Report Case</span>
+              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center">Report Case</span>
             </button>
            ) : (
              <button 
               onClick={() => setIsAddingBundle(true)}
-              className="btn-primary px-6 py-2.5 flex items-center gap-2 shadow-lg shadow-teal-900/10 active:scale-95 transition-transform"
+              className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2 shadow-lg shadow-teal-900/10 active:scale-95 transition-transform"
             >
               <Plus className="w-4 h-4" />
-              <span className="text-xs font-bold uppercase tracking-widest">Log Bundle</span>
+              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center">Log Bundle</span>
             </button>
            )}
         </div>
       </div>
 
       {/* Modern Switcher */}
-      <div className="flex bg-slate-100 p-1.5 w-fit rounded-2xl mb-8">
+      <div className="flex bg-slate-100 p-1 w-full sm:w-fit rounded-xl sm:rounded-2xl mb-8 overflow-x-auto no-scrollbar">
         {(['surveillance', 'bundles'] as const).map(view => (
           <button
             key={view}
             onClick={() => setActiveView(view)}
             className={cn(
-              "px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all",
+              "flex-1 sm:flex-none px-4 sm:px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg sm:rounded-xl transition-all whitespace-nowrap",
               activeView === view ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-500"
             )}
           >
@@ -308,77 +321,79 @@ export default function HAI({ user }: { user: UserProfile | null }) {
             {/* Possible HAI Cases Today */}
             <div className="space-y-4">
               <div className="flex items-center gap-3">
-                <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Possible HAI Cases Today (Triggered)</h3>
+                <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Possible HAI Cases Today (Triggered)</h3>
                 <div className="h-px flex-1 bg-slate-200" />
               </div>
               <div className="bento-card bg-white overflow-hidden">
-                <table className="w-full text-left border-collapse border-spacing-0">
-                  <thead>
-                    <tr className="bg-slate-50/50 border-b border-slate-100">
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Patient / Unit</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Device / Proc</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Triggered Criteria</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">HAI Type</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Risk</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {cases.filter(c => c.status === 'PENDING').map(c => (
-                      <tr key={c.id} className="hover:bg-slate-50/50 transition-colors group">
-                        <td className="px-6 py-4">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-bold text-slate-900">{c.patientName}</span>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{c.unit}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                           <span className="text-xs font-medium text-slate-600">{c.deviceType || c.procedureType}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                           <div className="flex flex-wrap gap-1">
-                              {c.triggeredCriteria?.map(cr => <span key={cr} className="px-1.5 py-0.5 bg-slate-100 text-[8px] font-bold uppercase rounded">{cr}</span>)}
-                              {c.triggeredLabs?.map(l => <span key={l} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 [font-size:8px] font-black uppercase rounded">{l}</span>)}
-                           </div>
-                        </td>
-                        <td className="px-6 py-4">
-                           <span className="text-xs font-black text-rose-500 uppercase italic">{c.type}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                           <span className={cn(
-                             "w-3 h-3 rounded-full block shadow-sm",
-                             c.riskLevel === 'RED' ? "bg-rose-500" : c.riskLevel === 'YELLOW' ? "bg-amber-400" : c.riskLevel === 'BLUE' ? "bg-blue-500" : "bg-slate-900"
-                           )} />
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                           <div className="flex items-center justify-end gap-2">
-                             {user?.role === 'ADMIN' && (
-                               <button 
-                                 onClick={() => handleDelete('hai_cases', c.id)}
-                                 className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
-                                 title="Delete Entry"
-                               >
-                                 <Trash2 className="w-3.5 h-3.5" />
-                               </button>
-                             )}
-                             {isIPCU ? (
-                               <button 
-                                 onClick={() => { setSelectedCase(c); setIsValidating(true); }}
-                                 className="text-[9px] font-black uppercase tracking-widest text-brand-primary p-2 hover:bg-teal-50 rounded-lg transition-colors border border-transparent hover:border-teal-100"
-                               >
-                                 Validate
-                               </button>
-                             ) : (
-                               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2">
-                                 {c.status}
-                               </span>
-                             )}
-                           </div>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse border-spacing-0 min-w-[800px]">
+                    <thead>
+                      <tr className="bg-slate-50/50 border-b border-slate-100">
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Patient / Unit</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Device / Proc</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Triggered Criteria</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">HAI Type</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Risk</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {cases.filter(c => c.status === 'PENDING').map(c => (
+                        <tr key={c.id} className="hover:bg-slate-50/50 transition-colors group">
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-slate-900">{c.patientName}</span>
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{c.unit}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                             <span className="text-xs font-medium text-slate-600">{c.deviceType || c.procedureType}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                             <div className="flex flex-wrap gap-1">
+                                {c.triggeredCriteria?.map(cr => <span key={cr} className="px-1.5 py-0.5 bg-slate-100 text-[8px] font-bold uppercase rounded">{cr}</span>)}
+                                {c.triggeredLabs?.map(l => <span key={l} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 [font-size:8px] font-black uppercase rounded">{l}</span>)}
+                             </div>
+                          </td>
+                          <td className="px-6 py-4">
+                             <span className="text-xs font-black text-rose-500 uppercase italic">{c.type}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                             <span className={cn(
+                               "w-3 h-3 rounded-full block shadow-sm",
+                               c.riskLevel === 'RED' ? "bg-rose-500" : c.riskLevel === 'YELLOW' ? "bg-amber-400" : c.riskLevel === 'BLUE' ? "bg-blue-500" : "bg-slate-900"
+                             )} />
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                             <div className="flex items-center justify-end gap-2">
+                               {user?.role === 'ADMIN' && (
+                                 <button 
+                                   onClick={() => handleDelete('hai_cases', c.id)}
+                                   className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                                   title="Delete Entry"
+                                 >
+                                   <Trash2 className="w-3.5 h-3.5" />
+                                 </button>
+                               )}
+                               {isIPCU ? (
+                                 <button 
+                                   onClick={() => { setSelectedCase(c); setIsValidating(true); }}
+                                   className="text-[9px] font-black uppercase tracking-widest text-brand-primary p-2 hover:bg-teal-50 rounded-lg transition-colors border border-transparent hover:border-teal-100"
+                                 >
+                                   Validate
+                                 </button>
+                               ) : (
+                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2">
+                                   {c.status}
+                                 </span>
+                               )}
+                             </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
@@ -500,10 +515,15 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                  <div className="mb-4 space-y-1">
                     <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tight">Logged by: {log.staffName || 'Staff'}</p>
                     {log.isValidated && (
-                       <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-tight flex items-center gap-1">
-                          <CheckCircle2 className="w-2.5 h-2.5" />
-                          Verified by IPCU
-                       </p>
+                       <div className="space-y-0.5">
+                         <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-tight flex items-center gap-1">
+                            <CheckCircle2 className="w-2.5 h-2.5" />
+                            Verified by: {log.verification?.validatorName || 'IPCU'}
+                         </p>
+                         <p className="text-[8px] font-medium text-slate-400 uppercase">
+                           {formatDate(log.verification?.date || log.timestamp)}
+                         </p>
+                       </div>
                     )}
                  </div>
 
@@ -603,9 +623,9 @@ export default function HAI({ user }: { user: UserProfile | null }) {
 
 function VerificationModal({ onClose, log, formData, setFormData, onSubmit }: any) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/10 backdrop-blur-md">
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
-        <div className="p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-4xl bg-white sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+        <div className="p-4 sm:p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-3">
              <div className="bg-brand-primary p-2 rounded-xl text-white">
                <ShieldCheck className="w-5 h-5" />
@@ -617,7 +637,8 @@ function VerificationModal({ onClose, log, formData, setFormData, onSubmit }: an
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-500"><XCircle className="w-6 h-6" /></button>
         </div>
-        <form onSubmit={onSubmit} className="p-8 space-y-8 overflow-y-auto max-h-[80vh] bg-slate-50">
+        <form onSubmit={onSubmit} className="flex-1 overflow-hidden flex flex-col bg-slate-50">
+          <div className="flex-1 p-4 sm:p-8 space-y-8 overflow-y-auto">
            
            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {/* Left Column: Verification of Unit Entries */}
@@ -667,6 +688,35 @@ function VerificationModal({ onClose, log, formData, setFormData, onSubmit }: an
                        {formData.accuracy.status === 'Inaccurate' && (
                          <input placeholder="Specify discrepancy..." className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs" value={formData.accuracy.details} onChange={e => setFormData({...formData, accuracy: { ...formData.accuracy, details: e.target.value }})} />
                        )}
+                    </div>
+
+                    {/* Section E: Verification of Form Monitoring */}
+                    <div className="p-4 bg-teal-50/50 rounded-2xl border border-teal-100 space-y-4">
+                       <div className="flex items-center justify-between">
+                         <h4 className="text-[10px] font-black uppercase tracking-widest text-teal-800">Form Documentation Audit</h4>
+                         <ShieldCheck className="w-4 h-4 text-teal-400" />
+                       </div>
+                       <div className="space-y-3">
+                          {log.formMonitoring?.map((item: any) => (
+                            <div key={item.section} className="flex flex-col gap-1 p-2 bg-white rounded-xl border border-teal-50">
+                               <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold text-slate-800">{item.section}</span>
+                                  <div className="flex items-center gap-2">
+                                     {item.section !== 'Clinical Criteria Section' && item.isSigned && (
+                                       <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-brand-primary/10 text-brand-primary">Signed</span>
+                                     )}
+                                     <span className={cn(
+                                       "text-[8px] font-black uppercase px-2 py-0.5 rounded",
+                                       item.status === 'Complete' ? "bg-emerald-100 text-emerald-700" : item.status === 'Incomplete' ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-500"
+                                     )}>{item.status}</span>
+                                  </div>
+                               </div>
+                               {item.remarks && (
+                                 <p className="text-[9px] text-rose-600 font-medium italic">Missing: {item.remarks}</p>
+                               )}
+                            </div>
+                          ))}
+                       </div>
                     </div>
                  </div>
               </div>
@@ -783,7 +833,22 @@ function VerificationModal({ onClose, log, formData, setFormData, onSubmit }: an
               </div>
            </div>
 
-           <button type="submit" className="w-full py-5 bg-brand-primary text-white font-black uppercase tracking-[0.2em] rounded-3xl shadow-2xl shadow-teal-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all">Publish Official Verification</button>
+           <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="space-y-1.5">
+                 <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Validation Date</label>
+                 <input type="date" className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
+              </div>
+              <div className="space-y-1.5">
+                 <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Validation Time</label>
+                 <input type="time" className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none" value={formData.time} onChange={e => setFormData({...formData, time: e.target.value})} />
+              </div>
+           </div>
+
+            </div>
+
+          <div className="p-4 sm:p-6 bg-slate-900 border-t border-slate-800 shrink-0">
+            <button type="submit" className="w-full py-4 sm:py-5 bg-brand-primary text-white font-black uppercase tracking-[0.2em] rounded-2xl sm:rounded-3xl shadow-2xl shadow-teal-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all text-xs">Publish Official Verification</button>
+          </div>
         </form>
       </motion.div>
     </div>
@@ -837,18 +902,19 @@ function SurveillanceModal({ onClose, formData, setFormData, onSubmit }: any) {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/10 backdrop-blur-md">
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
-        <div className="p-6 bg-slate-50/80 border-b border-slate-100 flex justify-between items-center">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-4xl bg-white sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+        <div className="p-4 sm:p-6 bg-slate-50/80 border-b border-slate-100 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-3">
              <div className="bg-rose-500 p-2 rounded-xl text-white shadow-lg shadow-rose-900/10">
                <AlertTriangle className="w-5 h-5" />
              </div>
-             <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">Clinical HAI Detection Entry</h3>
+             <h3 className="text-sm sm:text-lg font-bold text-slate-900 uppercase tracking-tight">Clinical HAI Detection Entry</h3>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400"><XCircle className="w-6 h-6" /></button>
         </div>
-        <form onSubmit={onSubmit} className="p-8 space-y-8 overflow-y-auto max-h-[85vh]">
+        <form onSubmit={onSubmit} className="flex-1 overflow-hidden flex flex-col bg-white">
+          <div className="flex-1 p-4 sm:p-8 space-y-8 overflow-y-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
             {/* Left: Basic Info */}
             <div className="space-y-6">
@@ -903,7 +969,18 @@ function SurveillanceModal({ onClose, formData, setFormData, onSubmit }: any) {
                         <option value="Foley Catheter">Foley Catheter</option>
                         <option value="Mechanical Ventilator">Mechanical Ventilator</option>
                         <option value="Surgical Procedure">Surgical Procedure</option>
+                        <option value="Other">Other</option>
                       </select>
+                      {formData.deviceType === 'Other' && (
+                        <motion.input 
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          placeholder="Specify other device..." 
+                          className="w-full mt-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500" 
+                          value={formData.deviceTypeOther || ''}
+                          onChange={e => setFormData({...formData, deviceTypeOther: e.target.value})}
+                        />
+                      )}
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Device Days</label>
@@ -923,7 +1000,7 @@ function SurveillanceModal({ onClose, formData, setFormData, onSubmit }: any) {
                   <div className="space-y-2">
                     <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Clinical Criteria</label>
                     <div className="flex flex-wrap gap-2">
-                       {['Fever >38C', 'Hypotension', 'Tachycardia', 'Purulent Drainage', 'Heat/Pain/Swelling', 'Abdominal Pain', 'Cough/Dyspnea'].map(c => (
+                       {['Fever >38C', 'Hypotension', 'Tachycardia', 'Purulent Drainage', 'Heat/Pain/Swelling', 'Abdominal Pain', 'Cough/Dyspnea', 'Other'].map(c => (
                          <button
                            key={c}
                            type="button"
@@ -939,12 +1016,22 @@ function SurveillanceModal({ onClose, formData, setFormData, onSubmit }: any) {
                          </button>
                        ))}
                     </div>
+                    {formData.triggeredCriteria?.includes('Other') && (
+                      <motion.input 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        placeholder="Specify other criteria..." 
+                        className="w-full mt-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500" 
+                        value={formData.criteriaOther || ''}
+                        onChange={e => setFormData({...formData, criteriaOther: e.target.value})}
+                      />
+                    )}
                   </div>
 
                   <div className="space-y-2 pt-2">
                     <label className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Laboratory Criteria</label>
                     <div className="flex flex-wrap gap-2">
-                       {['Positive Blood Culture', 'Positive Urine Culture', 'Positive Tip Culture', 'WBC >12,000', 'WBC <4,000', 'Radiographic Evidence', 'C-Reactive Protein +'].map(l => (
+                       {['Positive Blood Culture', 'Positive Urine Culture', 'Positive Tip Culture', 'WBC >12,000', 'WBC <4,000', 'Radiographic Evidence', 'C-Reactive Protein +', 'Other'].map(l => (
                          <button
                            key={l}
                            type="button"
@@ -960,6 +1047,16 @@ function SurveillanceModal({ onClose, formData, setFormData, onSubmit }: any) {
                          </button>
                        ))}
                     </div>
+                    {formData.triggeredLabs?.includes('Other') && (
+                      <motion.input 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        placeholder="Specify other lab..." 
+                        className="w-full mt-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500" 
+                        value={formData.labOther || ''}
+                        onChange={e => setFormData({...formData, labOther: e.target.value})}
+                      />
+                    )}
                   </div>
                   
                   <div className="space-y-1.5 pt-4">
@@ -970,9 +1067,10 @@ function SurveillanceModal({ onClose, formData, setFormData, onSubmit }: any) {
             </div>
           </div>
 
-          <div className="flex gap-4 pt-4 border-t border-slate-100">
-             <button type="button" onClick={onClose} className="flex-1 py-4 text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">Cancel Report</button>
-             <button type="submit" className="flex-1 py-4 bg-rose-600 text-white font-black uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-rose-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all">Submit Clinical Stream</button>
+          </div>
+          <div className="p-4 sm:p-6 bg-slate-50 border-t border-slate-100 shrink-0 flex flex-col sm:flex-row gap-4">
+             <button type="button" onClick={onClose} className="flex-1 py-4 text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] border border-slate-200 sm:border-none rounded-2xl">Cancel Report</button>
+             <button type="submit" className="flex-2 py-4 bg-rose-600 text-white font-black uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-rose-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all text-[11px]">Submit Clinical Stream</button>
           </div>
         </form>
       </motion.div>
@@ -998,18 +1096,19 @@ function BundleModal({ onClose, formData, setFormData, onSubmit }: any) {
   const { total: totalApplicable, compliant: totalCompliant } = calculateStats();
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/10 backdrop-blur-md">
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
-        <div className="p-6 bg-slate-50/80 border-b border-slate-100 flex justify-between items-center">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-4xl bg-white sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+        <div className="p-4 sm:p-6 bg-slate-50/80 border-b border-slate-100 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-3">
              <div className="bg-brand-primary p-2 rounded-xl text-white shadow-lg shadow-teal-900/10">
                <ShieldCheck className="w-5 h-5" />
              </div>
-             <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">Daily Bundles Compliance Monitoring</h3>
+             <h3 className="text-sm sm:text-lg font-bold text-slate-900 uppercase tracking-tight">Daily Bundles Compliance Monitoring</h3>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400"><XCircle className="w-6 h-6" /></button>
         </div>
-        <form onSubmit={onSubmit} className="p-8 space-y-8 overflow-y-auto max-h-[85vh]">
+        <form onSubmit={onSubmit} className="flex-1 overflow-hidden flex flex-col">
+          <div className="flex-1 p-4 sm:p-8 space-y-8 overflow-y-auto custom-scrollbar">
           {/* Patient Info */}
           <div className="space-y-6">
             <div className="border-b border-slate-100 pb-2">
@@ -1182,7 +1281,118 @@ function BundleModal({ onClose, formData, setFormData, onSubmit }: any) {
              </div>
           </div>
 
-          <button type="submit" className="btn-primary w-full py-4 shadow-xl shadow-teal-900/10 font-bold uppercase tracking-widest text-[10px] mt-4">Record Daily Compliance Monitoring</button>
+          {/* Section D: Form Compliance Audit (Physical Forms) */}
+          <div className="space-y-6">
+            <div className="border-b border-slate-100 pb-4">
+               <div className="flex items-center gap-3">
+                 <div className="bg-brand-primary/10 p-2 rounded-lg">
+                   <ShieldCheck className="w-4 h-4 text-brand-primary" />
+                 </div>
+                 <div>
+                   <h4 className="text-xs font-black uppercase tracking-widest text-slate-900 leading-none">Form Completion Audit</h4>
+                   <p className="text-[10px] text-slate-500 font-medium tracking-tight mt-1">Audit of Physician (PIC) and Nurse (NIC) physical form completion</p>
+                 </div>
+               </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+               {formData.formMonitoring?.map((item: any, idx: number) => (
+                 <div key={item.section} className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center gap-6">
+                    <div className="flex-1">
+                      <h5 className="text-[11px] font-black uppercase tracking-widest text-slate-900 mb-1">{item.section}</h5>
+                      <p className="text-[10px] text-slate-500">
+                        {item.section === 'Clinical Criteria Section' 
+                          ? "Check if symptoms (fever, chills, etc) are documented" 
+                          : "Check if all required fields and signatures are present"}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-4">
+                       <div className="flex bg-slate-100 p-1 rounded-xl">
+                         {['Complete', 'Incomplete', 'N/A'].map(s => (
+                           <button 
+                             key={s}
+                             type="button"
+                             onClick={() => {
+                               const updated = [...formData.formMonitoring];
+                               updated[idx] = { ...item, status: s };
+                               setFormData({ ...formData, formMonitoring: updated });
+                             }}
+                             className={cn(
+                               "px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                               item.status === s 
+                                ? s === 'Complete' ? "bg-brand-primary text-white shadow-md shadow-teal-900/10" : s === 'Incomplete' ? "bg-rose-500 text-white shadow-md shadow-rose-900/10" : "bg-slate-400 text-white"
+                                : "text-slate-400 hover:text-slate-600"
+                             )}
+                           >
+                             {s}
+                           </button>
+                         ))}
+                       </div>
+
+                       {item.section === 'Physician-in-Charge (PIC)' && (
+                         <div className="flex-1 min-w-[150px]">
+                            <input 
+                              placeholder="Doctor's Name" 
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold outline-none focus:ring-1 ring-brand-primary"
+                              value={item.physicianName || ''}
+                              onChange={e => {
+                                const updated = [...formData.formMonitoring];
+                                updated[idx] = { ...item, physicianName: e.target.value };
+                                setFormData({ ...formData, formMonitoring: updated });
+                              }}
+                            />
+                         </div>
+                       )}
+
+                       {item.section !== 'Clinical Criteria Section' && (
+                         <label className="flex items-center gap-3 cursor-pointer group">
+                            <div className={cn(
+                              "w-8 h-4 rounded-full transition-colors relative",
+                              item.isSigned ? "bg-teal-500" : "bg-slate-200"
+                            )}>
+                               <div className={cn(
+                                 "absolute top-0.5 bottom-0.5 w-3 h-3 rounded-full bg-white transition-all shadow-sm",
+                                 item.isSigned ? "left-4.5" : "left-0.5"
+                               )} />
+                            </div>
+                            <input 
+                              type="checkbox" 
+                              className="hidden" 
+                              checked={item.isSigned}
+                              onChange={() => {
+                                const updated = [...formData.formMonitoring];
+                                updated[idx] = { ...item, isSigned: !item.isSigned };
+                                setFormData({ ...formData, formMonitoring: updated });
+                              }}
+                            />
+                            <span className="text-[10px] font-bold text-slate-600 group-hover:text-slate-900">Signed</span>
+                         </label>
+                       )}
+                    </div>
+
+                    {item.status === 'Incomplete' && (
+                      <div className="w-full md:w-48">
+                        <input 
+                          placeholder="What is missing?" 
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] outline-none focus:ring-1 ring-brand-primary"
+                          value={item.remarks || ''}
+                          onChange={e => {
+                            const updated = [...formData.formMonitoring];
+                            updated[idx] = { ...item, remarks: e.target.value };
+                            setFormData({ ...formData, formMonitoring: updated });
+                          }}
+                        />
+                      </div>
+                    )}
+                 </div>
+               ))}
+            </div>
+          </div>
+
+          </div>
+          <div className="p-4 sm:p-6 bg-slate-50 border-t border-slate-100 shrink-0">
+             <button type="submit" className="btn-primary w-full py-4 shadow-xl shadow-teal-900/10 font-bold uppercase tracking-widest text-[10px]">Record Daily Compliance Monitoring</button>
+          </div>
         </form>
       </motion.div>
     </div>
@@ -1193,20 +1403,23 @@ function HAIValidationModal({ onClose, haiCase, onSubmit }: any) {
   const [formData, setFormData] = useState({
     status: haiCase.status,
     decisionNote: haiCase.decisionNote || '',
-    validatorName: ''
+    validatorName: '',
+    date: new Date().toISOString().split('T')[0],
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
   });
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/10 backdrop-blur-md">
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
-        <div className="p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center text-white">
-           <div className="flex items-center gap-3">
-              <ShieldCheck className="w-5 h-5 text-brand-primary" />
-              <h3 className="text-lg font-bold uppercase tracking-tight">IPCU HAI Validation Queue</h3>
-           </div>
-           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-500"><XCircle className="w-6 h-6" /></button>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full h-full sm:h-auto sm:max-h-[80vh] sm:max-w-xl bg-white sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+        <div className="p-4 sm:p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center text-white shrink-0">
+          <div className="flex items-center gap-3">
+             <ShieldCheck className="w-5 h-5 text-brand-primary" />
+             <h3 className="text-sm sm:text-lg font-bold uppercase tracking-tight">IPCU HAI Validation Queue</h3>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-500"><XCircle className="w-6 h-6" /></button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); onSubmit(formData); }} className="p-8 space-y-6">
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit(formData); }} className="flex-1 overflow-hidden flex flex-col">
+          <div className="flex-1 p-4 sm:p-8 space-y-6 overflow-y-auto custom-scrollbar">
            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <div className="text-[10px] font-black uppercase text-slate-400 mb-1">Suspected Case</div>
               <div className="text-xs font-bold text-slate-900">{haiCase.patientName} ({haiCase.type})</div>
@@ -1225,6 +1438,18 @@ function HAIValidationModal({ onClose, haiCase, onSubmit }: any) {
                  ))}
               </div>
            </div>
+           
+           <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Validation Date</label>
+                <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2 text-xs font-bold outline-none" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Validation Time</label>
+                <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2 text-xs font-bold outline-none" value={formData.time} onChange={e => setFormData({...formData, time: e.target.value})} />
+              </div>
+           </div>
+
            <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Decision Notes</label>
               <textarea 
@@ -1236,14 +1461,18 @@ function HAIValidationModal({ onClose, haiCase, onSubmit }: any) {
            </div>
            <div className="space-y-1.5">
               <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Validator Name</label>
-              <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold outline-none" value={formData.validatorName} onChange={e => setFormData({...formData, validatorName: e.target.value})} />
+              <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold outline-none" value={formData.validatorName} onChange={e => setFormData({...formData, validatorName: e.target.value})} placeholder="Enter name of IPCN/IPCO..." />
            </div>
-           <button type="submit" className="w-full py-4 bg-brand-primary text-white font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-teal-900/10">Publish Validation Decision</button>
+          </div>
+          <div className="p-4 sm:p-6 bg-white border-t border-slate-100 shrink-0">
+            <button type="submit" className="w-full py-4 bg-brand-primary text-white font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-teal-900/10 active:scale-95 transition-all">Publish Validation Decision</button>
+          </div>
         </form>
       </motion.div>
     </div>
   );
 }
+
 
 function RateTile({ label, rate, unit, baseline }: { label: string, rate: number, unit: string, baseline: number }) {
   const isRising = rate > baseline;
