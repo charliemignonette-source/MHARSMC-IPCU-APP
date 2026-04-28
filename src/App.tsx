@@ -27,7 +27,8 @@ import {
   KeyRound,
   Hospital,
   FileBarChart,
-  Microscope
+  Microscope,
+  Settings2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './lib/firebase';
@@ -45,6 +46,7 @@ import Outbreak from './components/Outbreak';
 import IPCUValidationConsole from './components/IPCUValidationConsole';
 import Reports from './components/Reports';
 import Antibiogram from './components/Antibiogram';
+import Maintenance from './components/Maintenance';
 
 const ADMIN_EMAILS = ['charliemignonette@gmail.com', 'beeohend@gmail.com'];
 
@@ -72,6 +74,7 @@ export default function App() {
     { id: 'nsi', label: 'NSI Reporting', icon: AlertTriangle, roles: ['ADMIN', 'IPCN', 'USER'] },
     { id: 'outbreak', label: 'Outbreak Mgmt', icon: ShieldAlert, roles: ['ADMIN', 'IPCN', 'USER'] },
     { id: 'reports', label: 'System Reports', icon: FileBarChart, roles: ['ADMIN', 'IPCN'] },
+    { id: 'maintenance', label: 'System Maintenance', icon: Settings2, roles: ['ADMIN', 'IPCN'] },
   ];
 
   const allowedTabs = profile ? allTabs.filter(tab => tab.roles.includes(profile.role)) : [];
@@ -494,7 +497,7 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
         <div className="flex-1 overflow-y-auto p-4 sm:px-8 sm:py-6 lg:p-8 pb-32 sm:pb-8 no-scrollbar relative min-h-0">
           <AnimatePresence mode="wait">
             <div key={activeTab}>
-              {activeTab === 'dashboard' && <Dashboard user={profile} />}
+              {activeTab === 'dashboard' && <Dashboard user={profile} onNavigate={(tab) => setActiveTab(tab)} />}
               {activeTab === 'validation' && <IPCUValidationConsole user={profile} />}
               {activeTab === 'audits' && <Audits user={profile} />}
               {activeTab === 'ams' && <AMS user={profile} />}
@@ -503,6 +506,7 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
               {activeTab === 'nsi' && <NSI user={profile} />}
               {activeTab === 'outbreak' && <Outbreak user={profile} />}
               {activeTab === 'reports' && <Reports user={profile} />}
+              {activeTab === 'maintenance' && <Maintenance user={profile} />}
             </div>
           </AnimatePresence>
         </div>

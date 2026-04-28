@@ -5,9 +5,9 @@ import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, deleteDoc
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, HAICase, AMSRequest, Audit, BOCLog, Role, IPCUAction, NSIReport, OutbreakReport } from '../types';
 import { cn, formatDate } from '../lib/utils';
-import { UNITS, DEVICES } from '../constants';
+import { UNITS, DEVICES, NSI_CONSTANTS, IPCU_REASONING_GROUPS, IPCU_ACTION_GROUPS, MONITORING_METHODS } from '../constants';
 
-type ValidationType = 'HAI' | 'AMS' | 'AUDIT' | 'BUNDLE' | 'NSI' | 'OUTBREAK';
+type ValidationType = 'HAI' | 'ANTIMICROBIAL_STEWARDSHIP' | 'AUDIT' | 'BUNDLE' | 'NSI' | 'OUTBREAK';
 
 interface PendingItem {
   id: string;
@@ -63,7 +63,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
         const data = d.data() as AMSRequest;
         return {
           id: d.id,
-          type: 'AMS' as ValidationType,
+          type: 'ANTIMICROBIAL_STEWARDSHIP' as ValidationType,
           patientName: data.patientName,
           unit: data.unit || data.location || 'Unknown',
           subType: data.type,
@@ -71,7 +71,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
           originalData: data
         };
       });
-      updatePendingList('AMS', items);
+      updatePendingList('ANTIMICROBIAL_STEWARDSHIP', items);
     });
 
     // 3. Fetch Pending Audits
@@ -192,7 +192,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
   }, []);
 
   const [pendingMap, setPendingMap] = useState<Record<ValidationType, PendingItem[]>>({
-    HAI: [], AMS: [], AUDIT: [], BUNDLE: [], NSI: [], OUTBREAK: []
+    HAI: [], ANTIMICROBIAL_STEWARDSHIP: [], AUDIT: [], BUNDLE: [], NSI: [], OUTBREAK: []
   });
 
   const updatePendingList = (type: ValidationType, items: PendingItem[]) => {
@@ -225,7 +225,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
     if (type === 'HAI') {
       collectionName = 'hai_cases';
       // status will be set in decision (CONFIRMED, NOT_HAI, etc)
-    } else if (type === 'AMS') {
+    } else if (type === 'ANTIMICROBIAL_STEWARDSHIP') {
       collectionName = 'ams_requests';
       // status set in decision
     } else if (type === 'AUDIT') {
@@ -353,7 +353,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
                             <span className="text-xs font-black text-slate-900 mb-0.5">{item.patientName || item.subType}</span>
                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
                               {item.type === 'HAI' && <Activity className="w-2.5 h-2.5 text-rose-500" />}
-                              {item.type === 'AMS' && <Stethoscope className="w-2.5 h-2.5 text-blue-500" />}
+                              {item.type === 'ANTIMICROBIAL_STEWARDSHIP' && <Stethoscope className="w-2.5 h-2.5 text-blue-500" />}
                               {item.type === 'AUDIT' && <ClipboardList className="w-2.5 h-2.5 text-emerald-500" />}
                               {item.type === 'BUNDLE' && <Layers className="w-2.5 h-2.5 text-amber-500" />}
                               {item.type === 'NSI' && <AlertTriangle className="w-2.5 h-2.5 text-rose-600" />}
@@ -373,7 +373,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
                              {item.type === 'HAI' && item.originalData.triggeredCriteria?.map((c: string) => (
                                <span key={c} className="px-1.5 py-0.5 bg-slate-100 text-[8px] font-bold uppercase rounded">{c}</span>
                              ))}
-                             {item.type === 'AMS' && <span className="text-[10px] font-bold opacity-60 italic">{item.originalData.antibiotic}</span>}
+                             {item.type === 'ANTIMICROBIAL_STEWARDSHIP' && <span className="text-[10px] font-bold opacity-60 italic">{item.originalData.antibiotic}</span>}
                              {item.type === 'AUDIT' && <span className="text-[10px] font-bold text-emerald-600">Score: {item.originalData.score || 0}%</span>}
                              {item.type === 'BUNDLE' && (
                                <span className={cn(
@@ -397,7 +397,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
                                 "w-2.5 h-2.5 rounded-full shadow-sm",
                                 item.riskLevel === 'RED' ? "bg-rose-500" : 
                                 item.riskLevel === 'YELLOW' ? "bg-amber-400" : 
-                                item.type === 'AMS' ? "bg-blue-500" : "bg-slate-900"
+                                item.type === 'ANTIMICROBIAL_STEWARDSHIP' ? "bg-blue-500" : "bg-slate-900"
                               )} />
                               <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
                                 {item.riskLevel || 'Standard'}
@@ -406,17 +406,29 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
                         </td>
                         <td className="px-6 py-5 text-right">
                              <div className="flex items-center gap-2">
-                               {user?.role === 'ADMIN' && (
+                               {(user?.role === 'ADMIN' || user?.role === 'IPCN') && (
                                  <button 
                                    onClick={async (e) => {
                                      e.stopPropagation();
-                                     if (!confirm('Are you sure?')) return;
-                                     const colMap: Record<string, string> = { HAI: 'hai_cases', AMS: 'ams_requests', AUDIT: 'audits', BUNDLE: 'boc_logs', NSI: 'nsi_reports', OUTBREAK: 'outbreaks' };
-                                     try { await deleteDoc(doc(db, colMap[item.type], item.id)); } catch (e) { handleFirestoreError(e, OperationType.DELETE, item.id); }
+                                     if (!confirm('Are you sure? This will permanently delete the report.')) return;
+                                     const colMap: Record<string, string> = { 
+                                       HAI: 'hai_cases', 
+                                       ANTIMICROBIAL_STEWARDSHIP: 'ams_requests', 
+                                       AUDIT: 'audits', 
+                                       BUNDLE: 'boc_logs', 
+                                       NSI: 'nsi_reports', 
+                                       OUTBREAK: 'outbreaks' 
+                                     };
+                                     try { 
+                                       await deleteDoc(doc(db, colMap[item.type], item.id)); 
+                                     } catch (e) { 
+                                       handleFirestoreError(e, OperationType.DELETE, item.id); 
+                                     }
                                    }}
-                                   className="p-1.5 text-rose-400 hover:text-rose-600"
+                                   className="p-1.5 text-rose-400 hover:text-rose-600 rounded-lg transition-colors hover:bg-rose-50"
+                                   title="Delete Case"
                                  >
-                                   <Trash2 className="w-4 h-4" />
+                                   <Trash2 className="w-3.5 h-3.5" />
                                  </button>
                                )}
                                <button 
@@ -473,9 +485,9 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
               ])}
             />
 
-            {/* Validated AMS Requests */}
+            {/* Validated Antimicrobial Stewardship Requests */}
             <HistorySection 
-              title="Validated AMS Pharmacological Requests" 
+              title="Validated Antimicrobial Pharmacological Requests" 
               icon={<Stethoscope className="w-5 h-5 text-blue-500" />}
               headers={['Patient', 'Antibiotic', 'Status', 'Indication', 'Validator']}
               items={validatedAMS.map(a => [
@@ -494,11 +506,22 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
             <HistorySection 
               title="Validated IPC Biosecurity Audits" 
               icon={<ClipboardList className="w-5 h-5 text-emerald-500" />}
-              headers={['Audit Type', 'Unit', 'Compliance', 'Validator', 'Date']}
+              headers={['Audit Type', 'Unit', 'Compliance', 'Monitoring', 'Validator', 'Date']}
               items={validatedAudits.map(a => [
                 a.type.replace(/_/g, ' '),
                 a.unit,
                 <span className="text-xs font-black text-emerald-600">{a.score}%</span>,
+                <span className="flex flex-col gap-0.5">
+                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight leading-none">{a.monitoringMethod || 'N/A'}</span>
+                   {a.monitoringStatus && (
+                     <span className={cn(
+                       "text-[9px] font-bold uppercase",
+                       a.monitoringStatus === 'PASS' ? "text-emerald-500" : "text-rose-500"
+                     )}>
+                       {a.monitoringStatus === 'PASS' ? 'Success' : 'Discrepancy'}
+                     </span>
+                   )}
+                </span>,
                 a.validatorName || '-',
                 new Date(a.timestamp).toLocaleDateString()
               ])}
@@ -508,7 +531,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
             <HistorySection 
               title="Validated Bundle Compliance Logs" 
               icon={<Layers className="w-5 h-5 text-amber-500" />}
-              headers={['Patient', 'Unit', 'Type', 'Status', 'IPCU Decision']}
+              headers={['Patient', 'Unit', 'Type', 'Status', 'Monitoring', 'IPCU Decision']}
               items={validatedBundles.map(b => [
                 b.patientName,
                 b.unit,
@@ -517,6 +540,17 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
                   "text-[10px] font-bold uppercase",
                   b.compliancePercentage === 100 ? "text-emerald-500" : "text-rose-500"
                 )}>{b.compliancePercentage}% Reported</span>,
+                <span className="flex flex-col gap-0.5">
+                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight leading-none">{b.monitoringMethod || 'N/A'}</span>
+                   {b.monitoringStatus && (
+                     <span className={cn(
+                       "text-[9px] font-bold uppercase",
+                       b.monitoringStatus === 'PASS' ? "text-emerald-500" : "text-rose-500"
+                     )}>
+                       {b.monitoringStatus === 'PASS' ? 'Success' : 'Discrepancy'}
+                     </span>
+                   )}
+                </span>,
                 <span className={cn(
                   "px-2 py-1 rounded-xl text-[9px] font-black uppercase",
                   b.verification?.finalDecision === 'Compliant' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
@@ -613,14 +647,16 @@ function HistorySection({ title, icon, headers, items }: { title: string, icon: 
 
 function ValidationModal({ item, user, onClose, onSubmit }: any) {
   const [decision, setDecision] = useState<any>({
-    status: item.type === 'HAI' ? 'CONFIRMED' : (item.type === 'AMS' ? 'APPROVED' : (item.type === 'NSI' ? 'VALIDATED' : 'VALIDATED')),
+    status: item.type === 'HAI' ? 'CONFIRMED' : (item.type === 'ANTIMICROBIAL_STEWARDSHIP' ? 'APPROVED' : (item.type === 'NSI' ? 'VALIDATED' : 'VALIDATED')),
     reason: '',
     notes: '',
     basis: [],
     rootCauses: [],
     contributingFactors: [],
     correctiveActions: [],
-    classification: 'Significant Exposure'
+    classification: 'Significant Exposure',
+    monitoringMethod: '',
+    monitoringStatus: '' // 'PASS' | 'FAIL'
   });
 
   const [loading, setLoading] = useState(false);
@@ -669,12 +705,34 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                 <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Patient Name</p>
-                      <p className="text-xs font-bold text-slate-900">{item.patientName || 'N/A'}</p>
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                        {item.type === 'AUDIT' && 
+                        ['HH_AVAILABILITY', 'PPE_AVAILABILITY', 'ENV_CLEANING'].includes(item.originalData.type) 
+                          ? 'Audit Target (Unit)' 
+                          : item.originalData.type === 'SAFE_INJECTION'
+                            ? 'Audit Target (Unit + Staff)'
+                            : ['AUDIT', 'BUNDLE', 'NSI'].includes(item.type) 
+                              ? 'HCW / Staff Identifier' 
+                              : 'Patient Name'}
+                      </p>
+                      <p className="text-xs font-bold text-slate-900 uppercase">
+                        {item.type === 'AUDIT' 
+                          ? (['HH_AVAILABILITY', 'PPE_AVAILABILITY', 'ENV_CLEANING'].includes(item.originalData.type)
+                            ? `Institutional Audit: ${item.unit || item.originalData.unit}`
+                            : (item.originalData.type === 'SAFE_INJECTION'
+                                ? `Unit: ${item.unit || item.originalData.unit}${item.originalData.staffIdentifier ? ` • ${item.originalData.staffIdentifier}` : ''}`
+                                : (item.originalData.staffIdentifier || (
+                                    ['1', 'Nurse'].includes(item.originalData.profession) ? 'Nurse' : 
+                                    ['2', 'Auxiliary'].includes(item.originalData.profession) ? 'Auxiliary' : 
+                                    ['3', 'MD'].includes(item.originalData.profession) ? 'Medical Doctor' : 
+                                    (item.originalData.profession || 'Staff Member')
+                                  ))))
+                          : (item.patientName || 'N/A')}
+                      </p>
                     </div>
                     <div>
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Location / Unit</p>
-                      <p className="text-xs font-bold text-slate-900">{item.unit}</p>
+                      <p className="text-xs font-bold text-slate-900">{item.unit || item.originalData.unit}</p>
                     </div>
                     <div>
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Type</p>
@@ -685,6 +743,13 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                       <p className="text-xs font-bold text-slate-900">{item.dateFlagged}</p>
                     </div>
                   </div>
+                  
+                  {item.originalData.remarks && (
+                    <div className="p-3 bg-amber-50 border border-amber-100 rounded-2xl">
+                      <p className="text-[9px] font-black text-amber-900 uppercase mb-1">Original Remarks</p>
+                      <p className="text-xs text-amber-700 italic">"{item.originalData.remarks}"</p>
+                    </div>
+                  )}
                   
                   {item.type === 'NSI' && (
                     <div className="pt-4 border-t border-slate-50 space-y-4">
@@ -703,47 +768,236 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                             <p className="text-[10px] font-bold text-slate-600">{item.originalData.staff.position}</p>
                          </div>
                       </div>
+                      <div className="space-y-1">
+                        <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Narrative Description</p>
+                        <p className="text-[10px] text-slate-600 leading-relaxed italic border-l-2 border-slate-200 pl-3">
+                          {item.originalData.description?.narrative || 'No description provided.'}
+                        </p>
+                      </div>
                     </div>
                   )}
 
                   {item.type === 'OUTBREAK' && (
                     <div className="pt-4 border-t border-slate-50 space-y-4">
-                      <div className="p-4 bg-slate-900 rounded-2xl">
+                      <div className="p-4 bg-slate-900 rounded-2xl text-white">
                          <p className="text-[10px] font-black text-white/50 uppercase mb-1">Investigation Summary</p>
-                         <p className="text-xs font-bold text-white">Detected {(item.originalData.type || []).join(', ')} Cluster</p>
-                         <p className="text-[10px] text-brand-primary font-black uppercase mt-1">{item.originalData.epidemiology?.indexCase ? `Index: ${item.originalData.epidemiology.indexCase}` : 'In Search of Index Case'}</p>
+                         <p className="text-xs font-bold font-mono">{(item.originalData.type || []).join(', ')} Cluster</p>
+                         <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
+                           <div className="flex justify-between border-b border-white/10 pb-1">
+                             <span className="text-white/40 uppercase">Attack Rate</span>
+                             <span className="font-bold">{item.originalData.epidemiology?.attackRate}%</span>
+                           </div>
+                           <div className="flex justify-between border-b border-white/10 pb-1">
+                             <span className="text-white/40 uppercase">Total Cases</span>
+                             <span className="font-bold">{item.originalData.epidemiology?.totalCases}</span>
+                           </div>
+                         </div>
                       </div>
-                      <div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Trigger Criteria</p>
-                        <div className="flex flex-wrap gap-1">
-                          {(item.originalData.triggerCriteria || []).map((c: string) => <span key={c} className="px-2 py-1 bg-slate-100 rounded text-[8px] font-bold text-slate-500 uppercase">{c}</span>)}
+                      <div className="space-y-2">
+                         <p className="text-[9px] font-black text-slate-400 uppercase">Detection Criteria</p>
+                         <div className="flex flex-wrap gap-1">
+                           {(item.originalData.triggerCriteria || []).map((c: string) => (
+                             <span key={c} className="px-2 py-1 bg-slate-100 rounded text-[9px] font-bold text-slate-600 uppercase italic">
+                               {c}
+                             </span>
+                           ))}
+                         </div>
+                      </div>
+                      {item.originalData.lineList && item.originalData.lineList.length > 0 && (
+                        <div className="space-y-2">
+                           <p className="text-[9px] font-black text-slate-400 uppercase">Line List Summary ({item.originalData.lineList.length} cases)</p>
+                           <div className="max-h-[120px] overflow-y-auto space-y-1 pr-2 custom-scrollbar">
+                             {item.originalData.lineList.map((c: any, i: number) => (
+                               <div key={i} className="p-2 bg-white border border-slate-100 rounded-xl text-[10px] flex justify-between">
+                                  <span className="font-bold text-slate-900">{c.patientName}</span>
+                                  <span className="text-slate-400 italic">Onset: {c.onSetDate}</span>
+                               </div>
+                             ))}
+                           </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   )}
 
                   {item.type === 'HAI' && (
-                    <div className="pt-4 border-t border-slate-50">
-                      <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Triggered Criteria / Symptoms</p>
-                      <div className="flex flex-wrap gap-1">
-                        {item.originalData.triggeredCriteria?.map((c: string) => <span key={c} className="px-2 py-1 bg-slate-100 rounded-lg text-[9px] font-bold text-slate-600 uppercase tracking-tight">{c}</span>)}
-                        {item.originalData.triggeredLabs?.map((l: string) => <span key={l} className="px-2 py-1 bg-blue-50 rounded-lg text-[9px] font-black text-blue-600 uppercase tracking-tight">{l}</span>)}
+                    <div className="pt-4 border-t border-slate-50 space-y-4">
+                      <div className="grid grid-cols-2 gap-3">
+                         <div className="p-3 bg-slate-50 rounded-2xl">
+                            <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Device/Procedure</p>
+                            <p className="text-xs font-bold text-slate-700">{item.originalData.deviceType || item.originalData.procedureType || 'N/A'}</p>
+                         </div>
+                         <div className="p-3 bg-slate-50 rounded-2xl">
+                            <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Device Days</p>
+                            <p className="text-xs font-bold text-slate-700">{item.originalData.deviceDays} Days</p>
+                         </div>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Triggered Symptoms</p>
+                        <div className="flex flex-wrap gap-1">
+                          {item.originalData.triggeredCriteria?.map((c: string) => <span key={c} className="px-2 py-1 bg-rose-50 rounded-lg text-[9px] font-bold text-rose-600 uppercase tracking-tight italic">{c}</span>)}
+                          {item.originalData.triggeredLabs?.map((l: string) => <span key={l} className="px-2 py-1 bg-blue-50 rounded-lg text-[9px] font-black text-blue-600 uppercase tracking-tight italic">{l}</span>)}
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  {item.type === 'AMS' && (
+                  {item.type === 'ANTIMICROBIAL_STEWARDSHIP' && (
                      <div className="pt-4 border-t border-slate-50 space-y-3">
-                        <div className="p-3 bg-blue-50/50 rounded-2xl border border-blue-100">
-                           <p className="text-[9px] font-black text-blue-900 uppercase tracking-widest mb-1">Requested Agent</p>
-                           <p className="text-sm font-black text-blue-600">{item.originalData.antibiotic}</p>
-                           <p className="text-[10px] font-bold text-blue-500 mt-1">{item.originalData.dose} • {item.originalData.indicationForUse}</p>
+                        <div className="p-4 bg-blue-50 rounded-3xl border border-blue-100">
+                           <p className="text-[9px] font-black text-blue-900 uppercase tracking-widest mb-2">Requested Therapy</p>
+                           <div className="flex flex-col gap-1">
+                             <p className="text-lg font-black text-blue-600 leading-tight">{item.originalData.antibiotic}</p>
+                             <p className="text-xs font-bold text-blue-400">{item.originalData.dose} • {item.originalData.indicationForUse}</p>
+                           </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                           <div className="p-3 bg-white border border-slate-100 rounded-2xl">
+                              <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Creatinine Cl.</p>
+                              <p className="text-xs font-black text-slate-900">{item.originalData.creatinineClearance || 'N/A'}</p>
+                           </div>
+                           <div className="p-3 bg-white border border-slate-100 rounded-2xl">
+                              <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Diagnosis</p>
+                              <p className="text-xs font-black text-slate-900 truncate">{item.originalData.infectiousDiagnosis || 'N/A'}</p>
+                           </div>
                         </div>
                         <div>
-                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Justification</p>
-                           <p className="text-[10px] text-slate-600 font-medium leading-relaxed bg-slate-50 p-3 rounded-xl italic">"{item.originalData.justification || item.originalData.diagnosis}"</p>
+                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Clinical Rationale</p>
+                           <div className="bg-slate-100/50 p-4 rounded-2xl border border-slate-100 italic text-[10px] text-slate-600 leading-relaxed">
+                            "{item.originalData.justification || item.originalData.diagnosis}"
+                           </div>
                         </div>
                      </div>
+                  )}
+
+                  {item.type === 'AUDIT' && (
+                    <div className="pt-4 border-t border-slate-50 space-y-4">
+                      <div className="flex items-center justify-between p-4 bg-emerald-50 rounded-3xl border border-emerald-100">
+                        <div>
+                          <p className="text-[10px] font-black text-emerald-900 uppercase">Audit Score Result</p>
+                          <p className="text-2xl font-black text-emerald-600">{item.originalData.score}/{item.originalData.total}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-black text-emerald-900 uppercase">Compliance</p>
+                          <p className="text-2xl font-black text-emerald-600">{Math.round((item.originalData.score / item.originalData.total) * 100)}%</p>
+                        </div>
+                      </div>
+                      
+                      {item.originalData.details && (
+                        <div className="space-y-3">
+                           <p className="text-[9px] font-black text-slate-400 uppercase">Checklist Findings Review</p>
+                           <div className="max-h-[200px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                             {item.subType === 'ENV_CLEANING' && item.originalData.details.surfaces && (
+                               <div className="grid grid-cols-1 gap-1">
+                                 {Object.entries(item.originalData.details.surfaces).map(([key, value]: [string, any]) => (
+                                   <div key={key} className="flex justify-between items-center p-2 bg-white border border-slate-50 rounded-xl">
+                                      <span className="text-[10px] font-bold text-slate-600 uppercase tracking-tight">
+                                        {key.replace(/([A-Z])/g, ' $1').toLowerCase()}
+                                      </span>
+                                      <span className={cn(
+                                        "text-[9px] font-black uppercase px-2 py-0.5 rounded-lg",
+                                        value === 'cleaned' ? "bg-emerald-50 text-emerald-600" : value === 'notCleaned' ? "bg-rose-50 text-rose-600" : "bg-slate-50 text-slate-400"
+                                      )}>{value}</span>
+                                   </div>
+                                 ))}
+                               </div>
+                             )}
+                             
+                             {item.subType === 'HH_COMPLIANCE' && item.originalData.details.hhObs && (
+                               <div className="space-y-3">
+                                  <div className="p-3 bg-slate-900 rounded-2xl">
+                                    <p className="text-[10px] font-black text-white/50 uppercase mb-2">Moments Observed</p>
+                                    <div className="grid grid-cols-1 gap-2">
+                                      {Object.entries(item.originalData.details.hhObs.indications).map(([key, active]: [string, any]) => active && (
+                                        <div key={key} className="flex justify-between items-center bg-white/5 p-2 rounded-xl border border-white/5">
+                                          <span className="text-[10px] font-bold text-white/70 uppercase">
+                                            {key === 'befPat' ? 'Before touch Patient' : key === 'befAsept' ? 'Before Clean/Aseptic' : key === 'aftBF' ? 'After Body Fluid' : key === 'aftPat' ? 'After touch Patient' : 'After Surroundings'}
+                                          </span>
+                                          <div className="flex items-center gap-2">
+                                            <span className={cn(
+                                              "text-[9px] font-black uppercase px-2 py-1 rounded-lg",
+                                              (item.originalData.details.hhObs.actions?.[key] === 'hr' || item.originalData.details.hhObs.actions?.[key] === 'hw') ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+                                            )}>
+                                              {item.originalData.details.hhObs.actions?.[key] || 'Missed'}
+                                            </span>
+                                            {item.originalData.details.hhObs.momentsGloves?.[key] && (
+                                              <span className="bg-blue-500/20 text-blue-400 px-1.5 py-1 rounded text-[8px] font-bold uppercase">Gloves</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                               </div>
+                             )}
+
+                             {['HH_AVAILABILITY', 'PPE_AVAILABILITY', 'PPE_COMPLIANCE', 'SAFE_INJECTION'].includes(item.subType) && (
+                               <div className="grid grid-cols-1 gap-1">
+                                 {Object.entries(item.originalData.details).map(([section, data]: [string, any]) => (
+                                   typeof data === 'object' && !Array.isArray(data) && Object.entries(data).map(([key, value]) => (
+                                     typeof value === 'boolean' && (
+                                      <div key={`${section}-${key}`} className="flex justify-between items-center p-2 bg-white border border-slate-50 rounded-xl">
+                                        <span className="text-[10px] font-bold text-slate-600 uppercase">
+                                          {key.replace(/([A-Z])/g, ' $1').toLowerCase()}
+                                        </span>
+                                        <div className={cn(
+                                          "w-2 h-2 rounded-full",
+                                          value ? "bg-emerald-500" : "bg-rose-500"
+                                        )} />
+                                      </div>
+                                     )
+                                   ))
+                                 ))}
+                               </div>
+                             )}
+                           </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {item.type === 'BUNDLE' && (
+                    <div className="pt-4 border-t border-slate-50 space-y-4">
+                       <div className="flex items-center justify-between p-4 bg-amber-50 rounded-3xl border border-amber-100">
+                        <div>
+                          <p className="text-[10px] font-black text-amber-900 uppercase">Compliance Rate</p>
+                          <p className="text-2xl font-black text-amber-600">{Math.round(item.originalData.compliancePercentage)}%</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-black text-amber-900 uppercase">Devices Logged</p>
+                          <p className="text-2xl font-black text-amber-600">{(item.originalData.devicesPresent || []).length}</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                         <p className="text-[9px] font-black text-slate-400 uppercase">Specific Bundle Elements</p>
+                         <div className="max-h-[200px] overflow-y-auto space-y-4 pr-2 custom-scrollbar">
+                           {Object.entries(item.originalData.bundles || {}).map(([type, bundle]: [string, any]) => (
+                             <div key={type} className="p-4 bg-white border border-slate-100 rounded-3xl space-y-3">
+                                <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                                   <span className="text-xs font-black text-slate-900 uppercase tracking-tighter italic">{type} Bundle</span>
+                                   <span className={cn(
+                                     "text-[10px] font-black uppercase px-2 py-0.5 rounded-lg",
+                                     bundle.isCompliant ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                                   )}>
+                                     {bundle.isCompliant ? 'Compliant' : 'Discrepancy Found'}
+                                   </span>
+                                </div>
+                                <div className="grid grid-cols-1 gap-2">
+                                   {Object.entries(bundle.elements || {}).map(([el, status]: [string, any]) => (
+                                      <div key={el} className="flex justify-between items-center">
+                                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight max-w-[80%]">{el}</span>
+                                         <div className={cn(
+                                           "w-2 h-2 rounded-full",
+                                           status ? "bg-emerald-500" : "bg-rose-500"
+                                         )} />
+                                      </div>
+                                   ))}
+                                </div>
+                             </div>
+                           ))}
+                         </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -763,8 +1017,8 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                             { id: 'CONFIRMED', label: 'Confirmed HAI Event', color: 'text-rose-400' },
                             { id: 'NOT_HAI', label: 'Does Not Meet Criteria', color: 'text-emerald-400' },
                             { id: 'NEEDS_MORE_DATA', label: 'Insufficient Evidence', color: 'text-amber-400' }
-                          ] : item.type === 'AMS' ? [
-                            { id: 'APPROVED', label: 'Clinical Approval', color: 'text-emerald-400' },
+                          ] : item.type === 'ANTIMICROBIAL_STEWARDSHIP' ? [
+                            { id: 'ANTIMICROBIAL_STEWARDSHIP', label: 'Clinical Approval', color: 'text-emerald-400' },
                             { id: 'DENIED', label: 'Access Denied', color: 'text-rose-400' },
                             { id: 'OVERRIDDEN', label: 'IPCU Manual Override', color: 'text-blue-400' }
                           ] : item.type === 'NSI' ? [
@@ -829,7 +1083,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                            <div className="space-y-4">
                               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Root Cause Determination</label>
                               <div className="grid grid-cols-2 gap-2">
-                                 {['Unsafe Practice', 'Improper Disposal', 'Lack of PPE', 'Equipment Failure', 'Staff Fatigue', 'Other'].map(r => (
+                                 {NSI_CONSTANTS.ROOT_CAUSES.map(r => (
                                     <label key={r} className={cn(
                                        "flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer",
                                        decision.rootCauses.includes(r) ? "bg-rose-50 border-rose-100 text-rose-700" : "bg-slate-50 border-transparent text-slate-400"
@@ -848,7 +1102,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                            <div className="space-y-4">
                               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Contributing Factors</label>
                               <div className="grid grid-cols-1 gap-2">
-                                 {['High Workload', 'Incomplete Training', 'Poor Lighting', 'Non-compliance with Sharps Protocol', 'Other'].map(f => (
+                                 {NSI_CONSTANTS.CONTRIBUTING_FACTORS.map(f => (
                                     <label key={f} className={cn(
                                        "flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer",
                                        decision.contributingFactors.includes(f) ? "bg-blue-50 border-blue-100 text-blue-700" : "bg-slate-50 border-transparent text-slate-400"
@@ -865,7 +1119,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                            <div className="space-y-4">
                               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Corrective Actions</label>
                               <div className="grid grid-cols-2 gap-2">
-                                 {['Re-education', 'Reinforcement', 'Replace Sharps Container', 'Escalation to Unit Head', 'Other'].map(a => (
+                                 {NSI_CONSTANTS.CORRECTIVE_ACTIONS.map(a => (
                                     <label key={a} className={cn(
                                        "flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer",
                                        decision.correctiveActions.includes(a) ? "bg-emerald-50 border-emerald-100 text-emerald-700" : "bg-slate-50 border-transparent text-slate-400"
@@ -907,6 +1161,54 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                      </>
                   ) : (
                     <>
+                      {item.type === 'AUDIT' && item.originalData.type === 'ENV_CLEANING' && (
+                        <div className="space-y-4">
+                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Monitoring Method</label>
+                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              {MONITORING_METHODS.map(method => (
+                                <button 
+                                  key={method}
+                                  type="button"
+                                  onClick={() => setDecision({ ...decision, monitoringMethod: method })}
+                                  className={cn(
+                                    "px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-tight border transition-all text-center",
+                                    decision.monitoringMethod === method 
+                                      ? "bg-slate-900 text-white border-transparent" 
+                                      : "bg-slate-50 text-slate-400 border-slate-100 hover:bg-slate-100"
+                                  )}
+                                >
+                                   {method}
+                                </button>
+                              ))}
+                           </div>
+                           
+                           {decision.monitoringMethod && (
+                             <div className="flex gap-2 p-1 bg-slate-50 rounded-2xl border border-slate-100">
+                                <button 
+                                  type="button"
+                                  onClick={() => setDecision({ ...decision, monitoringStatus: 'PASS' })}
+                                  className={cn(
+                                    "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                    decision.monitoringStatus === 'PASS' ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20" : "text-slate-400 hover:bg-slate-100"
+                                  )}
+                                >
+                                   Passed
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => setDecision({ ...decision, monitoringStatus: 'FAIL' })}
+                                  className={cn(
+                                    "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                    decision.monitoringStatus === 'FAIL' ? "bg-rose-500 text-white shadow-lg shadow-rose-500/20" : "text-slate-400 hover:bg-slate-200"
+                                  )}
+                                >
+                                   Failed
+                                </button>
+                             </div>
+                           )}
+                        </div>
+                      )}
+
                       <div className="space-y-4">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Clinical Reasoning / Decision Foundation</label>
                          <select 
@@ -915,12 +1217,13 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                            onChange={e => setDecision({ ...decision, reason: e.target.value })}
                          >
                             <option value="">Select Pre-defined Rationale...</option>
-                            <option value="nhs_criteria">Meets NHSN/CDC Surveillance Criteria</option>
-                            <option value="no_nhs_criteria">Does Not Meet Clinical Definitions</option>
-                            <option value="lab_negative">Microbiological Evidence Negative</option>
-                            <option value="inc_doc">Clinical Documentation Incomplete</option>
-                            <option value="indication_correct">Antibiotic Indication Verified</option>
-                            <option value="audit_verified">Observational Findings Confirmed</option>
+                            {IPCU_REASONING_GROUPS.map(group => (
+                              <optgroup key={group.category} label={group.category}>
+                                {group.options.map(opt => (
+                                  <option key={opt.value} value={opt.label}>{opt.label}</option>
+                                ))}
+                              </optgroup>
+                            ))}
                          </select>
                          <textarea 
                            placeholder="Clinical notes / Addendum..." 
@@ -932,32 +1235,34 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
 
                       <div className="space-y-4">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Corrective Actions & Directives</label>
-                         <div className="grid grid-cols-1 gap-2">
-                            {[
-                              'Educational reinforcement provided to unit',
-                              'Immediate isolation recommended',
-                              'AMS recommendation issued to physician',
-                              'Device removal recommended',
-                              'Unit-wide re-audit scheduled',
-                              'Escalated to Hospital Infection Committee'
-                            ].map(action => (
-                              <label key={action} className={cn(
-                                "flex items-center gap-4 p-4 rounded-2xl border transition-all cursor-pointer",
-                                decision.correctiveActions.includes(action) 
-                                  ? "bg-emerald-50 border-emerald-100 text-emerald-900" 
-                                  : "bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100"
-                              )}>
-                                 <input 
-                                   type="checkbox" 
-                                   className="w-5 h-5 rounded-lg text-emerald-600"
-                                   checked={decision.correctiveActions.includes(action)}
-                                   onChange={(e) => {
-                                     if(e.target.checked) setDecision({...decision, correctiveActions: [...decision.correctiveActions, action]});
-                                     else setDecision({...decision, correctiveActions: decision.correctiveActions.filter((a: string) => a !== action)});
-                                   }}
-                                 />
-                                 <span className="text-[10px] font-black uppercase tracking-tight leading-tight">{action}</span>
-                              </label>
+                         <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                            {IPCU_ACTION_GROUPS.map(group => (
+                              <div key={group.category} className="space-y-3">
+                                 <h4 className="text-[9px] font-black text-slate-300 uppercase tracking-widest border-b border-slate-50 pb-1">{group.category}</h4>
+                                 <div className="grid grid-cols-1 gap-2">
+                                    {group.options.map(action => (
+                                      <label key={action} className={cn(
+                                        "flex items-center gap-4 p-4 rounded-2xl border transition-all cursor-pointer",
+                                        decision.correctiveActions.includes(action) 
+                                          ? "bg-emerald-50 border-emerald-100 text-emerald-900" 
+                                          : "bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100"
+                                      )}>
+                                         <input 
+                                           type="checkbox" 
+                                           className="w-5 h-5 rounded-lg text-emerald-600 focus:ring-emerald-500/20"
+                                           checked={decision.correctiveActions.includes(action)}
+                                           onChange={(e) => {
+                                              const newList = e.target.checked 
+                                                ? [...decision.correctiveActions, action] 
+                                                : decision.correctiveActions.filter((a: string) => a !== action);
+                                              setDecision({ ...decision, correctiveActions: newList });
+                                           }}
+                                         />
+                                         <span className="text-[10px] font-black uppercase tracking-tight leading-tight">{action}</span>
+                                      </label>
+                                    ))}
+                                 </div>
+                              </div>
                             ))}
                          </div>
                       </div>

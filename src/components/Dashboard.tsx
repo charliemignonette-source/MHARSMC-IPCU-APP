@@ -5,14 +5,17 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, Activity, ClipboardCheck, AlertTriangle, 
-  Users, Calendar, ArrowUpRight, ArrowDownRight, Download
+  Users, Calendar, ArrowDownRight, Download, Trash2
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { collection, query, getDocs, limit, orderBy, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserProfile, BOCLog } from '../types';
-import { cn, getComplianceColor } from '../lib/utils';
-import { ShieldCheck, Crosshair, Thermometer, Droplets, Wind, Scissors } from 'lucide-react';
+import { cn, getComplianceColor, formatDate } from '../lib/utils';
+import { 
+  ShieldCheck, Crosshair, Thermometer, Droplets, Wind, Scissors,
+  Database, FlaskConical, ArrowUpRight
+} from 'lucide-react';
 
 const complianceData = [
   { month: 'JAN', hh: 82, ppe: 78, env: 85, ams: 70 },
@@ -31,18 +34,22 @@ const amsTrends = [
   { name: 'Day 7', requests: 3 },
 ];
 
-export default function Dashboard({ user }: { user: UserProfile | null }) {
+export default function Dashboard({ user, onNavigate }: { user: UserProfile | null, onNavigate?: (tab: string) => void }) {
   const [activeTab, setActiveTab] = useState<'OVERALL' | 'CLABSI' | 'CAUTI' | 'VAP' | 'SSI' | 'IPCU' | 'AUDITS' | 'AMS_SAFETY'>('OVERALL');
   const [rawLogs, setRawLogs] = useState<{
     boc: BOCLog[];
     ams: any[];
     nsi: any[];
     audits: any[];
-  }>({ boc: [], ams: [], nsi: [], audits: [] });
+    outbreaks: any[];
+    hais: any[];
+  }>({ boc: [], ams: [], nsi: [], audits: [], outbreaks: [], hais: [] });
   const [stats, setStats] = useState({
     hhCompliance: 91.2,
     ppeCompliance: 88.5,
     envCompliance: 89.0,
+    complianceTrends: [] as any[],
+    amsTrends: [] as any[],
     activeAMS: 0,
     recentHAIs: 0,
     nsiToday: 0,
@@ -81,18 +88,93 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
         const boc = await getDocs(collection(db, 'boc_logs'));
         const ams = await getDocs(collection(db, 'ams_requests'));
         const nsi = await getDocs(collection(db, 'nsi_reports'));
+        const outbreaks = await getDocs(collection(db, 'outbreaks'));
 
         const now = new Date();
-        const todayStr = now.toISOString().split('T')[0];
+        const todayStr = now.toLocaleDateString('en-CA'); 
         const currentMonth = now.getMonth();
         const currentYear = now.getFullYear();
 
         const bocData = boc.docs.map(d => ({ id: d.id, ...d.data() } as BOCLog));
-        const amsData = ams.docs.map(d => d.data());
-        const nsiData = nsi.docs.map(d => d.data());
-        const auditData = audits.docs.map(d => d.data());
+        const amsData = ams.docs.map(d => ({ id: d.id, ...d.data() }));
+        const nsiData = nsi.docs.map(d => ({ id: d.id, ...d.data() }));
+        const auditData = audits.docs.map(d => ({ id: d.id, ...d.data() }));
+        const outbreakData = outbreaks.docs.map(d => ({ id: d.id, ...d.data() }));
+        const haiData = hais.docs.map(d => ({ id: d.id, ...d.data() }));
         
-        setRawLogs({ boc: bocData, ams: amsData, nsi: nsiData, audits: auditData });
+        setRawLogs({ 
+          boc: bocData, 
+          ams: amsData, 
+          nsi: nsiData, 
+          audits: auditData, 
+          outbreaks: outbreakData,
+          hais: haiData
+        });
+
+        // 1. Calculate Monthly Compliance Data (Last 4 Months)
+        const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+        const last4Months = [];
+        for (let i = 3; i >= 0; i--) {
+          const d = new Date();
+          d.setMonth(d.getMonth() - i);
+          const m = d.getMonth();
+          const y = d.getFullYear();
+          
+          const monthAudits = auditData.filter(a => {
+            const date = a.createdAt?.toDate?.() || new Date(a.timestamp);
+            return date.getMonth() === m && date.getFullYear() === y;
+          });
+
+          const hh = monthAudits.filter(a => a.type === 'HH_COMPLIANCE');
+          const ppe = monthAudits.filter(a => a.type === 'PPE_COMPLIANCE');
+          const env = monthAudits.filter(a => a.type === 'ENV_CLEANING');
+          
+          const calcMonthAvg = (list: any[]) => {
+            if (list.length === 0) return 0;
+            const score = list.reduce((acc, a) => acc + (a.score || 0), 0);
+            const total = list.reduce((acc, a) => acc + (a.total || 1), 0);
+            return (score / total) * 100;
+          };
+
+          last4Months.push({
+            month: months[m],
+            hh: calcMonthAvg(hh),
+            ppe: calcMonthAvg(ppe),
+            env: calcMonthAvg(env),
+            ams: amsData.filter(a => {
+              const date = a.createdAt?.toDate?.() || new Date(a.dateTimeRequested);
+              return date.getMonth() === m && date.getFullYear() === y;
+            }).length * 10 // scale for visualization
+          });
+        }
+
+        // 2. Calculate AMS trends (Last 7 days)
+        const last7Days = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const dateStr = d.toLocaleDateString();
+          const count = amsData.filter(a => {
+            const date = a.createdAt?.toDate?.() || new Date(a.dateTimeRequested);
+            return date.toLocaleDateString() === dateStr;
+          }).length;
+          last7Days.push({ name: `Day ${7-i}`, requests: count });
+        }
+
+        // 3. AMS Analysis (Indication & Focus)
+        const indications: Record<string, number> = {};
+        const focuses: Record<string, number> = {};
+        amsData.forEach(a => {
+          if (a.indicationForUse) {
+            indications[a.indicationForUse] = (indications[a.indicationForUse] || 0) + 1;
+          }
+          a.focusOfInfection?.forEach((f: string) => {
+            focuses[f] = (focuses[f] || 0) + 1;
+          });
+        });
+
+        const topIndication = Object.entries(indications).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
+        const topFocus = Object.entries(focuses).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
 
         // Process Domain Metrics
         const activeAMS = amsData.filter(d => d.status === 'PENDING').length;
@@ -101,9 +183,16 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
           return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
         }).length;
 
-        const hhAudits = auditData.filter(a => a.type === 'HAND_HYGIENE');
-        const ppeAudits = auditData.filter(a => a.type === 'PPE_ADHERENCE');
-        const calcAvg = (list: any[]) => list.length > 0 ? list.reduce((acc, a) => acc + (a.complianceRate || 0), 0) / list.length : 0;
+        const hhAudits = auditData.filter(a => a.type === 'HH_COMPLIANCE');
+        const ppeAudits = auditData.filter(a => a.type === 'PPE_COMPLIANCE');
+        const envAudits = auditData.filter(a => a.type === 'ENV_CLEANING');
+
+        const calcAvg = (list: any[]) => {
+          if (list.length === 0) return 0;
+          const totalScore = list.reduce((acc, a) => acc + (a.score || 0), 0);
+          const totalMax = list.reduce((acc, a) => acc + (a.total || 1), 0);
+          return (totalScore / totalMax) * 100;
+        };
         
         // Process Bundle Stats
         const todayLogs = bocData.filter(l => l.date === todayStr);
@@ -199,16 +288,16 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
           return { date: dateStr, ...comp };
         });
 
-        // Unit Compliance
+        // Unit Compliance (All time or MTD)
         const unitStats: Record<string, any> = {};
-        bocData.filter(l => l.date === todayStr).forEach(log => {
+        bocData.forEach(log => {
           if (!unitStats[log.unit]) unitStats[log.unit] = { unit: log.unit, logs: [] };
           unitStats[log.unit].logs.push(log);
         });
         const unitList = Object.values(unitStats).map(u => ({
           name: u.unit,
           ...calculateCompliance(u.logs)
-        }));
+        })).sort((a, b) => b.overall - a.overall);
 
         // Verification Stats
         const validatedLogs = bocData.filter(l => l.isValidated);
@@ -228,26 +317,34 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
           .map(([label, count]) => ({ label, count }));
 
         const allDocs = [
-          ...auditData,
-          ...hais.docs.map(d => d.data()),
-          ...bocData,
-          ...amsData,
-          ...nsiData
+          ...auditData.map(a => ({ ...a, __type: 'AUDIT', __date: a.createdAt?.toDate?.() || new Date(a.timestamp) })),
+          ...haiData.map(h => ({ ...h, __type: 'HAI', __date: h.createdAt?.toDate?.() || new Date(h.triggerDate) })),
+          ...bocData.map(b => ({ ...b, __type: 'BUNDLE', __date: b.createdAt?.toDate?.() || new Date(b.date) })),
+          ...amsData.map(a => ({ ...a, __type: 'AMS', __date: a.createdAt?.toDate?.() || new Date(a.dateTimeRequested) })),
+          ...nsiData.map(n => ({ ...n, __type: 'NSI', __date: n.createdAt?.toDate?.() || new Date() })),
+          ...outbreakData.map(o => ({ ...o, __type: 'OUTBREAK', __date: o.createdAt?.toDate?.() || new Date(o.detectedAt) }))
         ];
 
         const total = allDocs.length;
-        const validated = allDocs.filter((d: any) => d.isValidated || d.status === 'VALIDATED').length;
+        const validated = allDocs.filter((d: any) => d.isValidated || d.status === 'VALIDATED' || d.status === 'APPROVED' || d.status === 'REJECTED' || d.status === 'RESOLVED').length;
 
         setStats(prev => ({
           ...prev,
           validatedCount: validated,
           totalCount: total,
-          activeAMS: activeAMS,
-          recentHAIs: hais.docs.length,
+          complianceTrends: last4Months,
+          amsTrends: last7Days,
+          topIndication,
+          topFocus,
+          activeAMS: amsData.filter(d => d.status === 'PENDING').length,
+          recentHAIs: haiData.length,
           auditsCount: auditData.length,
           amsCount: amsData.length,
+          outbreakCount: outbreakData.length,
+          allReports: allDocs.sort((a: any, b: any) => b.__date.getTime() - a.__date.getTime()).slice(0, 5),
           hhCompliance: calcAvg(hhAudits),
           ppeCompliance: calcAvg(ppeAudits),
+          envCompliance: calcAvg(envAudits),
           nsiToday: nsiData.filter((d: any) => {
             const date = d.createdAt?.toDate?.() || new Date();
             return date.toDateString() === new Date().toDateString();
@@ -288,8 +385,72 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
     fetchStats();
   }, []);
 
+  const purgeData = async () => {
+    if (!window.confirm('CRITICAL: This will purge ALL reports, audits, and cases from the system. This is intended only for resetting the beta environment. PROCEED?')) return;
+    
+    const collections = ['ams_requests', 'audits', 'boc_logs', 'hai_cases', 'nsi_reports', 'outbreaks'];
+    let count = 0;
+
+    try {
+      for (const collName of collections) {
+        const snap = await getDocs(collection(db, collName));
+        for (const docSnap of snap.docs) {
+          await deleteDoc(doc(db, collName, docSnap.id));
+          count++;
+        }
+      }
+      alert(`Purge Complete! ${count} documents removed.`);
+      window.location.reload();
+    } catch (error) {
+      console.error("Purge failed:", error);
+      alert(`Purge failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 md:space-y-8 pb-10">
+      <div className="flex items-center justify-between">
+         <div className="hidden md:block" />
+         {(user?.role === 'ADMIN' || user?.role === 'IPCN') && (
+            <button 
+              onClick={purgeData} 
+              className="flex items-center gap-2 px-4 py-2 bg-rose-50 border border-rose-100 rounded-xl text-[10px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-100 transition-all shadow-sm"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Reset All Beta Data
+            </button>
+         )}
+      </div>
+
+      {/* 🚀 COMMAND CENTER LAUNCHPAD */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { id: 'validation', dashboardTab: 'IPCU', label: 'IPC Validation', color: 'bg-indigo-600', icon: ShieldCheck, desc: 'Daily Bundle Audits' },
+          { id: 'antibiogram', dashboardTab: 'OVERALL', label: 'Antibiogram', color: 'bg-emerald-600', icon: Database, desc: 'Resistance Patterns 2025' },
+          { id: 'ams', dashboardTab: 'AMS_SAFETY', label: 'Antimicrobial Stewardship', color: 'bg-teal-600', icon: FlaskConical, desc: 'Drug Request Console' },
+          { id: 'audits', dashboardTab: 'AUDITS', label: 'IPC Audits', color: 'bg-amber-600', icon: ClipboardCheck, desc: 'HH & PPE Compliance' }
+        ].map((tile) => (
+          <button
+            key={tile.id}
+            onClick={() => {
+               if (onNavigate) onNavigate(tile.id);
+            }}
+            className="group p-5 bg-white border border-slate-100 rounded-[2rem] shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all text-left flex items-start gap-4"
+          >
+            <div className={cn("w-12 h-12 flex items-center justify-center rounded-2xl text-white shadow-lg", tile.color)}>
+              <tile.icon className="w-6 h-6" />
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <p className="text-xs font-black text-slate-900 uppercase tracking-tight group-hover:text-brand-primary transition-colors truncate">{tile.label}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5 truncate">{tile.desc}</p>
+              <div className="flex items-center gap-1 mt-2 text-[9px] font-black text-brand-primary opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                 LAUNCH <ArrowUpRight className="w-3 h-3" />
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 uppercase">IPC COMMAND</h2>
@@ -328,6 +489,17 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
         <div className="space-y-6">
           {/* High-Level Highlight Matrix */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+            <div className="bento-card p-4 sm:p-6 bg-slate-900 text-white">
+               <h4 className="text-[10px] font-black uppercase tracking-widest text-teal-400 mb-4 sm:mb-6">Data Integrity Index</h4>
+               <div className="text-3xl sm:text-4xl font-black tracking-tighter mb-2 sm:mb-4">
+                  {stats.totalCount > 0 ? Math.round((stats.validatedCount / stats.totalCount) * 100) : 100}%
+               </div>
+               <div className="flex items-center justify-between pt-4 border-t border-white/10 text-[10px] font-bold">
+                  <span className="text-slate-400 uppercase">Validated Reports</span>
+                  <span>{stats.validatedCount} / {stats.totalCount}</span>
+               </div>
+            </div>
+
             <div className="bento-card p-4 sm:p-6 bg-brand-primary text-white">
                <h4 className="text-[10px] font-black uppercase tracking-widest text-teal-100 mb-4 sm:mb-6">Device Bundle Adherence</h4>
                <div className="text-3xl sm:text-4xl font-black tracking-tighter mb-2 sm:mb-4">{Math.round(stats.bundles.today.overall)}%</div>
@@ -347,20 +519,11 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
             </div>
 
             <div className="bento-card p-4 sm:p-6 bg-amber-500 text-white">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-100 mb-4 sm:mb-6">AMS Stewardship</h4>
+               <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-100 mb-4 sm:mb-6">Antimicrobial Stewardship</h4>
                <div className="text-3xl sm:text-4xl font-black tracking-tighter mb-2 sm:mb-4">{stats.activeAMS}</div>
                <div className="flex items-center justify-between pt-4 border-t border-white/10 text-[10px] font-bold">
                   <span className="text-amber-200">PENDING ACTIONS</span>
                   <span>{stats.amsCount} TOTAL</span>
-               </div>
-            </div>
-
-            <div className="bento-card p-4 sm:p-6 bg-rose-600 text-white">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-rose-100 mb-4 sm:mb-6">Workplace Safety (NSI)</h4>
-               <div className="text-3xl sm:text-4xl font-black tracking-tighter mb-2 sm:mb-4">{stats.safety.nsiMTD}</div>
-               <div className="flex items-center justify-between pt-4 border-t border-white/10 text-[10px] font-bold">
-                  <span className="text-rose-200">INJURIES MTD</span>
-                  <span>{stats.safety.exposedStaff} HIGH RISK</span>
                </div>
             </div>
           </div>
@@ -401,6 +564,45 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
           </div>
 
           <div className="grid grid-cols-12 gap-6">
+            {/* Recent Intelligence Feed */}
+            <div className="col-span-12 bento-card p-4 sm:p-6">
+               <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-widest text-slate-700">Recent Intelligence Analytics</h3>
+                  <div className="text-[10px] font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-full uppercase">Computed {new Date().toLocaleTimeString()}</div>
+               </div>
+               <div className="space-y-3">
+                  {(stats as any).allReports?.map((report: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
+                      <div className="flex items-center gap-4">
+                        <div className={cn(
+                          "w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xs",
+                          report.__type === 'AUDIT' ? 'bg-amber-500' :
+                          report.__type === 'BUNDLE' ? 'bg-indigo-500' :
+                          report.__type === 'HAI' ? 'bg-rose-500' :
+                          report.__type === 'AMS' ? 'bg-teal-500' :
+                          report.__type === 'NSI' ? 'bg-orange-500' : 'bg-slate-500'
+                        )}>
+                          {report.__type?.[0]}
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-900 uppercase tracking-tight">{report.__type} REPORT • {report.unit || report.incident?.unit || 'GEN'}</p>
+                          <p className="text-[10px] font-medium text-slate-500 italic">By {report.auditorName || report.staffName || report.prescriberName || report.reporterName || report.reportedBy || report.reporterEmail || 'Staff Member'}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{formatDate(report.__date)}</p>
+                        <div className={cn(
+                          "text-[9px] font-black uppercase px-2 py-0.5 rounded-lg inline-block mt-1",
+                          (report.isValidated || report.status === 'VALIDATED') ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                        )}>
+                          {(report.isValidated || report.status === 'VALIDATED') ? 'SECURED' : 'PENDING'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+               </div>
+            </div>
+
             {/* Daily Trend Chart */}
             <div className="col-span-12 lg:col-span-8 bento-card p-4 sm:p-6">
                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-10">
@@ -588,35 +790,98 @@ export default function Dashboard({ user }: { user: UserProfile | null }) {
 }
 
 function AuditsDashboard({ stats }: any) {
+  const auditDataRaw = stats.rawLogs?.audits || [];
+  
+  const hhInfra = auditDataRaw.filter((a: any) => a.type === 'HH_AVAILABILITY');
+  const ppeSupply = auditDataRaw.filter((a: any) => a.type === 'PPE_AVAILABILITY');
+  const safeInj = auditDataRaw.filter((a: any) => a.type === 'SAFE_INJECTION');
+
+  const calcAvg = (list: any[]) => {
+    if (list.length === 0) return 0;
+    const totalScore = list.reduce((acc, a) => acc + (a.score || 0), 0);
+    const totalMax = list.reduce((acc, a) => acc + (a.total || 1), 0);
+    return (totalScore / totalMax) * 100;
+  };
+
+  const hhInfraScore = calcAvg(hhInfra);
+  const ppeSupplyScore = calcAvg(ppeSupply);
+  const safeInjScore = calcAvg(safeInj);
+
   return (
     <div className="space-y-6">
        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bento-card p-6 bg-emerald-600 text-white">
-             <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-6">HH Compliance Distribution (MTD)</h4>
+             <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-6">HH Compliance (HCW Performance)</h4>
              <div className="flex items-baseline gap-4 mb-8">
                 <span className="text-5xl font-black">{Math.round(stats.hhCompliance)}%</span>
-                <span className="text-[10px] font-bold text-emerald-200 uppercase tracking-widest">Aggregate Score</span>
+                <span className="text-[10px] font-bold text-emerald-200 uppercase tracking-widest">Aggregate Staff Score</span>
              </div>
              <div className="h-[150px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={complianceData}>
+                  <BarChart data={stats.complianceTrends}>
                     <Bar dataKey="hh" fill="#fff" radius={[4, 4, 0, 0]} fillOpacity={0.2} />
                   </BarChart>
                 </ResponsiveContainer>
              </div>
           </div>
           <div className="bento-card p-6">
-             <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">PPE Adherence Trends</h4>
+             <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">PPE Compliance (HCW Behavior)</h4>
              <div className="flex items-baseline gap-4 mb-8">
                 <span className="text-4xl font-black text-slate-900">{Math.round(stats.ppeCompliance)}%</span>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">MTD Average</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Staff Adherence</span>
              </div>
              <div className="h-[150px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={complianceData}>
+                  <AreaChart data={stats.complianceTrends}>
                     <Area type="monotone" dataKey="ppe" stroke="#10b981" fill="#10b981" fillOpacity={0.05} />
                   </AreaChart>
                 </ResponsiveContainer>
+             </div>
+          </div>
+       </div>
+
+       {/* Unit Level Infrastructure & Standards */}
+       <div className="space-y-4 pt-6">
+          <div className="flex items-center gap-3">
+             <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Institutional & Practice Standards (Unit Audits)</h3>
+             <div className="h-px flex-1 bg-slate-200" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+             <div className="bento-card p-6 bg-white border border-slate-100">
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">HH Facilities</p>
+               <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-3xl font-black text-slate-900">{Math.round(hhInfraScore)}%</span>
+                    <span className="text-[10px] font-bold text-emerald-600">Institutional</span>
+                  </div>
+                  <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-600">
+                     <ClipboardCheck className="w-6 h-6" />
+                  </div>
+               </div>
+             </div>
+             <div className="bento-card p-6 bg-white border border-slate-100">
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">PPE Supply</p>
+               <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-3xl font-black text-slate-900">{Math.round(ppeSupplyScore)}%</span>
+                    <span className="text-[10px] font-bold text-blue-600">Stock Availability</span>
+                  </div>
+                  <div className="p-3 bg-blue-50 rounded-2xl text-blue-600">
+                     <ShieldCheck className="w-6 h-6" />
+                  </div>
+               </div>
+             </div>
+             <div className="bento-card p-6 bg-white border border-slate-100">
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Safe Injection</p>
+               <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-3xl font-black text-slate-900">{Math.round(safeInjScore)}%</span>
+                    <span className="text-[10px] font-bold text-amber-600">Practice Adherence</span>
+                  </div>
+                  <div className="p-3 bg-amber-50 rounded-2xl text-amber-600">
+                     <Activity className="w-6 h-6" />
+                  </div>
+               </div>
              </div>
           </div>
        </div>
@@ -628,21 +893,34 @@ function AmsSafetyDashboard({ stats }: any) {
   return (
     <div className="space-y-6">
        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bento-card p-6 bg-slate-900 text-white">
+             <h4 className="text-[10px] font-black uppercase tracking-widest text-brand-primary mb-6">Restricted Antibiotic Request Drivers</h4>
+             <div className="space-y-6">
+                <div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Top Indication</div>
+                  <div className="text-2xl font-black text-white">{stats.topIndication}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Top Focus of Infection</div>
+                  <div className="text-2xl font-black text-brand-primary">{stats.topFocus}</div>
+                </div>
+             </div>
+          </div>
           <div className="bento-card p-6 bg-amber-500 text-white">
-             <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-100 mb-6">AMS Request Velocity</h4>
+             <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-100 mb-6">Antimicrobial Stewardship Request Velocity</h4>
              <div className="flex items-baseline gap-4 mb-8">
                 <span className="text-5xl font-black">{stats.activeAMS}</span>
                 <span className="text-[10px] font-bold text-amber-100 uppercase tracking-widest">Pending Review</span>
              </div>
              <div className="h-[200px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={amsTrends}>
+                  <BarChart data={stats.amsTrends}>
                     <Bar dataKey="requests" fill="#fff" radius={[4, 4, 0, 0]} fillOpacity={0.3} />
                   </BarChart>
                 </ResponsiveContainer>
              </div>
           </div>
-          <div className="bento-card p-6 bg-rose-600 text-white">
+          <div className="bento-card p-6 bg-rose-600 text-white md:col-span-2">
              <h4 className="text-[10px] font-black uppercase tracking-widest text-rose-100 mb-6">Workplace Safety Incidents</h4>
              <div className="flex items-baseline gap-4 mb-8">
                 <span className="text-5xl font-black">{stats.safety.nsiMTD}</span>

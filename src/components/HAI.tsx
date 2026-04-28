@@ -15,10 +15,10 @@ import {
   Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, serverTimestamp, orderBy, doc, updateDoc, deleteDoc, limit, getDocs } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { UserProfile, HAICase, BOCLog, HAIType, IPCUAction } from '../types';
-import { UNITS, DEVICES, BUNDLE_ELEMENTS } from '../constants';
+import { UserProfile, HAICase, BOCLog, HAIType, IPCUAction, BundleMonitoring, Population, BundleDailyCheck } from '../types';
+import { UNITS, DEVICES, BUNDLE_ELEMENTS, IPCU_CORRECTIVE_ACTIONS, CLABSI_DETAILED_BUNDLES } from '../constants';
 import { cn, formatDate } from '../lib/utils';
 
 export default function HAI({ user }: { user: UserProfile | null }) {
@@ -36,6 +36,12 @@ export default function HAI({ user }: { user: UserProfile | null }) {
   
   const [cases, setCases] = useState<HAICase[]>([]);
   const [bundleLogs, setBundleLogs] = useState<BOCLog[]>([]);
+  const [monitorings, setMonitorings] = useState<BundleMonitoring[]>([]);
+  const [denominators, setDenominators] = useState<any[]>([]);
+  const [isManagingDenominators, setIsManagingDenominators] = useState(false);
+  const [isEnrollingDevice, setIsEnrollingDevice] = useState(false);
+  const [selectedMonitoring, setSelectedMonitoring] = useState<BundleMonitoring | null>(null);
+  const [isViewingDailyChecks, setIsViewingDailyChecks] = useState(false);
 
   const [caseForm, setCaseForm] = useState<Partial<HAICase>>({
     type: 'CLABSI',
@@ -119,8 +125,66 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       setBundleLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as BOCLog)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'boc_logs'));
 
-    return () => { unsub1(); unsub2(); };
+    // 3. Bundle Monitorings
+    let qM;
+    if (isIPCU) {
+      qM = query(collection(db, 'bundle_monitorings'), orderBy('createdAt', 'desc'));
+    } else {
+      qM = query(collection(db, 'bundle_monitorings'), where('staffId', '==', user.uid), orderBy('createdAt', 'desc'));
+    }
+    const unsubM = onSnapshot(qM, (snap) => {
+      setMonitorings(snap.docs.map(d => ({ id: d.id, ...d.data() } as BundleMonitoring)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'bundle_monitorings'));
+
+    const q3 = query(collection(db, 'hai_denominators'), orderBy('month', 'desc'), limit(12));
+    const unsub3 = onSnapshot(q3, (snap) => {
+      setDenominators(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'hai_denominators'));
+
+    return () => { unsub1(); unsub2(); unsubM(); unsub3(); };
   }, [user, isIPCU]);
+
+  const rates = React.useMemo(() => {
+    const confirmed = cases.filter(c => c.status === 'CONFIRMED');
+    const now = new Date();
+    const currentMonthStr = now.toISOString().slice(0, 7); // YYYY-MM
+    
+    const currentDenom = denominators.find(d => d.month === currentMonthStr) || {
+      ventDays: 1000,
+      lineDays: 1200,
+      cathDays: 1500,
+      procedureDays: 1000,
+      patientsAtRisk: 5000
+    };
+    
+    const vapCount = confirmed.filter(c => c.type === 'VAP').length;
+    const clabsiCount = confirmed.filter(c => c.type === 'CLABSI').length;
+    const cautiCount = confirmed.filter(c => c.type === 'CAUTI').length;
+    const ssiCount = confirmed.filter(c => c.type === 'SSI').length;
+    const totalHais = confirmed.length;
+    
+    return {
+      vapCount,
+      ventDays: currentDenom.ventDays,
+      vapRate: parseFloat(((vapCount / (currentDenom.ventDays || 1)) * 1000).toFixed(2)),
+      
+      clabsiCount,
+      lineDays: currentDenom.lineDays,
+      clabsiRate: parseFloat(((clabsiCount / (currentDenom.lineDays || 1)) * 1000).toFixed(2)),
+      
+      cautiCount,
+      cathDays: currentDenom.cathDays,
+      cautiRate: parseFloat(((cautiCount / (currentDenom.cathDays || 1)) * 1000).toFixed(2)),
+      
+      ssiCount,
+      procedureDays: currentDenom.procedureDays,
+      ssiRate: parseFloat(((ssiCount / (currentDenom.procedureDays || 1)) * 100).toFixed(2)),
+
+      totalHais,
+      patientsAtRisk: currentDenom.patientsAtRisk,
+      overallRate: parseFloat(((totalHais / (currentDenom.patientsAtRisk || 1)) * 1000).toFixed(2))
+    };
+  }, [cases, denominators]);
 
   const handleCaseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,6 +194,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
         ...caseForm,
         auditorId: user.uid,
         auditorEmail: user.email,
+        auditorName: user.name, // adding name
         isValidated: false,
         createdAt: serverTimestamp()
       });
@@ -169,6 +234,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
         compliancePercentage: finalPct,
         staffId: user.uid,
         staffEmail: user.email,
+        staffName: user.name, // adding name
         isValidated: false,
         createdAt: serverTimestamp()
       });
@@ -206,7 +272,9 @@ export default function HAI({ user }: { user: UserProfile | null }) {
         ...validationData,
         isValidated: true,
         validatedBy: user.uid,
-        validatedAt: serverTimestamp()
+        validatorName: validationData.validatorName || user.name,
+        validatedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       });
       setIsValidating(false);
       setSelectedCase(null);
@@ -223,7 +291,8 @@ export default function HAI({ user }: { user: UserProfile | null }) {
         isValidated: true,
         verification: {
           ...verificationForm,
-          validatorId: user.uid
+          validatorId: user.uid,
+          validatorName: verificationForm?.validatorName || user.name
         }
       });
       setIsVerifying(false);
@@ -233,9 +302,13 @@ export default function HAI({ user }: { user: UserProfile | null }) {
     }
   };
 
-  const handleDelete = async (collectionName: string, id: string) => {
-    if (!user || user.role !== 'ADMIN') return;
-    if (!confirm('Are you sure you want to delete this entry? This action cannot be undone.')) return;
+  const handleDelete = async (e: React.MouseEvent, collectionName: string, id: string | undefined) => {
+    e.stopPropagation();
+    
+    if (!id) return;
+    if (!user || !isIPCU) return;
+    
+    if (!confirm('Are you sure you want to delete this report? This action cannot be undone.')) return;
     
     try {
       await deleteDoc(doc(db, collectionName, id));
@@ -252,6 +325,14 @@ export default function HAI({ user }: { user: UserProfile | null }) {
           <p className="text-[10px] sm:text-xs text-slate-500 font-medium tracking-tight">Active HAI detection and therapeutic bundle monitoring</p>
         </div>
         <div className="flex gap-4 w-full sm:w-auto">
+           {isIPCU && (
+             <button 
+               onClick={() => setIsManagingDenominators(true)}
+               className="flex-1 sm:flex-none px-6 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-[10px] sm:text-xs font-bold uppercase tracking-widest hover:bg-slate-200 transition-colors"
+             >
+               Set Monthly Data
+             </button>
+           )}
            {activeView === 'surveillance' ? (
              <button 
               onClick={() => setIsAddingCase(true)}
@@ -261,13 +342,22 @@ export default function HAI({ user }: { user: UserProfile | null }) {
               <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center">Report Case</span>
             </button>
            ) : (
-             <button 
-              onClick={() => setIsAddingBundle(true)}
-              className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2 shadow-lg shadow-teal-900/10 active:scale-95 transition-transform"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center">Log Bundle</span>
-            </button>
+             <div className="flex gap-2 w-full sm:w-auto">
+               <button 
+                 onClick={() => setIsEnrollingDevice(true)}
+                 className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2 shadow-lg shadow-teal-900/10 active:scale-95 transition-transform"
+               >
+                 <ShieldCheck className="w-4 h-4" />
+                 <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center text-nowrap">Enroll Device</span>
+               </button>
+               <button 
+                onClick={() => setIsAddingBundle(true)}
+                className="flex-1 sm:flex-none bg-slate-100 text-slate-600 px-6 py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-200 active:scale-95 transition-transform"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center text-nowrap">Quick Log</span>
+              </button>
+             </div>
            )}
         </div>
       </div>
@@ -299,22 +389,43 @@ export default function HAI({ user }: { user: UserProfile | null }) {
           >
             {/* HAI Rates (Top Summary) */}
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
-               <RateTile label="VAP Rate" rate={2.04} unit="per 1,000 vent-days" baseline={2.0} />
-               <RateTile label="CLABSI Rate" rate={0.42} unit="per 1,000 line-days" baseline={1.5} />
-               <RateTile label="CAUTI Rate" rate={1.15} unit="per 1,000 cath-days" baseline={1.0} />
-               <RateTile label="SSI Rate" rate={0.8} unit="per 100 procedures" baseline={1.0} />
+               <RateTile 
+                 label="VAP Rate" 
+                 rate={rates.vapRate} 
+                 unit={`per 1,000 vent-days (${rates.vapCount}/${rates.ventDays})`} 
+                 baseline={2.0} 
+               />
+               <RateTile 
+                 label="CLABSI Rate" 
+                 rate={rates.clabsiRate} 
+                 unit={`per 1,000 line-days (${rates.clabsiCount}/${rates.lineDays})`} 
+                 baseline={1.5} 
+               />
+               <RateTile 
+                 label="CAUTI Rate" 
+                 rate={rates.cautiRate} 
+                 unit={`per 1,000 cath-days (${rates.cautiCount}/${rates.cathDays})`} 
+                 baseline={1.0} 
+               />
+               <RateTile 
+                 label="SSI Rate" 
+                 rate={rates.ssiRate} 
+                 unit={`per 100 procedures (${rates.ssiCount}/${rates.procedureDays})`} 
+                 baseline={1.0} 
+               />
                <div className={cn(
                  "bento-card p-6 flex flex-col justify-between",
-                 1.05 >= 1 ? "bg-rose-50 border-rose-100" : "bg-emerald-50 border-emerald-100"
+                 rates.overallRate >= 1.0 ? "bg-rose-50 border-rose-100" : "bg-emerald-50 border-emerald-100"
                )}>
                   <div>
                     <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Overall HAI Rate</h4>
                     <div className={cn(
                       "text-3xl font-black",
-                      1.05 >= 1 ? "text-rose-600" : "text-emerald-600"
-                    )}>1.05%</div>
+                      rates.overallRate >= 1.0 ? "text-rose-600" : "text-emerald-600"
+                    )}>{rates.overallRate}</div>
+                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">per 1,000 patients at risk</div>
                   </div>
-                  <div className="text-[9px] font-bold uppercase tracking-tight text-slate-400">Target: <span className="text-emerald-600">{" < 1% "}</span></div>
+                  <div className="text-[9px] font-bold uppercase tracking-tight text-slate-400 mt-2">Target: <span className="text-emerald-600">{" < 1.0 "}</span></div>
                </div>
             </div>
 
@@ -366,13 +477,13 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                           </td>
                           <td className="px-6 py-4 text-right">
                              <div className="flex items-center justify-end gap-2">
-                               {user?.role === 'ADMIN' && (
+                               {isIPCU && (
                                  <button 
-                                   onClick={() => handleDelete('hai_cases', c.id)}
-                                   className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                                   onClick={(e) => handleDelete(e, 'hai_cases', c.id)}
+                                   className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors border border-rose-100/50"
                                    title="Delete Entry"
                                  >
-                                   <Trash2 className="w-3.5 h-3.5" />
+                                   <Trash2 className="w-4 h-4" />
                                  </button>
                                )}
                                {isIPCU ? (
@@ -462,13 +573,14 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                         </td>
                         <td className="px-6 py-4 text-xs font-medium text-slate-600">{c.triggerDate}</td>
                         <td className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-tight">{c.validatorName || 'System'}</td>
-                        {user?.role === 'ADMIN' && (
+                        {isIPCU && (
                           <td className="px-6 py-4 text-right">
                             <button 
-                              onClick={() => handleDelete('hai_cases', c.id)}
-                              className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              onClick={(e) => handleDelete(e, 'hai_cases', c.id)}
+                              className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="Delete Confirmed Case"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </td>
                         )}
@@ -485,10 +597,83 @@ export default function HAI({ user }: { user: UserProfile | null }) {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+            className="space-y-8"
           >
-             {bundleLogs.map(log => (
-               <div key={log.id} className="bento-card p-6 bg-white hover:border-teal-500/20 transition-all cursor-pointer group relative flex flex-col">
+             {/* New Monitoring Dashboard */}
+             <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Active Device Monitorings</h3>
+                  <div className="h-px flex-1 bg-slate-200" />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                   {monitorings.filter(m => m.status === 'ACTIVE').map(m => (
+                     <div 
+                       key={m.id} 
+                       onClick={() => { setSelectedMonitoring(m); setIsViewingDailyChecks(true); }}
+                       className="bento-card p-6 bg-white hover:border-teal-500/30 transition-all cursor-pointer group border-b-4 border-b-teal-500 shadow-teal-900/5 shadow-xl relative overflow-hidden"
+                     >
+                       <div className="absolute top-0 right-0 w-24 h-24 bg-teal-50/50 rounded-full translate-x-12 -translate-y-12 transition-transform group-hover:scale-125" />
+                       
+                       <div className="relative">
+                         <div className="flex justify-between items-start mb-4">
+                            <span className={cn(
+                              "text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest",
+                              m.population === 'Adult' ? "bg-slate-100 text-slate-600" : "bg-purple-50 text-purple-600"
+                            )}>{m.population}</span>
+                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{m.unit}</span>
+                         </div>
+                         
+                         <h4 className="text-sm font-black text-slate-900 mb-1 group-hover:text-teal-700 transition-colors uppercase">{m.patientName}</h4>
+                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-4">Hosp #: {m.hospNo} • AGE: {m.age}</p>
+                         
+                         <div className="flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-teal-50 rounded-xl text-teal-600 group-hover:bg-teal-600 group-hover:text-white transition-colors">
+                               <ShieldCheck className="w-5 h-5" />
+                            </div>
+                            <div>
+                               <p className="text-[9px] font-black text-slate-400 uppercase leading-none">Device Type</p>
+                               <p className="text-xs font-black text-slate-900 uppercase">{m.deviceType} <span className="text-[10px] text-slate-400 font-bold ml-1">{m.deviceDetail}</span></p>
+                            </div>
+                         </div>
+
+                         <div className="flex items-center justify-between pt-4 border-t border-slate-50">
+                            <div className="flex flex-col">
+                               <span className="text-[8px] font-bold text-slate-400 uppercase leading-tight">Inserted On</span>
+                               <span className="text-[11px] font-black text-slate-700 uppercase">{m.insertionDate}</span>
+                            </div>
+                            <button 
+                              className="px-4 py-1.5 bg-teal-50 text-teal-600 text-[9px] font-black uppercase tracking-widest rounded-lg group-hover:bg-teal-600 group-hover:text-white transition-colors"
+                            >
+                              Add Daily Check
+                            </button>
+                         </div>
+                       </div>
+                     </div>
+                   ))}
+                   {monitorings.filter(m => m.status === 'ACTIVE').length === 0 && (
+                     <div className="col-span-full py-20 text-center bento-card border-dashed">
+                        <Activity className="w-8 h-8 text-slate-200 mx-auto mb-4" />
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No active device monitorings found</p>
+                        <button 
+                          onClick={() => setIsEnrollingDevice(true)}
+                          className="mt-4 text-[9px] font-black text-teal-600 uppercase tracking-widest hover:underline"
+                        >
+                          Enroll First Patient
+                        </button>
+                     </div>
+                   )}
+                </div>
+             </div>
+
+             <div className="space-y-4 pt-8">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Recent One-off Bundle Logs</h3>
+                  <div className="h-px flex-1 bg-slate-200" />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {bundleLogs.map(log => (
+                    <div key={log.id} className="bento-card p-6 bg-white hover:border-teal-500/20 transition-all cursor-pointer group relative flex flex-col">
+                      {/* ... existing bundleLog item contents ... */}
                  <div className="flex items-center justify-between mb-6">
                     <div className={cn(
                        "p-2 rounded-xl transition-colors",
@@ -538,12 +723,13 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      {user?.role === 'ADMIN' && (
+                      {isIPCU && (
                         <button 
-                          onClick={(e) => { e.stopPropagation(); handleDelete('boc_logs', log.id); }}
-                          className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                          onClick={(e) => handleDelete(e, 'boc_logs', log.id)}
+                          className="p-2.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                          title="Delete Bundle Log"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       )}
                       {(user?.role === 'IPCN' || user?.role === 'ADMIN') && !log.isValidated && (
@@ -576,6 +762,8 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                </div>
              ))}
              {bundleLogs.length === 0 && <div className="col-span-full py-20 text-center bento-card border-dashed"><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No bundle surveillance logs recorded today</p></div>}
+                </div>
+             </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -596,6 +784,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
             onClose={() => { setIsValidating(false); setSelectedCase(null); }}
             haiCase={selectedCase}
             onSubmit={handleValidationSubmit}
+            user={user}
           />
         )}
 
@@ -605,6 +794,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
             formData={bundleForm}
             setFormData={setBundleForm}
             onSubmit={handleBundleSubmit}
+            user={user}
           />
         )}
         {isVerifying && selectedLog && (
@@ -614,9 +804,103 @@ export default function HAI({ user }: { user: UserProfile | null }) {
             formData={verificationForm}
             setFormData={setVerificationForm}
             onSubmit={handleVerifySubmit}
+            user={user}
+          />
+        )}
+        {isManagingDenominators && (
+          <DenominatorsModal 
+            onClose={() => setIsManagingDenominators(false)}
+            denominators={denominators}
+            user={user}
+          />
+        )}
+        {isEnrollingDevice && (
+          <DeviceEnrollmentModal 
+            onClose={() => setIsEnrollingDevice(false)}
+            user={user}
+          />
+        )}
+        {isViewingDailyChecks && selectedMonitoring && (
+          <DailyCheckModal 
+            onClose={() => { setIsViewingDailyChecks(false); setSelectedMonitoring(null); }}
+            monitoring={selectedMonitoring}
+            user={user}
           />
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function DenominatorsModal({ onClose, denominators, user }: any) {
+  const currentMonthStr = new Date().toISOString().slice(0, 7);
+  const existing = denominators.find((d: any) => d.month === currentMonthStr) || {};
+  
+  const [form, setForm] = useState({
+    patientsAtRisk: existing.patientsAtRisk || 5000,
+    ventDays: existing.ventDays || 1000,
+    lineDays: existing.lineDays || 1200,
+    cathDays: existing.cathDays || 1500,
+    procedureDays: existing.procedureDays || 1000
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const q = query(collection(db, 'hai_denominators'), where('month', '==', currentMonthStr));
+      const snap = await getDocs(q);
+      
+      if (snap.empty) {
+        await addDoc(collection(db, 'hai_denominators'), {
+          ...form,
+          month: currentMonthStr,
+          updatedAt: serverTimestamp(),
+          updatedBy: user.uid
+        });
+      } else {
+        await updateDoc(doc(db, 'hai_denominators', snap.docs[0].id), {
+          ...form,
+          updatedAt: serverTimestamp(),
+          updatedBy: user.uid
+        });
+      }
+      onClose();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'hai_denominators');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/10 backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
+        <div className="p-6 bg-slate-900 flex justify-between items-center">
+          <h3 className="text-lg font-bold text-white uppercase tracking-tight">Monthly Denominators</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white"><XCircle className="w-6 h-6" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-8 space-y-6">
+           <p className="text-[10px] font-black text-brand-primary uppercase tracking-widest mb-4">Current Month: {currentMonthStr}</p>
+           <div className="grid grid-cols-2 gap-4">
+              {[
+                { label: 'Patients At Risk', key: 'patientsAtRisk' },
+                { label: 'Vent Days (VAP)', key: 'ventDays' },
+                { label: 'Line Days (CLABSI)', key: 'lineDays' },
+                { label: 'Cath Days (CAUTI)', key: 'cathDays' },
+                { label: 'Total Procedures (SSI)', key: 'procedureDays' }
+              ].map(f => (
+                <div key={f.key}>
+                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">{f.label}</label>
+                   <input 
+                     type="number" 
+                     className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold"
+                     value={form[f.key as keyof typeof form]}
+                     onChange={e => setForm({...form, [f.key]: parseInt(e.target.value) || 0})}
+                   />
+                </div>
+              ))}
+           </div>
+           <button type="submit" className="w-full btn-primary py-3 font-black uppercase tracking-widest">Update Statistics</button>
+        </form>
+      </motion.div>
     </div>
   );
 }
@@ -801,8 +1085,8 @@ function VerificationModal({ onClose, log, formData, setFormData, onSubmit }: an
                  </div>
                  <div className="space-y-4">
                     <label className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Corrective Action (If Non-Compliant)</label>
-                    <div className="grid grid-cols-1 gap-2">
-                       {['Reinforced proper technique', 'Educated staff', 'Escalated to unit head'].map(action => (
+                    <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                       {IPCU_CORRECTIVE_ACTIONS.map(action => (
                          <label key={action} className="flex items-center gap-3 p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors cursor-pointer">
                             <input 
                               type="checkbox" 
@@ -814,7 +1098,7 @@ function VerificationModal({ onClose, log, formData, setFormData, onSubmit }: an
                                 setFormData({...formData, correctiveAction: updated});
                               }}
                             />
-                            <span className="text-[10px] font-bold text-slate-300">{action}</span>
+                            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-tight">{action}</span>
                          </label>
                        ))}
                     </div>
@@ -1399,11 +1683,11 @@ function BundleModal({ onClose, formData, setFormData, onSubmit }: any) {
   );
 }
 
-function HAIValidationModal({ onClose, haiCase, onSubmit }: any) {
+function HAIValidationModal({ onClose, haiCase, onSubmit, user }: any) {
   const [formData, setFormData] = useState({
     status: haiCase.status,
     decisionNote: haiCase.decisionNote || '',
-    validatorName: '',
+    validatorName: user?.name || '',
     date: new Date().toISOString().split('T')[0],
     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
   });
@@ -1473,6 +1757,397 @@ function HAIValidationModal({ onClose, haiCase, onSubmit }: any) {
   );
 }
 
+
+  );
+}
+
+function DeviceEnrollmentModal({ onClose, user }: { onClose: () => void, user: UserProfile | null }) {
+  const [form, setForm] = useState<Partial<BundleMonitoring>>({
+    population: 'Adult',
+    patientName: '',
+    hospNo: '',
+    age: '',
+    gender: 'Male',
+    unit: UNITS[0],
+    deviceType: 'CLABSI',
+    deviceDetail: 'IJ Line',
+    insertionDate: new Date().toISOString().split('T')[0],
+    insertionTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+    status: 'ACTIVE',
+    insertionBundle: {
+      date: new Date().toISOString().split('T')[0],
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+      inserterName: '',
+      inserterType: 'Physician',
+      elements: {},
+      isCompliant: false
+    }
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    try {
+      const insertionElements = CLABSI_DETAILED_BUNDLES.INSERTION;
+      const elementsMap = form.insertionBundle?.elements || {};
+      const compliantCount = insertionElements.filter(el => elementsMap[el]).length;
+      const isCompliant = compliantCount === insertionElements.length;
+
+      await addDoc(collection(db, 'bundle_monitorings'), {
+        ...form,
+        insertionBundle: {
+          ...form.insertionBundle,
+          isCompliant,
+        },
+        dailyChecks: {},
+        staffId: user.uid,
+        staffName: user.name,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      onClose();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bundle_monitorings');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-4xl bg-white sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+        <div className="p-4 sm:p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
+          <div className="flex flex-col">
+            <h3 className="text-lg font-bold text-white uppercase tracking-tight">Enroll Device Monitoring</h3>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">New Clinical Monitoring Record</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white"><XCircle className="w-6 h-6" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-8 custom-scrollbar">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-black text-teal-600 uppercase tracking-widest border-b border-teal-100 pb-2">Patient Information</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Patient Name</label>
+                  <input required className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={form.patientName} onChange={e => setForm({...form, patientName: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Hosp #</label>
+                  <input required className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={form.hospNo} onChange={e => setForm({...form, hospNo: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Population</label>
+                  <select className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={form.population} onChange={e => setForm({...form, population: e.target.value as Population})}>
+                    <option value="Adult">Adult</option>
+                    <option value="Pediatric">Pediatric</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Age</label>
+                  <input required className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={form.age} onChange={e => setForm({...form, age: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Gender</label>
+                  <select className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={form.gender} onChange={e => setForm({...form, gender: e.target.value as any})}>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-black text-teal-600 uppercase tracking-widest border-b border-teal-100 pb-2">Device Details</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Device Type</label>
+                  <select className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={form.deviceType} onChange={e => setForm({...form, deviceType: e.target.value as any})}>
+                    <option value="CLABSI">CLABSI (Central Line)</option>
+                    <option value="VAP">VAP (Ventilator)</option>
+                    <option value="CAUTI">CAUTI (Foley)</option>
+                    <option value="SSI">SSI (Surgical Site)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Detail (Site/Type)</label>
+                  <input className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={form.deviceDetail} onChange={e => setForm({...form, deviceDetail: e.target.value})} placeholder="e.g. IJ Line" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Unit</label>
+                  <select className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})}>
+                    {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Insertion Date</label>
+                  <input type="date" required className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={form.insertionDate} onChange={e => setForm({...form, insertionDate: e.target.value})} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {form.deviceType === 'CLABSI' && (
+            <div className="space-y-6 pt-4">
+              <div className="p-6 bg-teal-50 rounded-2xl border border-teal-100">
+                <h4 className="text-xs font-black text-teal-900 uppercase tracking-tight mb-4 flex items-center gap-2">
+                  <Plus className="w-4 h-4" />
+                  Central Line Insertion Bundle (BOC-027)
+                </h4>
+                <div className="grid grid-cols-1 gap-3">
+                   {CLABSI_DETAILED_BUNDLES.INSERTION.map(el => (
+                     <label key={el} className="flex items-start gap-3 p-3 bg-white rounded-xl border border-teal-100 hover:bg-teal-50/50 cursor-pointer transition-colors">
+                       <input 
+                         type="checkbox" 
+                         className="mt-1 w-4 h-4 text-teal-600 rounded bg-slate-100 border-slate-300 focus:ring-teal-500"
+                         checked={form.insertionBundle?.elements[el] || false}
+                         onChange={e => {
+                           const newElements = { ...form.insertionBundle?.elements, [el]: e.target.checked };
+                           setForm({...form, insertionBundle: { ...form.insertionBundle!, elements: newElements }});
+                         }}
+                       />
+                       <span className="text-[10px] font-bold text-slate-700 leading-tight">{el}</span>
+                     </label>
+                   ))}
+                </div>
+                <div className="grid grid-cols-2 gap-4 mt-6">
+                   <div>
+                     <label className="text-[9px] font-black text-teal-600 uppercase tracking-widest mb-1 block">Performed By (Inserter Name)</label>
+                     <input className="w-full px-4 py-2 bg-white border border-teal-100 rounded-lg text-xs font-bold" value={form.insertionBundle?.inserterName} onChange={e => setForm({...form, insertionBundle: {...form.insertionBundle!, inserterName: e.target.value}})} />
+                   </div>
+                   <div>
+                      <label className="text-[9px] font-black text-teal-600 uppercase tracking-widest mb-1 block">Inserter Type</label>
+                      <select className="w-full px-4 py-2 bg-white border border-teal-100 rounded-lg text-xs font-bold" value={form.insertionBundle?.inserterType} onChange={e => setForm({...form, insertionBundle: {...form.insertionBundle!, inserterType: e.target.value as any}})}>
+                        <option value="Physician">Physician</option>
+                        <option value="Nurse">Nurse</option>
+                      </select>
+                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="pt-6 shrink-0 mt-auto">
+             <button type="submit" className="w-full btn-primary py-4 text-xs font-black uppercase tracking-widest shadow-xl shadow-teal-900/10">Start Clinical Monitoring</button>
+          </div>
+        </form>
+      </motion.div>
+    </div>
+  );
+}
+
+function DailyCheckModal({ onClose, monitoring, user }: { onClose: () => void, monitoring: BundleMonitoring, user: UserProfile | null }) {
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedShift, setSelectedShift] = useState<'AM' | 'PM' | 'Night'>('AM');
+  const [isAddingCheck, setIsAddingCheck] = useState(false);
+  
+  const [checkForm, setCheckForm] = useState<Partial<DailyShiftCheck>>({
+    done: true,
+    elements: {},
+    clinicalCriteria: {
+      fever: false,
+      chills: false,
+      hypotension: false,
+      isSigned: true
+    }
+  });
+
+  const dailyCheck = monitoring.dailyChecks?.[selectedDate];
+  const shiftCheck = dailyCheck?.shifts?.[selectedShift];
+
+  const handleAddCheck = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    try {
+      const updatedDailyChecks = { ...monitoring.dailyChecks };
+      if (!updatedDailyChecks[selectedDate]) {
+        updatedDailyChecks[selectedDate] = {
+          date: selectedDate,
+          shifts: {
+            AM: { done: false, elements: {} },
+            PM: { done: false, elements: {} },
+            Night: { done: false, elements: {} }
+          }
+        };
+      }
+      
+      updatedDailyChecks[selectedDate].shifts[selectedShift] = {
+        ...checkForm,
+        done: true,
+        staffId: user.uid,
+        staffName: user.name,
+        updatedAt: serverTimestamp()
+      } as DailyShiftCheck;
+
+      await updateDoc(doc(db, 'bundle_monitorings', monitoring.id!), {
+        dailyChecks: updatedDailyChecks,
+        updatedAt: serverTimestamp()
+      });
+      setIsAddingCheck(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'bundle_monitorings');
+    }
+  };
+
+  const handleMissDay = async () => {
+    const reason = window.prompt("Reason for missing this day?");
+    if (!reason || !user) return;
+    try {
+      const updatedDailyChecks = { ...monitoring.dailyChecks };
+      updatedDailyChecks[selectedDate] = {
+        date: selectedDate,
+        shifts: {
+          AM: { done: false, elements: {} },
+          PM: { done: false, elements: {} },
+          Night: { done: false, elements: {} }
+        },
+        missed: true,
+        missedReason: reason
+      };
+
+      await updateDoc(doc(db, 'bundle_monitorings', monitoring.id!), {
+        dailyChecks: updatedDailyChecks,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+       handleFirestoreError(error, OperationType.UPDATE, 'bundle_monitorings');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-5xl bg-white sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+        <div className="p-4 sm:p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
+          <div className="flex items-center gap-4">
+             <div className="p-2 bg-teal-500/20 rounded-xl">
+                <Calendar className="w-6 h-6 text-teal-400" />
+             </div>
+             <div>
+                <h3 className="text-lg font-bold text-white uppercase tracking-tight">{monitoring.patientName}</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{monitoring.deviceType} Monitoring Log</p>
+             </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={handleMissDay}
+              className="text-[10px] font-black bg-rose-500/20 text-rose-400 px-4 py-2 rounded-xl hover:bg-rose-500 hover:text-white transition-all uppercase tracking-widest"
+            >
+              Mark Day as Missed
+            </button>
+            <button onClick={onClose} className="text-slate-400 hover:text-white"><XCircle className="w-6 h-6" /></button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-8 custom-scrollbar bg-slate-50/50">
+          {dailyCheck?.missed && (
+             <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-4">
+                <XCircle className="w-5 h-5 text-rose-500" />
+                <div>
+                   <p className="text-xs font-black text-rose-600 uppercase tracking-tight">Day Marked as Missed</p>
+                   <p className="text-[10px] font-bold text-rose-400">Reason: {dailyCheck.missedReason}</p>
+                </div>
+             </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-4 sm:items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+             <div className="flex gap-4">
+               <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Select Date</label>
+                  <input type="date" className="px-4 py-2 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
+               </div>
+               <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Select Shift</label>
+                  <div className="flex bg-slate-100 p-1 rounded-xl">
+                    {(['AM', 'PM', 'Night'] as const).map(s => (
+                      <button key={s} onClick={() => setSelectedShift(s)} className={cn("px-4 py-1.5 text-[10px] font-black rounded-lg transition-all", selectedShift === s ? "bg-white shadow-sm text-teal-600" : "text-slate-400 hover:text-slate-500")}>{s}</button>
+                    ))}
+                  </div>
+               </div>
+             </div>
+
+             {!shiftCheck?.done && !dailyCheck?.missed && (
+               <button onClick={() => setIsAddingCheck(true)} className="px-6 py-2.5 bg-teal-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-teal-900/10">Add {selectedShift} Check</button>
+             )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+             {/* Daily Checklist */}
+             <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest border-b pb-2">Maintenance Bundle Elements</h4>
+                {shiftCheck?.done ? (
+                  <div className="space-y-2">
+                    {CLABSI_DETAILED_BUNDLES.MAINTENANCE.map(el => (
+                      <div key={el} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-100 italic">
+                         {shiftCheck.elements[el] ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <XCircle className="w-4 h-4 text-slate-300" />}
+                         <span className="text-[10px] font-bold text-slate-600">{el}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : isAddingCheck ? (
+                  <div className="space-y-2">
+                    {CLABSI_DETAILED_BUNDLES.MAINTENANCE.map(el => (
+                      <label key={el} className="flex items-start gap-3 p-3 bg-white rounded-xl border border-slate-200 hover:bg-teal-50/50 cursor-pointer transition-colors">
+                        <input 
+                           type="checkbox" 
+                           className="mt-1 w-4 h-4 text-teal-600 rounded bg-slate-50 border-slate-300"
+                           checked={checkForm.elements?.[el] || false}
+                           onChange={e => setCheckForm({...checkForm, elements: {...checkForm.elements, [el]: e.target.checked}})}
+                        />
+                        <span className="text-[10px] font-bold text-slate-700 leading-tight">{el}</span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center">
+                    <p className="text-[10px] font-black text-slate-300 uppercase italic">No data recorded for this shift</p>
+                  </div>
+                )}
+             </div>
+
+             {/* Clinical Criteria */}
+             <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest border-b pb-2">Clinical Criteria</h4>
+                {shiftCheck?.done ? (
+                   <div className="p-6 bg-white rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                      <div className="grid grid-cols-1 gap-2">
+                         {Object.entries(shiftCheck.clinicalCriteria || {}).map(([key, val]) => (
+                            key !== 'isSigned' && (
+                              <div key={key} className="flex items-center justify-between text-[10px] font-bold uppercase tracking-tight">
+                                 <span className="text-slate-500">{key}</span>
+                                 <span className={val ? "text-rose-500" : "text-emerald-500"}>{val ? 'Present' : 'Absent'}</span>
+                              </div>
+                            )
+                         ))}
+                      </div>
+                      <div className="pt-4 border-t text-center">
+                         <p className="text-[9px] font-black text-teal-600 uppercase italic">Digitally Signed: {shiftCheck.staffName}</p>
+                      </div>
+                   </div>
+                ) : isAddingCheck ? (
+                   <div className="p-6 bg-white rounded-3xl border border-teal-200 shadow-lg shadow-teal-900/5 space-y-6">
+                      <div className="space-y-3">
+                         {(monitoring.population === 'Adult' ? CLABSI_DETAILED_BUNDLES.CLINICAL_ADULT : CLABSI_DETAILED_BUNDLES.CLINICAL_PEDIA).map(c => (
+                            <label key={c} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
+                               <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight">{c}</span>
+                               <div className="flex gap-2">
+                                  <button type="button" onClick={() => setCheckForm({...checkForm, clinicalCriteria: {...checkForm.clinicalCriteria!, [c]: true}})} className={cn("px-4 py-1 text-[9px] font-black rounded-lg", checkForm.clinicalCriteria?.[c as any] ? "bg-rose-500 text-white" : "bg-white text-slate-400 border border-slate-200")}>Yes</button>
+                                  <button type="button" onClick={() => setCheckForm({...checkForm, clinicalCriteria: {...checkForm.clinicalCriteria!, [c]: false}})} className={cn("px-4 py-1 text-[9px] font-black rounded-lg", checkForm.clinicalCriteria?.[c as any] === false ? "bg-emerald-500 text-white" : "bg-white text-slate-400 border border-slate-200")}>No</button>
+                               </div>
+                            </label>
+                         ))}
+                      </div>
+                      <button onClick={handleAddCheck} className="w-full btn-primary py-4 text-[10px] font-black uppercase tracking-widest shadow-xl shadow-teal-900/10">Submit {selectedShift} Observations</button>
+                   </div>
+                ) : (
+                  <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center">
+                    <p className="text-[10px] font-black text-slate-300 uppercase italic">Waiting for clinical data...</p>
+                  </div>
+                )}
+             </div>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
 
 function RateTile({ label, rate, unit, baseline }: { label: string, rate: number, unit: string, baseline: number }) {
   const isRising = rate > baseline;

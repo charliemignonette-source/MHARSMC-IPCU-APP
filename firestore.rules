@@ -9,23 +9,19 @@ service cloud.firestore {
 
     // --- Helpers ---
     function isSignedIn() { return request.auth != null; }
-    function isGoogleUser() { return isSignedIn() && request.auth.token.firebase.sign_in_provider == 'google.com' && request.auth.token.email_verified == true; }
     function getUserData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
     function userExists() { return exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
-    
-    function hasRole(role) { 
-      return userExists() && getUserData().role == role;
-    }
-    
+    function hasRole(role) { return userExists() && getUserData().role == role; }
+    function isGoogleUser() { return isSignedIn() && request.auth.token.firebase.sign_in_provider == 'google.com'; }
     function isAdmin() { 
       return isSignedIn() && (
         request.auth.token.email == 'charliemignonette@gmail.com' ||
         request.auth.token.email == 'beeohend@gmail.com' ||
         request.auth.token.email == 'pharmacy@mharsmc.doh.gov.ph' ||
-        (isGoogleUser() && hasRole('ADMIN'))
+        hasRole('ADMIN')
       ); 
     }
-    function isIPCN() { return isSignedIn() && (hasRole('IPCN') || isAdmin()); }
+    function isIPCN() { return isSignedIn() && (hasRole('IPCN') || hasRole('ADMIN') || isAdmin()); }
     function isUser() { return isSignedIn() && (userExists() || isAdmin()); }
     function isPharmacy() { 
       return isSignedIn() && (
@@ -34,7 +30,7 @@ service cloud.firestore {
         request.auth.token.email == 'pharmacy@mharsmc.doh.gov.ph'
       ); 
     }
-    function isApprover() { return isSignedIn() && (hasRole('APPROVER') || isAdmin() || (userExists() && getUserData().role in ['APPROVER', 'IPCN', 'ADMIN'])); }
+    function isApprover() { return isSignedIn() && (hasRole('APPROVER') || isIPCN() || isAdmin()); }
     
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
@@ -56,22 +52,19 @@ service cloud.firestore {
 
     function isValidAudit(data) {
       return data.keys().hasAll(['type', 'unit', 'auditorId', 'timestamp', 'score', 'total']) &&
-             data.auditorId == request.auth.uid &&
              data.score is number && data.total is number && data.score <= data.total &&
              isValidString(data.unit, 100);
     }
 
-    function isValidAMSReq(data) {
+    function isValidAntimicrobialReq(data) {
       return data.keys().hasAll(['type', 'patientName', 'antibiotic', 'prescriberId', 'status']) &&
-             data.prescriberId == request.auth.uid &&
-             data.status == 'PENDING' &&
+             data.status in ['PENDING', 'APPROVED', 'DENIED', 'DISPENSED'] &&
              isValidString(data.patientName, 100);
     }
 
     function isValidNSIRep(data) {
       return data.keys().hasAll(['reporterId', 'status', 'incident', 'staff', 'description', 'actions']) &&
-             data.reporterId == request.auth.uid &&
-             data.status == 'PENDING';
+             data.status in ['PENDING', 'VALIDATED', 'CLOSED'];
     }
 
     function isValidHAICase(data) {
@@ -81,13 +74,11 @@ service cloud.firestore {
     }
 
     function isValidBOCLog(data) {
-      return data.keys().hasAll(['date', 'unit', 'patientName', 'staffId', 'compliancePercentage']) &&
-             data.staffId == request.auth.uid;
+      return data.keys().hasAll(['date', 'unit', 'patientName', 'staffId', 'compliancePercentage']);
     }
 
     function isValidOutbreak(data) {
       return data.keys().hasAll(['detectedAt', 'reportedBy', 'reporterId', 'status']) &&
-             data.reporterId == request.auth.uid &&
              data.status in ['Suspected', 'Under Investigation', 'Confirmed', 'Controlled', 'Closed'];
     }
 
@@ -113,64 +104,80 @@ service cloud.firestore {
     match /audits/{auditId} {
       allow get: if isSignedIn() && (existing().auditorId == request.auth.uid || isIPCN() || isAdmin());
       allow list: if isSignedIn() && (resource.data.auditorId == request.auth.uid || isIPCN() || isAdmin());
-      allow create: if (isSignedIn() && isValidAudit(incoming()));
+      allow create: if isSignedIn() && isValidAudit(incoming()) && incoming().auditorId == request.auth.uid && isValidId(auditId);
       allow update: if (isIPCN() || isAdmin()) && 
-                    incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification']);
-      allow delete: if isAdmin();
+                    incoming().auditorId == existing().auditorId &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus']);
+      allow delete: if isAdmin() || isIPCN();
     }
 
     match /nsi_reports/{reportId} {
       allow get: if isSignedIn() && (existing().reporterId == request.auth.uid || isIPCN() || isAdmin());
       allow list: if isSignedIn() && (resource.data.reporterId == request.auth.uid || isIPCN() || isAdmin());
-      allow create: if isSignedIn() && isValidNSIRep(incoming());
+      allow create: if isSignedIn() && isValidNSIRep(incoming()) && incoming().reporterId == request.auth.uid && incoming().status == 'PENDING' && isValidId(reportId);
       allow update: if (isIPCN() || isAdmin()) && 
-                    incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validation', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification']);
-      allow delete: if isAdmin();
+                    incoming().reporterId == existing().reporterId &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validation', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus']);
+      allow delete: if isAdmin() || isIPCN();
     }
 
     match /ams_requests/{reqId} {
       allow get: if isSignedIn() && (existing().prescriberId == request.auth.uid || isApprover() || isAdmin() || isPharmacy());
       allow list: if isSignedIn() && (resource.data.prescriberId == request.auth.uid || isApprover() || isAdmin() || isPharmacy());
-      allow create: if isSignedIn() && isValidAMSReq(incoming());
-      allow update: if (
-        (isApprover() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewerId', 'reviewerEmail', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt', 'requestingPhysician'])) ||
-        (isIPCN() && incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification'])) ||
-        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'overrideReason', 'manualApproval', 'requestingPhysician', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reviewerId', 'reviewerEmail', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt', 'dispensedBy', 'dispensedAt'])) ||
-        (isPharmacy() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'dispensedBy', 'dispensedAt']) && existing().status == 'APPROVED')
+      allow create: if isSignedIn() && isValidAntimicrobialReq(incoming()) && incoming().prescriberId == request.auth.uid && incoming().status == 'PENDING' && isValidId(reqId);
+      allow update: if (isApprover() || isAdmin() || isPharmacy() || isOwner(existing().prescriberId)) && (
+        (isOwner(existing().prescriberId) && existing().status == 'PENDING' && incoming().diff(existing()).affectedKeys().hasOnly(['patientName', 'patientHrn', 'firstName', 'middleName', 'lastName', 'age', 'sex', 'hospNo', 'ward', 'unit', 'dept', 'diagnosis', 'focusOfInfection', 'indicationForUse', 'antibiotic', 'dose', 'frequency', 'route', 'duration', 'isStat', 'isLoadingDose', 'weight', 'creatinine', 'egfr', 'procedure', 'updatedAt'])) ||
+        (isApprover() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewerId', 'reviewerEmail', 'reviewerName', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt', 'requestingPhysician'])) ||
+        (isIPCN() && incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus'])) ||
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'overrideReason', 'manualApproval', 'requestingPhysician', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reviewerId', 'reviewerEmail', 'reviewerName', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt', 'dispensedBy', 'dispensedAt', 'monitoringMethod', 'monitoringStatus'])) ||
+        (isPharmacy() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'dispensedBy', 'dispensedAt']) && (existing().status == 'APPROVED' || existing().status == 'DISPENSED'))
       );
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isIPCN();
     }
 
     match /hai_cases/{caseId} {
       allow get: if isSignedIn() && (existing().auditorId == request.auth.uid || isIPCN() || isAdmin());
       allow list: if isSignedIn() && (resource.data.auditorId == request.auth.uid || isIPCN() || isAdmin());
-      allow create: if isSignedIn() && isValidHAICase(incoming());
+      allow create: if isSignedIn() && isValidHAICase(incoming()) && isValidId(caseId);
       allow update: if (isIPCN() || isAdmin()) && 
-                   incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validatedBy', 'validatedAt', 'validatorName', 'isValidated', 'decisionNote', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'validationResult']);
-      allow delete: if isAdmin();
+                   incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validatedBy', 'validatedAt', 'validatorName', 'isValidated', 'decisionNote', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'validationResult', 'monitoringMethod', 'monitoringStatus', 'date', 'time', 'updatedAt']);
+      allow delete: if isAdmin() || isIPCN();
     }
 
     match /boc_logs/{logId} {
       allow get: if isSignedIn() && (existing().staffId == request.auth.uid || isIPCN() || isAdmin());
       allow list: if isSignedIn() && (resource.data.staffId == request.auth.uid || isIPCN() || isAdmin());
-      allow create: if isSignedIn() && isValidBOCLog(incoming());
+      allow create: if isSignedIn() && isValidBOCLog(incoming()) && incoming().staffId == request.auth.uid && isValidId(logId);
       allow update: if (isIPCN() || isAdmin()) && 
-                   incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'verification', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification']);
-      allow delete: if isAdmin();
+                   incoming().staffId == existing().staffId &&
+                   incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'verification', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus']);
+      allow delete: if isAdmin() || isIPCN();
     }
 
     match /outbreaks/{outbreakId} {
       allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidOutbreak(incoming());
+      allow create: if isSignedIn() && isValidOutbreak(incoming()) && incoming().reporterId == request.auth.uid && incoming().status == 'Suspected' && isValidId(outbreakId);
       allow update: if (isIPCN() || isAdmin()) && 
-                   incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validation', 'dateClosed', 'closureReason', 'lineList', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification']);
-      allow delete: if isAdmin();
+                   incoming().reporterId == existing().reporterId &&
+                   incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validation', 'dateClosed', 'closureReason', 'lineList', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus']);
+      allow delete: if isAdmin() || isIPCN();
+    }
+
+    match /validation_logs/{logId} {
+      allow get, list: if isIPCN() || isAdmin();
+      allow create: if isIPCN() || isAdmin();
+      allow delete: if isAdmin() || isIPCN();
     }
 
     match /ipcu_actions/{actionId} {
       allow get, list: if isSignedIn() && (existing().staffId == request.auth.uid || isIPCN() || isAdmin());
       allow create: if isIPCN() || isAdmin();
       allow delete: if isAdmin();
+    }
+
+    match /hai_denominators/{id} {
+      allow read: if isSignedIn();
+      allow write: if isIPCN();
     }
   }
 }

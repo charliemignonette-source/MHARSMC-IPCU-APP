@@ -31,7 +31,7 @@ export function getAntibioticRecommendation(selectedAntibiotics: string[], speci
   const mainDrug = selectedAntibiotics[0];
   const data = INSTITUTIONAL_ANTIBIOGRAM_DATA;
 
-  output += `📋 AMS INTELLIGENCE: ${mainDrug.toUpperCase()}\n`;
+  output += `📋 ANTIMICROBIAL STEWARDSHIP INTELLIGENCE: ${mainDrug.toUpperCase()}\n`;
   output += `Analysis based on 2024 Antibiogram (N=15,998)\n\n`;
 
   // 1. DRUG SPECIFIC EVALUATION
@@ -92,7 +92,7 @@ export function getAntibioticRecommendation(selectedAntibiotics: string[], speci
   // 3. STEWARDSHIP REMINDERS
   output += `\n✅ ACTION REQUIRED:\n`;
   output += `• Obtain blood/specimen cultures BEFORE the first dose.\n`;
-  output += `• Complete AMS approval (ID Consultation) for all restricted agents.\n`;
+  output += `• Complete Antimicrobial Stewardship approval (ID Consultation) for all restricted agents.\n`;
   output += `• Review appropriateness within 48-72 hours post-C&S results.`;
 
   return output;

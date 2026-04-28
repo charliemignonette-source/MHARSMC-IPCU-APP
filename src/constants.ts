@@ -82,6 +82,43 @@ export const BUNDLE_ELEMENTS = {
   ]
 };
 
+export const CLABSI_DETAILED_BUNDLES = {
+  INSERTION: [
+    'Proper hand hygiene (5 moments practiced)',
+    'Best insertion site chosen (minimize infection/non-infectious complications)',
+    '0.5% Chlorhexidine in alcohol prep scrubbed for 30s, allowed to dry for 2m',
+    'Inserter and assistant practiced full sterile barrier (gown, gloves, cap, mask)',
+    'Full body drape used for the patient',
+    'Sterile gauze or transparent semi-permeable dressing used'
+  ],
+  MAINTENANCE: [
+    'Review of central line necessity',
+    'Hand hygiene practiced before/after maintenance/access',
+    'Contact precautions practiced (gloves, mask, shield, gown)',
+    'Wet, soiled, dislodged dressing replaced using aseptic technique',
+    'Scrub access port/hub with friction before use (0.5% chlorhexidine/alcohol)',
+    'Sterile devices used to access catheter'
+  ],
+  DRESSING_ADULT: [
+    'Transparent dressing changed every 7 days',
+    'Sterile gauze changed every 24 hours',
+    'Feeding line feeding change every 24 hours',
+    'Lipids/Blood change every 24 hours',
+    'Propofol administration change every 12 hours'
+  ],
+  CLINICAL_ADULT: [
+    'Fever (> 38 C)',
+    'Chills',
+    'Hypotension'
+  ],
+  CLINICAL_PEDIA: [
+    'Fever / Hypothermia',
+    'Apnea',
+    'Bradycardia',
+    'Hypotension'
+  ]
+};
+
 export const NSI_CONSTANTS = {
   EXPOSURE_TYPES: [
     'Needle-stick', 'Sharp injury', 'Splash to mucous membrane', 'Splash to non-intact skin', 'Other'
@@ -99,12 +136,169 @@ export const NSI_CONSTANTS = {
   ],
   REPORTED_TO: ['Supervisor', 'Occupational Health Unit', 'IPCU'],
   ROOT_CAUSES: [
-    'Unsafe practice', 'Improper disposal', 'Lack of PPE', 'Equipment failure', 'Staff fatigue', 'Other'
+    'Unsafe Practice', 
+    'Improper Disposal', 
+    'Lack of PPE', 
+    'Equipment Failure', 
+    'Staff Fatigue', 
+    'Sudden Patient Movement', 
+    'Needle Recapping', 
+    'Overfilled Sharps Container',
+    'Inadequate Workspace',
+    'Cognitive Distraction/Multitasking',
+    'Workplace Environment/Congestion',
+    'Lack of Standard Safety Devices',
+    'Procedural Non-compliance',
+    'Inadequate Clinical Supervision',
+    'Inadequate Communication during Transfer',
+    'Sharps Container Placement Distance',
+    'Emergency Resuscitation Chaos',
+    'Other'
   ],
   CONTRIBUTING_FACTORS: [
-    'High workload', 'Incomplete training', 'Poor lighting', 'Non-compliance with sharps protocol', 'Other'
+    'High Workload', 
+    'Incomplete Training', 
+    'Poor Lighting', 
+    'Non-compliance with Sharps Protocol', 
+    'Inadequate Supervision', 
+    'Distractions/Interruptions', 
+    'Lack of Safety Devices',
+    'Communication Breakdown',
+    'Systemic Flow Deficiencies',
+    'Institutional Knowledge Gap',
+    'Psychological Stress/Burnout',
+    'Manual Sharps Handling Habits',
+    'Supply Chain Shortage (Safety Sharps)',
+    'Improper Handover of Open Sharps',
+    'Surface Instability during Procedure',
+    'Other'
   ],
   CORRECTIVE_ACTIONS: [
-    'Re-education of staff', 'Reinforcement of sharps safety', 'Replace sharps container', 'Environmental correction', 'Escalation to Unit Head', 'Other'
+    'Re-education of staff', 
+    'Reinforcement of sharps safety', 
+    'Replace sharps container', 
+    'Environmental correction',
+    'Escalation to Unit Head', 
+    'Skills Lab Simulation', 
+    'PEP Counseling', 
+    'Work Practice Modification', 
+    'Procurement Request',
+    'Mentorship / Shadowing Program',
+    'Unit-specific IPC Workshop',
+    'Safety Sharps Trials/Rollout',
+    'Procedural Drills/Walkthroughs',
+    'Environmental Re-organization',
+    'Incident Root Cause Review Meeting',
+    'Other'
   ]
 };
+
+export const MONITORING_METHODS = [
+  'Direct Observation',
+  'Fluorescent Gel / Marker',
+  'Swab Cultures',
+  'ATP System',
+  'Agar Slide Cultures',
+  'Other'
+];
+
+export const IPCU_REASONING_GROUPS = [
+  {
+    category: 'Procedures / Methods',
+    options: [
+      { value: 'meet_criteria', label: 'Meets NHSN/CDC Surveillance Criteria' },
+      { value: 'no_criteria', label: 'Does Not Meet Clinical Definitions' },
+      { value: 'inc_doc', label: 'Clinical Documentation Incomplete' },
+      { value: 'ind_correct', label: 'Antibiotic Indication Verified' },
+      { value: 'prot_viol', label: 'Violation of Standard Precautions Protocol' },
+      { value: 'device_dwell', label: 'Prolonged Device Dwell Time (>72h)' },
+      { value: 'atypical_pres', label: 'Atypical Clinical Presentation Review' },
+      { value: 'emergent_case', label: 'Emergent/Unplanned Case - Deviation Expected' }
+    ]
+  },
+  {
+    category: 'Equipment',
+    options: [
+      { value: 'sterile_lapse', label: 'Improper Sterilization / Disinfection Process' },
+      { value: 'sys_failure', label: 'Systemic Facility Maintenance Failure' },
+      { value: 'device_defect', label: 'Medical Device Defect / Malfunction' }
+    ]
+  },
+  {
+    category: 'Materials',
+    options: [
+      { value: 'ppe_shortage', label: 'PPE Supply Chain Shortage' },
+      { value: 'supplies_inc', label: 'Inadequate Cleaning/IPC Supplies' },
+      { value: 'expired_mats', label: 'Expired IPC Consumables in Use' }
+    ]
+  },
+  {
+    category: 'People',
+    options: [
+      { value: 'low_staffing', label: 'Staffing Levels Below Safe Threshold' },
+      { value: 'handover_fail', label: 'Handover Communication Failure Identified' },
+      { value: 'staff_fatigue', label: 'Staff Fatigue / High Cognitive Load' },
+      { value: 'training_gap', label: 'Institutional Knowledge/Training Gap' },
+      { value: 'non_adherence', label: 'Behavioral Non-adherence' }
+    ]
+  },
+  {
+    category: 'Environment',
+    options: [
+      { value: 'env_contam', label: 'Environmental Contamination Identified' },
+      { value: 'epi_link', label: 'Epidemiological Link Established' },
+      { value: 'above_base', label: 'Above Institutional Baseline / Threshold' },
+      { value: 'congestion', label: 'Unit Congestion / Poor Layout' }
+    ]
+  },
+  {
+    category: 'Miscellaneous',
+    options: [
+      { value: 'lab_negative', label: 'Microbiological Evidence Negative' },
+      { value: 'audit_ver', label: 'Observational Findings Confirmed' },
+      { value: 'ind_repro', label: 'Inconsistent Results across Multiple Audits' }
+    ]
+  }
+];
+
+export const IPCU_ACTION_GROUPS = [
+  {
+    category: 'Correction (Immediate Action)',
+    options: [
+      'Immediate isolation recommended',
+      'Environmental terminal cleaning mandated',
+      'Device removal recommended',
+      'Equipment maintenance/replacement order',
+      'PPE supply chain audit',
+      'Reinforced proper technique',
+      'Educated staff / Informal training'
+    ]
+  },
+  {
+    category: 'Corrective Action (Root Cause Fix)',
+    options: [
+      'Root Cause Analysis (RCA) triggered',
+      'Educational reinforcement provided to unit',
+      'One-on-one skills competency validation',
+      'Revision of specific unit IPC guidelines',
+      'Antimicrobial Stewardship recommendation issued to physician',
+      'Requested environment/facility modification',
+      'Procurement of specialized IPC supplies',
+      'Peer-to-peer mentoring / Shadowing'
+    ]
+  },
+  {
+    category: 'Preventive Action (Proactive Measures)',
+    options: [
+      'Unit-wide re-audit scheduled',
+      'Escalated to Hospital Infection Committee',
+      'Administrative review requested',
+      'Adjustment of staff-to-patient ratio for safety',
+      'Institutional policy update',
+      'Scheduled multidisciplinary clinical audit',
+      'Issued written directive for practice correction'
+    ]
+  }
+];
+
+export const IPCU_CORRECTIVE_ACTIONS = IPCU_ACTION_GROUPS.flatMap(g => g.options);

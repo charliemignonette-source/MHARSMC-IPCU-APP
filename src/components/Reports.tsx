@@ -10,21 +10,22 @@ import { db } from '../lib/firebase';
 import { UserProfile } from '../types';
 import { cn } from '../lib/utils';
 
-type ReportType = 'COMPLIANCE' | 'AUDITS' | 'AMS' | 'HAI' | 'NSI' | 'OUTBREAK';
-type TimeFrame = 'DAILY' | 'MONTHLY' | 'CUSTOM';
+type ReportType = 'COMPLIANCE' | 'AUDITS' | 'AMS' | 'HAI' | 'NSI' | 'OUTBREAK' | 'CLINICAL_SYSTEMS';
+type TimeFrame = 'DAILY' | 'MONTHLY' | 'ALL_TIME';
 
 export default function Reports({ user }: { user: UserProfile | null }) {
-  const [reportType, setReportType] = useState<ReportType>('COMPLIANCE');
-  const [timeFrame, setTimeFrame] = useState<TimeFrame>('DAILY');
+  const [reportType, setReportType] = useState<ReportType>('CLINICAL_SYSTEMS');
+  const [timeFrame, setTimeFrame] = useState<TimeFrame>('MONTHLY');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedMonth, setSelectedMonth] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
   const [isExporting, setIsExporting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   const reportOptions = [
+    { id: 'CLINICAL_SYSTEMS', label: 'Systems Integrity Report', icon: FileSpreadsheet, description: 'Consolidated Audits, Bundles, & HAI Cases for holistic oversight' },
     { id: 'COMPLIANCE', label: 'Bundle Compliance', icon: Activity, description: 'CLABSI, CAUTI, VAP, SSI bundles' },
-    { id: 'AUDITS', label: 'IPC Audits', icon: ClipboardCheck, description: 'Hand Hygiene & PPE Adherence' },
-    { id: 'AMS', label: 'AMS Stewardship', icon: Stethoscope, description: 'Antibiotic requests & approvals' },
+    { id: 'AUDITS', label: 'IPC Audits', icon: ClipboardCheck, description: 'Hand HH, PPE, and Environmental adherence logs' },
+    { id: 'AMS', label: 'Antimicrobial Stewardship', icon: Stethoscope, description: 'Antibiotic requests & approvals' },
     { id: 'HAI', label: 'HAI Surveillance', icon: Activity, description: 'Detected cases & validation status' },
     { id: 'NSI', label: 'Safety (NSI)', icon: AlertTriangle, description: 'Needle stick injuries & exposure' },
     { id: 'OUTBREAK', label: 'Outbreak Status', icon: ShieldAlert, description: 'Active & closed outbreak events' },
@@ -36,19 +37,14 @@ export default function Reports({ user }: { user: UserProfile | null }) {
       return;
     }
 
-    // Collect all unique keys from all objects to ensure comprehensive headers
-    const allKeys = new Set<string>();
-    data.forEach(obj => {
-      Object.keys(obj).forEach(key => allKeys.add(key));
-    });
-    const headers = Array.from(allKeys);
+    const headers = Object.keys(data[0]);
 
     const csvContent = [
       headers.join(','),
       ...data.map(obj => 
         headers.map(header => {
           const v = obj[header];
-          const str = (v === null || v === undefined) ? '' : String(v).replace(/"/g, '""');
+          const str = (v === null || v === undefined) ? '' : String(v).replace(/"/g, '""').replace(/\n/g, ' ');
           return `"${str}"`;
         }).join(',')
       )
@@ -67,72 +63,285 @@ export default function Reports({ user }: { user: UserProfile | null }) {
     setMessage({ type: 'success', text: `Successfully exported ${data.length} records.` });
   };
 
+  const mapDataRecord = (d: any, type: string) => {
+    const common = {
+      'System ID': d.id,
+      'Source Collection': d.__source || type
+    };
+
+    switch (type) {
+      case 'AUDITS':
+        const auditDetails = d.details || {};
+        let findings = '';
+        
+        if (d.type === 'HH_COMPLIANCE' && auditDetails.hhObs) {
+          const obs = auditDetails.hhObs;
+          findings = Object.entries(obs.indications || {})
+            .filter(([_, active]) => active)
+            .map(([moment, _]) => `${moment}: ${obs.actions?.[moment] || 'missed'}`)
+            .join('; ');
+        } else if (d.type === 'HH_AVAILABILITY') {
+          const missings = [];
+          if (!auditDetails.abhr?.poc) missings.push('No ABHR at POC');
+          if (!auditDetails.sink?.sink) missings.push('No Sink');
+          if (!auditDetails.sink?.soap) missings.push('No Soap');
+          findings = missings.length > 0 ? `Missing: ${missings.join(', ')}` : 'Full Availability';
+        } else if (d.type === 'ENV_CLEANING' && auditDetails.envCleaning?.surfaces) {
+          const missed = Object.entries(auditDetails.envCleaning.surfaces)
+            .filter(([_, status]) => status === 'notCleaned')
+            .map(([surface, _]) => surface)
+            .join(', ');
+          findings = missed ? `Dirty Surfaces: ${missed}` : 'All Cleaned';
+        } else if (d.type === 'PPE_COMPLIANCE' && auditDetails.ppeCompliance) {
+          const ppe = auditDetails.ppeCompliance;
+          findings = `Staff: ${ppe.staffType}${ppe.staffIdentifier ? ' (' + ppe.staffIdentifier + ')' : ''} | Correct PPE: ${ppe.correctPPE ? 'YES' : 'NO'}${ppe.missingItems ? ' (Missing: ' + ppe.missingItems + ')' : ''}`;
+        } else if (d.type === 'SAFE_INJECTION' && auditDetails.safeInjection) {
+          const si = auditDetails.safeInjection;
+          const issues = [];
+          if (!si.hhBefore) issues.push('No HH Before');
+          if (!si.sterileNeedle) issues.push('Needle Reused');
+          if (si.noRecapping === false) issues.push('Recapping Observed');
+          findings = issues.length > 0 ? `Issues: ${issues.join(', ')}` : 'Perfect Technique';
+        }
+
+        return {
+          ...common,
+          'Date': d.createdAt?.toDate ? d.createdAt.toDate().toLocaleString() : (d.timestamp ? new Date(d.timestamp).toLocaleString() : ''),
+          'Auditor': d.auditorName || d.auditorEmail || d.auditorId,
+          'Unit': d.unit,
+          'Audit Type': (d.type || '').replace(/_/g, ' '),
+          'Staff Observed': d.staffIdentifier || 'N/A',
+          'Score': `${d.score}/${d.total}`,
+          'Compliance %': (d.total > 0 ? (d.score / d.total) * 100 : 0).toFixed(1) + '%',
+          'Findings/Details': findings || d.remarks || 'N/A',
+          'Profession': d.profession || 'N/A',
+          'Is Validated': d.isValidated ? 'YES' : 'NO',
+          'Monitoring Method': d.monitoringMethod || 'N/A',
+          'Monitoring Status': d.monitoringStatus || 'Passed/Failed',
+          'Validator': d.validatorName || d.validatedBy || 'Pending',
+          'Validated At': d.validatedAt?.toDate ? d.validatedAt.toDate().toLocaleString() : (d.validatedAt || 'Pending'),
+          'Correction': d.correctiveActions?.join('; ') || '',
+          'Rationale': d.reason || ''
+        };
+
+      case 'COMPLIANCE':
+      case 'boc_logs':
+        return {
+          ...common,
+          'Date': d.date,
+          'Time': d.time,
+          'Unit': d.unit,
+          'Patient Name': d.patientName,
+          'Hosp Number': d.hospNo,
+          'Age/Sex': `${d.age} / ${d.sex}`,
+          'Devices': (d.devicesPresent || []).join(', '),
+          'Compliance %': d.compliancePercentage + '%',
+          'Staff Reporter': d.staffName,
+          'Designation': d.staffDesignation,
+          'Verification Status': d.isValidated ? 'Validated' : 'Pending',
+          'Final Decision': d.verification?.finalDecision || 'N/A',
+          'Reasoning': d.verification?.reason || '',
+          'Corrective Actions': (d.verification?.correctiveAction || []).join('; '),
+          'Validator Name': d.verification?.validatorName || '',
+          'Validated At': d.verification?.date || ''
+        };
+
+      case 'AMS':
+      case 'ams_requests':
+        return {
+          ...common,
+          'Request Type': d.type,
+          'Date Requested': d.date,
+          'Patient Name': d.patientName,
+          'Hosp Number': d.hospNo,
+          'Unit': d.unit,
+          'Drug Requested': d.antibiotic || d.antimicrobialsRequested?.join(', '),
+          'Indication': d.indication || d.indicationForUse,
+          'Diagnosis': d.diagnosis || d.infectiousDiagnosis,
+          'Status': d.status,
+          'Prescriber': d.prescriberName || d.prescriberEmail || d.prescriberId,
+          'Decision Basis': d.overrideReason || d.remarks || '',
+          'Reviewer': d.reviewerName || d.reviewerEmail || d.reviewerId || 'Pending',
+          'Reviewed At': d.reviewedAt || 'Pending'
+        };
+
+      case 'HAI':
+      case 'hai_cases':
+        return {
+          ...common,
+          'Case Type': d.type,
+          'Patient Name': d.patientName,
+          'Hosp Number': d.hospNo,
+          'Unit': d.unit,
+          'Trigger Date': d.triggerDate,
+          'Risk Level': d.riskLevel,
+          'Status': d.status,
+          'Validator': d.validatorName || 'Pending',
+          'Decision Note': d.decisionNote || '',
+          'Validated At': d.validatedAt || 'Pending',
+          'Invariants Found': [d.bundleIssues, d.clinicalIssues, d.labIssues].filter(Boolean).join('; ')
+        };
+
+      case 'NSI':
+      case 'nsi_reports':
+        return {
+          ...common,
+          'Incident Date': d.incident?.date,
+          'Exposure Type': d.incident?.exposureType,
+          'Device': d.incident?.deviceInvolved,
+          'Activity': d.incident?.activity,
+          'Staff Name': d.staff?.name || d.reporterName || d.reporterEmail,
+          'Unit': d.incident?.unit,
+          'Status': d.status,
+          'IPCU Decision': d.validation?.decision || 'Pending',
+          'Classification': d.validation?.classification || '',
+          'Root Causes': (d.validation?.rootCauses || []).join('; '),
+          'Validator': d.validation?.validatorName || d.validation?.validatorId || 'Pending',
+          'Validated At': d.validation?.validatedAt?.toDate ? d.validation.validatedAt.toDate().toLocaleString() : 'Pending'
+        };
+
+      case 'OUTBREAK':
+      case 'outbreaks':
+        return {
+          ...common,
+          'Detected At': d.detectedAt,
+          'Status': d.status,
+          'Affected Units': d.epidemiology?.unitsAffected,
+          'Total Cases': d.epidemiology?.totalCases,
+          'Reporter': d.reportedBy || d.reporterEmail || 'System',
+          'Confirmed By': d.validation?.validatorName || 'Pending',
+          'Validation Decision': d.validation?.decision || ''
+        };
+
+      default:
+        return { ...common, ...d };
+    }
+  };
+
   const handleExport = async () => {
     setIsExporting(true);
     setMessage(null);
 
     try {
-      let data: any[] = [];
-      let collectionName = '';
-      let dateField = 'createdAt';
+      let rawData: any[] = [];
       
-      switch (reportType) {
-        case 'COMPLIANCE': collectionName = 'boc_logs'; dateField = 'date'; break;
-        case 'AUDITS': collectionName = 'audits'; dateField = 'timestamp'; break;
-        case 'AMS': collectionName = 'ams_requests'; dateField = 'createdAt'; break;
-        case 'HAI': collectionName = 'hai_cases'; dateField = 'createdAt'; break;
-        case 'NSI': collectionName = 'nsi_reports'; dateField = 'createdAt'; break;
-        case 'OUTBREAK': collectionName = 'outbreaks'; dateField = 'detectedAt'; break;
-      }
+      const fetchCollectionData = async (collName: string, dateFld: string) => {
+        const collRef = collection(db, collName);
+        let q;
 
-      const collRef = collection(db, collectionName);
-      let q;
-
-      if (timeFrame === 'DAILY') {
-        if (dateField === 'date') {
-          // Some collections use simple string YYYY-MM-DD
-          q = query(collRef, where(dateField, '==', selectedDate));
-        } else {
-          // Others use Timestamp
-          const start = new Date(selectedDate);
-          start.setHours(0, 0, 0, 0);
-          const end = new Date(selectedDate);
-          end.setHours(23, 59, 59, 999);
-          q = query(collRef, where(dateField, '>=', start), where(dateField, '<=', end));
-        }
-      } else {
-        // Monthly
-        const [year, month] = selectedMonth.split('-').map(Number);
-        const start = new Date(year, month - 1, 1);
-        const end = new Date(year, month, 0, 23, 59, 59, 999);
+        const start = timeFrame === 'DAILY' ? new Date(selectedDate) : (timeFrame === 'MONTHLY' ? new Date(selectedMonth.split('-')[0], parseInt(selectedMonth.split('-')[1]) - 1, 1) : null);
+        const end = timeFrame === 'DAILY' ? new Date(selectedDate) : (timeFrame === 'MONTHLY' ? new Date(selectedMonth.split('-')[0], parseInt(selectedMonth.split('-')[1]), 0) : null);
         
-        if (dateField === 'date') {
-          const startStr = start.toISOString().split('T')[0];
-          const endStr = end.toISOString().split('T')[0];
-          q = query(collRef, where(dateField, '>=', startStr), where(dateField, '<=', endStr));
-        } else {
-          q = query(collRef, where(dateField, '>=', start), where(dateField, '<=', end));
-        }
-      }
+        if (start) start.setHours(0, 0, 0, 0);
+        if (end) end.setHours(23, 59, 59, 999);
 
-      const querySnapshot = await getDocs(q);
-      data = querySnapshot.docs.map(doc => {
-        const d = doc.data();
-        // Flatten or transform for CSV
-        const result: any = { id: doc.id };
-        Object.entries(d).forEach(([key, val]) => {
-          if (val instanceof Timestamp) {
-            result[key] = val.toDate().toISOString();
-          } else if (typeof val === 'object' && val !== null) {
-            result[key] = JSON.stringify(val);
+        if (timeFrame === 'DAILY') {
+          if (dateFld === 'date') {
+            q = query(collRef, where(dateFld, '==', selectedDate));
+          } else if (dateFld === 'timestamp' || dateFld === 'dateTimeRequested' || dateFld === 'reportedAt') {
+            const startStr = start?.toISOString() || '';
+            const endStr = end?.toISOString() || '';
+            q = query(collRef, where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
           } else {
-            result[key] = val;
+            q = query(collRef, where(dateFld, '>=', start), where(dateFld, '<=', end));
           }
-        });
-        return result;
-      });
+        } else if (timeFrame === 'MONTHLY') {
+          if (dateFld === 'date') {
+            const startStr = start?.toISOString().split('T')[0] || '';
+            const endStr = end?.toISOString().split('T')[0] || '';
+            q = query(collRef, where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
+          } else if (dateFld === 'timestamp' || dateFld === 'dateTimeRequested' || dateFld === 'reportedAt') {
+            const startStr = start?.toISOString() || '';
+            const endStr = end?.toISOString() || '';
+            q = query(collRef, where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
+          } else {
+            q = query(collRef, where(dateFld, '>=', start), where(dateFld, '<=', end));
+          }
+        } else {
+          q = query(collRef, orderBy(dateFld, 'desc'));
+        }
 
-      downloadCSV(data, `${reportType}_Report`);
+        const querySnapshot = await getDocs(q);
+        return querySnapshot.docs.map(doc => ({ id: doc.id, __source: collName, ...doc.data() }));
+      };
+
+      if (reportType === 'CLINICAL_SYSTEMS') {
+        const p1 = fetchCollectionData('audits', 'createdAt');
+        const p2 = fetchCollectionData('boc_logs', 'date');
+        const p3 = fetchCollectionData('hai_cases', 'createdAt');
+        const results = await Promise.all([p1, p2, p3]);
+        
+        // Unified Schema for Consolidated Intelligence Report
+        const unifiedMapper = (d: any, domain: string) => {
+          const base = {
+            'Date': '',
+            'Unit': d.unit || 'N/A',
+            'Patient/Subject': 'Institutional',
+            'Domain': domain,
+            'Staff/Reporter': 'N/A',
+            'Assessment Type': '',
+            'Performance Result': '',
+            'Compliance %': 'N/A',
+            'Validation Status': d.isValidated ? 'Validated' : 'Pending',
+            'IPCU Decision': 'N/A',
+            'Validator/Reviewer': 'N/A',
+            'Clinical Rationale/Action': ''
+          };
+
+          if (domain === 'AUDIT') {
+            base.Date = d.createdAt instanceof Timestamp ? d.createdAt.toDate().toLocaleString() : (d.timestamp ? new Date(d.timestamp).toLocaleString() : '');
+            base['Staff/Reporter'] = d.auditorName || d.auditorEmail || d.auditorId || 'N/A';
+            base['Assessment Type'] = (d.type || '').replace(/_/g, ' ');
+            base['Performance Result'] = `${d.score}/${d.total}`;
+            base['Compliance %'] = (d.total > 0 ? (d.score / d.total) * 100 : 0).toFixed(1) + '%';
+            base['IPCU Decision'] = d.monitoringStatus || 'N/A';
+            base['Validator/Reviewer'] = d.validatorName || d.validatedBy || 'N/A';
+            base['Clinical Rationale/Action'] = [d.remarks, d.reason, d.correctiveActions?.join('; ')].filter(Boolean).join(' | ');
+          } else if (domain === 'BUNDLE') {
+            base.Date = d.date;
+            base['Patient/Subject'] = d.patientName || d.hospNo || 'N/A';
+            base['Staff/Reporter'] = d.staffName || 'N/A';
+            base['Assessment Type'] = (d.devicesPresent || []).join(', ') || 'Bundle Assessment';
+            base['Performance Result'] = d.compliancePercentage + '%';
+            base['Compliance %'] = d.compliancePercentage + '%';
+            base['IPCU Decision'] = d.verification?.finalDecision || 'N/A';
+            base['Validator/Reviewer'] = d.verification?.validatorName || 'N/A';
+            base['Clinical Rationale/Action'] = [d.verification?.reason, d.verification?.correctiveAction?.join('; ')].filter(Boolean).join(' | ');
+          } else if (domain === 'HAI') {
+            base.Date = d.triggerDate || (d.createdAt instanceof Timestamp ? d.createdAt.toDate().toISOString() : d.createdAt);
+            base['Patient/Subject'] = d.patientName || d.hospNo || 'N/A';
+            base['Staff/Reporter'] = d.auditorName || d.reportedBy || 'N/A';
+            base['Assessment Type'] = d.type || 'HAI Surveillance';
+            base['Performance Result'] = d.status;
+            base['IPCU Decision'] = d.status;
+            base['Validator/Reviewer'] = d.validatorName || 'N/A';
+            base['Clinical Rationale/Action'] = [d.decisionNote, d.bundleIssues, d.clinicalIssues, d.labIssues].filter(Boolean).join(' | ');
+          }
+
+          return base;
+        };
+
+        const formattedData = results[0].map(d => unifiedMapper(d, 'AUDIT'))
+          .concat(results[1].map(d => unifiedMapper(d, 'BUNDLE')))
+          .concat(results[2].map(d => unifiedMapper(d, 'HAI')));
+          
+        downloadCSV(formattedData, `Systems_Integrity_Consolidated_Report`);
+      } else {
+        let collectionName = '';
+        let dateField = 'createdAt';
+        
+        switch (reportType) {
+          case 'COMPLIANCE': collectionName = 'boc_logs'; dateField = 'date'; break;
+          case 'AUDITS': collectionName = 'audits'; dateField = 'timestamp'; break;
+          case 'AMS': collectionName = 'ams_requests'; dateField = 'dateTimeRequested'; break;
+          case 'HAI': collectionName = 'hai_cases'; dateField = 'triggerDate'; break;
+          case 'NSI': collectionName = 'nsi_reports'; dateField = 'reportedAt'; break;
+          case 'OUTBREAK': collectionName = 'outbreaks'; dateField = 'detectedAt'; break;
+        }
+        const data = await fetchCollectionData(collectionName, dateField);
+        const formattedData = data.map(d => mapDataRecord(d, reportType));
+        downloadCSV(formattedData, `${reportType}_Report`);
+      }
     } catch (error: any) {
       console.error('Export error:', error);
       setMessage({ type: 'error', text: `Export failed: ${error.message}` });
@@ -190,8 +399,8 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                 <h3 className="text-xs font-black uppercase tracking-widest text-slate-800">Select Time Interval</h3>
              </div>
              
-             <div className="flex gap-2 p-1 bg-slate-100 rounded-xl sm:rounded-2xl w-full sm:w-fit">
-               {(['DAILY', 'MONTHLY'] as const).map(tf => (
+             <div className="flex flex-wrap gap-2 p-1 bg-slate-100 rounded-xl sm:rounded-2xl w-full sm:w-fit">
+               {(['DAILY', 'MONTHLY', 'ALL_TIME'] as const).map(tf => (
                  <button
                    key={tf}
                    onClick={() => setTimeFrame(tf)}
@@ -200,13 +409,13 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                      timeFrame === tf ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
                    )}
                  >
-                   {tf}
+                   {tf.replace('_', ' ')}
                  </button>
                ))}
              </div>
 
              <div className="pt-4">
-               {timeFrame === 'DAILY' ? (
+               {timeFrame === 'DAILY' && (
                  <div className="space-y-1.5">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Target Date</label>
                    <div className="relative">
@@ -219,7 +428,8 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                      />
                    </div>
                  </div>
-               ) : (
+               )}
+               {timeFrame === 'MONTHLY' && (
                  <div className="space-y-1.5">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Target Month</label>
                    <div className="relative">
@@ -231,6 +441,14 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                        className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-black text-slate-900 focus:ring-2 focus:ring-brand-primary/20 outline-none"
                      />
                    </div>
+                 </div>
+               )}
+               {timeFrame === 'ALL_TIME' && (
+                 <div className="p-6 bg-amber-50 border border-amber-100 rounded-2xl flex items-center gap-3">
+                   <ShieldAlert className="w-5 h-5 text-amber-500" />
+                   <p className="text-[10px] font-bold text-amber-800 uppercase leading-relaxed">
+                     Extracting all-time cumulative entries. This may result in a large file containing the full institutional history.
+                   </p>
                  </div>
                )}
              </div>
@@ -283,12 +501,63 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                  <Filter className="w-3 h-3 text-brand-primary" />
                  Report Constraints
               </h4>
-              <ul className="space-y-2">
-                 <li className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter list-disc ml-3">CSV format compatible with Excel</li>
-                 <li className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter list-disc ml-3">Automated timestamp flattening</li>
-                 <li className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter list-disc ml-3">Full institutional row extraction</li>
+              <ul className="space-y-2 text-[9px] font-bold text-slate-500 uppercase tracking-tighter">
+                 <li className="list-disc ml-3">CSV format compatible with Excel</li>
+                 <li className="list-disc ml-3">Automated timestamp flattening</li>
+                 <li className="list-disc ml-3">Full institutional row extraction</li>
               </ul>
            </div>
+
+           <button 
+             onClick={async () => {
+               setIsExporting(true);
+               try {
+                 let masterContent = `INSTITUTIONAL MASTER ARCHIVE - ${new Date().toLocaleString()}\n\n`;
+                 const collectionsList = [
+                   { id: 'boc_logs', label: 'Bundle Compliance (Log Bundle)' },
+                   { id: 'audits', label: 'IPC Audits (Inspections)' },
+                   { id: 'ams_requests', label: 'Antimicrobial Stewardship' },
+                   { id: 'hai_cases', label: 'HAI Surveillance (Case Reports)' },
+                   { id: 'nsi_reports', label: 'Safety NSI' },
+                   { id: 'outbreaks', label: 'Outbreak Mgmt' }
+                 ];
+
+                 for (const coll of collectionsList) {
+                   masterContent += `--- ${coll.label.toUpperCase()} ---\n`;
+                   const snap = await getDocs(collection(db, coll.id));
+                   if (snap.empty) {
+                     masterContent += "No records found.\n\n";
+                     continue;
+                   }
+                   const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                   masterContent += JSON.stringify(docs, (key, value) => 
+                     value instanceof Timestamp ? value.toDate().toISOString() : value
+                   , 2);
+                   masterContent += "\n\n";
+                 }
+
+                 const blob = new Blob([masterContent], { type: 'text/plain' });
+                 const url = URL.createObjectURL(blob);
+                 const link = document.createElement('a');
+                 link.href = url;
+                 link.download = `Institutional_Full_System_Archive_${new Date().toISOString().split('T')[0]}.txt`;
+                 link.click();
+                 URL.revokeObjectURL(url);
+                 setMessage({ type: 'success', text: 'Full System Archive generated successfully.' });
+               } catch (e: any) {
+                 setMessage({ type: 'error', text: `Archive failed: ${e.message}` });
+               } finally {
+                 setIsExporting(false);
+               }
+             }}
+             className="w-full p-6 bg-slate-900 border border-slate-800 text-white rounded-3xl shadow-xl hover:shadow-2xl transition-all flex flex-col items-center gap-2 group"
+           >
+             <div className="flex items-center gap-3">
+               <FileText className="w-5 h-5 text-brand-primary group-hover:scale-110 transition-transform" />
+               <span className="text-xs font-black uppercase tracking-widest">Generate Full Systems Report</span>
+             </div>
+             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest opacity-80">Consolidated System Archive (.txt)</p>
+           </button>
         </div>
       </div>
     </div>

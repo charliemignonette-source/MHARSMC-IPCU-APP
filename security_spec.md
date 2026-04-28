@@ -3,7 +3,7 @@
 ## 1. Data Invariants
 - **Users**: Every user must have a valid UID matching their Auth UID. Roles are strictly controlled. Only ADMINs can promote others to ADMIN.
 - **Audits**: Must have a valid `auditorId` matching the creator's UID. Units must be from the predefined list.
-- **AMS Requests**: Must originate from a prescriber. Status changes (Approved/Denied) are restricted to Approvers/IPCN/ADMIN.
+- **Antimicrobial Stewardship Requests**: Must originate from a prescriber. Status changes (Approved/Denied) are restricted to Approvers/IPCN/ADMIN.
 - **HAI Cases**: Validations are restricted to IPCN/ADMIN.
 - **BOC Logs**: Must be linked to the staff member who performed the surveillance.
 - **NSI Reports**: Contain PII; access is restricted to the reporter or IPCN/ADMIN.
@@ -26,7 +26,7 @@
 **Payload**: `{ "auditorId": "other_uid", "unit": "ICU", "score": 10, "total": 10 }`
 **Expected**: `PERMISSION_DENIED` (auditorId mismatch)
 
-### P4: AMS Status Hijacking (Physician approving own drug)
+### P4: Antimicrobial Stewardship Status Hijacking (Physician approving own drug)
 **Target**: `/ams_requests/req_id` (Update)
 **Payload**: `{ "status": "APPROVED" }`
 **Expected**: `PERMISSION_DENIED` (Physician/USER cannot approve)

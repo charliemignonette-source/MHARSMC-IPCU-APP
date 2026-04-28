@@ -43,7 +43,7 @@ async function startServer() {
 
       const resend = getResend();
       const { data, error } = await resend.emails.send({
-        from: 'AMS System <notifications@resend.dev>',
+        from: 'Antimicrobial Stewardship System <notifications@resend.dev>',
         to: [emailTo],
         subject: `[APPROVED] Drug Request for ${patientName}`,
         html: `

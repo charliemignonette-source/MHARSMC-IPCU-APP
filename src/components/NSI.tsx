@@ -174,6 +174,7 @@ export default function NSI({ user }: NSIProps) {
       await addDoc(collection(db, 'nsi_reports'), {
         reporterId: user.uid,
         reporterEmail: user.email,
+        reporterName: user.name, // adding name
         createdAt: serverTimestamp(),
         status: 'PENDING',
         ...formData
@@ -204,7 +205,7 @@ export default function NSI({ user }: NSIProps) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!user || user.role !== 'ADMIN') return;
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'IPCN')) return;
     if (!confirm('Are you sure you want to delete this exposure record? This action is permanent.')) return;
     try {
       await deleteDoc(doc(db, 'nsi_reports', id));

@@ -31,8 +31,64 @@ export default function Audits({ user }: { user: UserProfile | null }) {
     staffType: 'Nurse'
   });
 
+  const [pendingHHObservations, setPendingHHObservations] = useState<any[]>([]);
+
   const [audits, setAudits] = useState<Audit[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const getStatsForType = (type: string) => {
+    const typeAudits = audits.filter(a => a.type === type);
+    if (typeAudits.length === 0) return { percentage: 0, status: 'No Data', color: 'text-slate-400' };
+    
+    const totalScore = typeAudits.reduce((acc, curr) => acc + (curr.score || 0), 0);
+    const totalPossible = typeAudits.reduce((acc, curr) => acc + (curr.total || 0), 0);
+    
+    const percentage = totalPossible > 0 ? Math.round((totalScore / totalPossible) * 100) : 0;
+    
+    let status = 'Stable';
+    let color = 'text-emerald-500';
+    
+    if (percentage < 70) {
+      status = 'Critical';
+      color = 'text-rose-500';
+    } else if (percentage < 85) {
+      status = 'Warning';
+      color = 'text-amber-500';
+    }
+    
+    return { percentage, status, color };
+  };
+
+  const unitCoverage = audits.length > 0 
+    ? Math.round((new Set(audits.map(a => a.unit)).size / UNITS.length) * 100) 
+    : 0;
+
+  const unitDistribution = React.useMemo(() => {
+    const unitsMap: Record<string, { count: number, score: number, total: number }> = {};
+    
+    // Initialize all units with 0 stats
+    UNITS.forEach(unit => {
+      unitsMap[unit] = { count: 0, score: 0, total: 0 };
+    });
+
+    audits.forEach(a => {
+      const unit = a.unit || 'Unknown';
+      if (!unitsMap[unit]) {
+        unitsMap[unit] = { count: 0, score: 0, total: 0 };
+      }
+      unitsMap[unit].count++;
+      unitsMap[unit].score += (a.score || 0);
+      unitsMap[unit].total += (a.total || 0);
+    });
+
+    return Object.entries(unitsMap)
+      .map(([name, stats]) => ({
+        name,
+        count: stats.count,
+        compliance: stats.total > 0 ? Math.round((stats.score / stats.total) * 100) : 0
+      }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [audits]);
 
   React.useEffect(() => {
     if (!user) return;
@@ -59,21 +115,35 @@ export default function Audits({ user }: { user: UserProfile | null }) {
     return () => unsubscribe();
   }, [user]);
 
-  const AUDIT_OPTIONS = [
-    { id: 'HH_COMPLIANCE', label: 'Hand Hygiene', icon: HandMetal },
-    { id: 'HH_AVAILABILITY', label: 'HH Infrastructure', icon: ClipboardCheck },
-    { id: 'PPE_AVAILABILITY', label: 'PPE Availability', icon: ShieldCheck },
-    { id: 'PPE_COMPLIANCE', label: 'PPE Behavior', icon: ShieldCheck },
-    { id: 'SAFE_INJECTION', label: 'Safe Injection', icon: Syringe },
-    { id: 'ENV_CLEANING', label: 'Environmental', icon: Trash2 },
+  const AUDIT_GROUPS = [
+    {
+      title: 'HCW Performance',
+      options: [
+        { id: 'HH_COMPLIANCE', label: 'HH Compliance (Staff)', icon: HandMetal },
+        { id: 'PPE_COMPLIANCE', label: 'PPE Compliance (Staff)', icon: ShieldCheck },
+      ]
+    },
+    {
+      title: 'Unit & Practice Standards',
+      options: [
+        { id: 'HH_AVAILABILITY', label: 'HH Facilities (Unit)', icon: ClipboardCheck },
+        { id: 'PPE_AVAILABILITY', label: 'PPE Supply (Unit)', icon: ShieldCheck },
+        { id: 'ENV_CLEANING', label: 'Environmental (Unit)', icon: Trash2 },
+        { id: 'SAFE_INJECTION', label: 'Safe Injection (Unit + Staff)', icon: Syringe },
+      ]
+    }
   ];
+
+  const AUDIT_OPTIONS = AUDIT_GROUPS.flatMap(g => g.options);
 
   const [selectedAuditForValidation, setSelectedAuditForValidation] = useState<Audit | null>(null);
   const [validationForm, setValidationForm] = useState({
     validatorName: '',
     date: new Date().toISOString().split('T')[0],
     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-    remarks: ''
+    remarks: '',
+    monitoringMethod: '',
+    monitoringStatus: '' as 'PASS' | 'FAIL' | ''
   });
 
   const handleValidateSubmit = async (e: React.FormEvent) => {
@@ -84,16 +154,21 @@ export default function Audits({ user }: { user: UserProfile | null }) {
       await updateDoc(doc(db, 'audits', selectedAuditForValidation.id), {
         isValidated: true,
         validatedBy: user.email,
-        validatorName: validationForm.validatorName,
+        validatorName: validationForm.validatorName || user.name || 'IPCN Validator',
         validatedAt: `${validationForm.date}T${validationForm.time}`,
-        validationRemarks: validationForm.remarks
+        validationRemarks: validationForm.remarks,
+        monitoringMethod: validationForm.monitoringMethod,
+        monitoringStatus: validationForm.monitoringStatus,
+        updatedAt: serverTimestamp()
       });
       setSelectedAuditForValidation(null);
       setValidationForm({
         validatorName: '',
         date: new Date().toISOString().split('T')[0],
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-        remarks: ''
+        remarks: '',
+        monitoringMethod: '',
+        monitoringStatus: ''
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'audits');
@@ -112,7 +187,21 @@ export default function Audits({ user }: { user: UserProfile | null }) {
         aftPat: false,
         aftSurr: false
       },
-      action: 'missed', // 'hr', 'hw', 'missed'
+      actions: {
+        befPat: 'missed',
+        befAsept: 'missed',
+        aftBF: 'missed',
+        aftPat: 'missed',
+        aftSurr: 'missed'
+      },
+      momentsGloves: {
+        befPat: false,
+        befAsept: false,
+        aftBF: false,
+        aftPat: false,
+        aftSurr: false
+      },
+      staffIdentifier: '',
       gloves: false
     },
     ppe: {
@@ -124,6 +213,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
     },
     ppeCompliance: {
       staffType: 'Nurse',
+      staffIdentifier: '',
       correctPPE: false,
       missingItems: '',
       incorrectPPE: false,
@@ -183,101 +273,184 @@ export default function Audits({ user }: { user: UserProfile | null }) {
         monitorTouch: 'cleaned',
         monitorCables: 'cleaned',
         ventilatorPanel: 'cleaned'
-      },
-      monitoringMethod: 'direct',
-      monitoringOther: ''
+      }
     }
   });
+
+  const calculateHHScore = (obs: any) => {
+    const activeIndications = Object.entries(obs.indications)
+      .filter(([_, isActive]) => isActive === true);
+    
+    if (activeIndications.length === 0) {
+      return { score: 0, total: 0 };
+    }
+
+    let score = 0;
+    let total = 0;
+
+    activeIndications.forEach(([key]) => {
+      const action = obs.actions?.[key] || 'missed';
+      if (action === 'hr' || action === 'hw') {
+        score += 1;
+      }
+      total += 1;
+    });
+
+    return { score, total };
+  };
+
+  const handleAddHHObservation = () => {
+    const calculation = calculateHHScore(checklist.hhObs);
+    if (calculation.total === 0) {
+      alert("Please select at least one WHO Moment indication.");
+      return;
+    }
+    
+    setPendingHHObservations(prev => [...prev, {
+      id: Date.now(),
+      profession: formData.profession,
+      staffIdentifier: checklist.hhObs.staffIdentifier,
+      indications: { ...checklist.hhObs.indications },
+      actions: { ...checklist.hhObs.actions },
+      momentsGloves: { ...checklist.hhObs.momentsGloves },
+      gloves: checklist.hhObs.gloves,
+      ...calculation
+    }]);
+
+    // Reset HH observation fields for next one
+    setChecklist(prev => ({
+      ...prev,
+      hhObs: {
+        indications: { befPat: false, befAsept: false, aftBF: false, aftPat: false, aftSurr: false },
+        actions: { befPat: 'missed', befAsept: 'missed', aftBF: 'missed', aftPat: 'missed', aftSurr: 'missed' },
+        momentsGloves: { befPat: false, befAsept: false, aftBF: false, aftPat: false, aftSurr: false },
+        staffIdentifier: '',
+        gloves: false
+      }
+    }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
     try {
-      let score = 0;
-      let total = 1;
-
-      if (selectedType === 'HH_AVAILABILITY') {
-        const hhKeys = [
-          checklist.abhr.poc, checklist.abhr.notEmpty, checklist.abhr.functional, checklist.abhr.mounted,
-          checklist.sink.sink, checklist.sink.water, checklist.sink.soap, checklist.sink.towels, checklist.sink.notClogged,
-          checklist.posters.visible, checklist.posters.clean
-        ];
-        score = hhKeys.filter(v => v === true).length;
-        total = hhKeys.length;
-      } else if (selectedType === 'HH_COMPLIANCE') {
-        const hhKeys = [
-          checklist.hhObs.indications.befPat, 
-          checklist.hhObs.indications.befAsept,
-          checklist.hhObs.indications.aftBF,
-          checklist.hhObs.indications.aftPat,
-          checklist.hhObs.indications.aftSurr
-        ];
-        // WHO 5 Moments: at least one indication must be checked to be an opportunity
-        const isOpportunity = hhKeys.some(v => v === true);
-        if (isOpportunity) {
-          score = (checklist.hhObs.action === 'hr' || checklist.hhObs.action === 'hw') ? 1 : 0;
-          total = 1;
-        } else {
-          // If no indication, it's not a valid observation for compliance
-          score = 0;
-          total = 0; 
+      if (selectedType === 'HH_COMPLIANCE' && pendingHHObservations.length > 0) {
+        // Multi-HCW batch submission
+        const now = new Date().toISOString();
+        const serverNow = serverTimestamp();
+        
+        // Finalize current one if partially filled? Or just use pending?
+        // User said "option to add additional", so likely they added others to batch first.
+        
+        for (const obs of pendingHHObservations) {
+          await addDoc(collection(db, 'audits'), {
+            type: selectedType,
+            unit: formData.unit,
+            auditorId: user.uid,
+            auditorEmail: user.email,
+            auditorName: user.name,
+            timestamp: now,
+            score: obs.score,
+            total: obs.total,
+            staffIdentifier: obs.staffIdentifier,
+            profession: obs.profession,
+            details: { ...checklist, hhObs: obs },
+            isValidated: false,
+            createdAt: serverNow
+          });
         }
-      } else if (selectedType === 'PPE_AVAILABILITY') {
-        const ppeKeys = [
-          checklist.ppe.gloves.avail, checklist.ppe.gloves.sizes,
-          checklist.ppe.masks.avail, checklist.ppe.masks.notEmpty,
-          checklist.ppe.n95.avail, checklist.ppe.n95.sizes,
-          checklist.ppe.gowns.avail, checklist.ppe.gowns.appropriate,
-          checklist.ppe.shields.avail, checklist.ppe.shields.notDamaged
-        ];
-        score = ppeKeys.filter(v => v === true).length;
-        total = ppeKeys.length;
-      } else if (selectedType === 'PPE_COMPLIANCE') {
-        const ppeKeys = [
-          checklist.ppeCompliance.correctPPE,
-          checklist.ppeCompliance.properDonning,
-          checklist.ppeCompliance.properDoffing,
-          checklist.ppeCompliance.ppeIntact,
-          checklist.ppeCompliance.ppeFits
-        ];
-        score = ppeKeys.filter(v => v === true).length;
-        total = ppeKeys.length;
-      } else if (selectedType === 'SAFE_INJECTION') {
-        const siKeys = [
-          checklist.safeInjection.prepClean, checklist.safeInjection.alcoholAvail, checklist.safeInjection.hhBefore,
-          checklist.safeInjection.skinDisinfected, checklist.safeInjection.allowedToDry, checklist.safeInjection.noTouchSite,
-          checklist.safeInjection.singleDoseOnce, checklist.safeInjection.multiDoseCorrect, checklist.safeInjection.vialNotContaminated,
-          checklist.safeInjection.sterileSyringe, checklist.safeInjection.sterileNeedle, checklist.safeInjection.noRecapping, checklist.safeInjection.needleNotReused,
-          checklist.safeInjection.correctRoute, checklist.safeInjection.correctDose, checklist.safeInjection.noReuseBetween,
-          checklist.safeInjection.disposedImmediately, checklist.safeInjection.sharpsDisposed, checklist.safeInjection.sharpsNotFull, checklist.safeInjection.sharpsMounted
-        ];
-        score = siKeys.filter(v => v === true).length;
-        total = siKeys.length;
-      } else if (selectedType === 'ENV_CLEANING') {
-        const surfaceValues = Object.values(checklist.envCleaning.surfaces);
-        score = surfaceValues.filter(v => v === 'cleaned').length;
-        total = surfaceValues.filter(v => v !== 'notPresent').length;
       } else {
-        score = formData.score;
-        total = formData.total;
+        // Single observation
+        let score = 0;
+        let total = 1;
+
+        if (selectedType === 'HH_AVAILABILITY') {
+          const hhKeys = [
+            checklist.abhr.poc, checklist.abhr.notEmpty, checklist.abhr.functional, checklist.abhr.mounted,
+            checklist.sink.sink, checklist.sink.water, checklist.sink.soap, checklist.sink.towels, checklist.sink.notClogged,
+            checklist.posters.visible, checklist.posters.clean
+          ];
+          score = hhKeys.filter(v => v === true).length;
+          total = hhKeys.length;
+        } else if (selectedType === 'HH_COMPLIANCE') {
+          const { score: s, total: t } = calculateHHScore(checklist.hhObs);
+          score = s;
+          total = t;
+        } else if (selectedType === 'PPE_AVAILABILITY') {
+          const ppeKeys = [
+            checklist.ppe.gloves.avail, checklist.ppe.gloves.sizes,
+            checklist.ppe.masks.avail, checklist.ppe.masks.notEmpty,
+            checklist.ppe.n95.avail, checklist.ppe.n95.sizes,
+            checklist.ppe.gowns.avail, checklist.ppe.gowns.appropriate,
+            checklist.ppe.shields.avail, checklist.ppe.shields.notDamaged
+          ];
+          score = ppeKeys.filter(v => v === true).length;
+          total = ppeKeys.length;
+        } else if (selectedType === 'PPE_COMPLIANCE') {
+          const ppeKeys = [
+            checklist.ppeCompliance.correctPPE,
+            checklist.ppeCompliance.properDonning,
+            checklist.ppeCompliance.properDoffing,
+            checklist.ppeCompliance.ppeIntact,
+            checklist.ppeCompliance.ppeFits
+          ];
+          score = ppeKeys.filter(v => v === true).length;
+          total = ppeKeys.length;
+        } else if (selectedType === 'SAFE_INJECTION') {
+          const siKeys = [
+            checklist.safeInjection.prepClean, checklist.safeInjection.alcoholAvail, checklist.safeInjection.hhBefore,
+            checklist.safeInjection.skinDisinfected, checklist.safeInjection.allowedToDry, checklist.safeInjection.noTouchSite,
+            checklist.safeInjection.singleDoseOnce, checklist.safeInjection.multiDoseCorrect, checklist.safeInjection.vialNotContaminated,
+            checklist.safeInjection.sterileSyringe, checklist.safeInjection.sterileNeedle, checklist.safeInjection.noRecapping, checklist.safeInjection.needleNotReused,
+            checklist.safeInjection.correctRoute, checklist.safeInjection.correctDose, checklist.safeInjection.noReuseBetween,
+            checklist.safeInjection.disposedImmediately, checklist.safeInjection.sharpsDisposed, checklist.safeInjection.sharpsNotFull, checklist.safeInjection.sharpsMounted
+          ];
+          score = siKeys.filter(v => v === true).length;
+          total = siKeys.length;
+        } else if (selectedType === 'ENV_CLEANING') {
+          const surfaceValues = Object.values(checklist.envCleaning.surfaces);
+          score = surfaceValues.filter(v => v === 'cleaned').length;
+          total = surfaceValues.filter(v => v !== 'notPresent').length;
+        } else {
+          score = formData.score;
+          total = formData.total;
+        }
+
+        if (total > 0 || selectedType !== 'HH_COMPLIANCE') {
+          await addDoc(collection(db, 'audits'), {
+            type: selectedType,
+            unit: formData.unit,
+            auditorId: user.uid,
+            auditorEmail: user.email,
+            auditorName: user.name, // person reporting
+            timestamp: new Date().toISOString(),
+            score,
+            total,
+            staffIdentifier: selectedType === 'HH_COMPLIANCE' 
+              ? checklist.hhObs.staffIdentifier 
+              : selectedType === 'PPE_COMPLIANCE' 
+                ? checklist.ppeCompliance.staffIdentifier 
+                : selectedType === 'SAFE_INJECTION'
+                  ? checklist.hhObs.staffIdentifier // Conveniently reusing this field for now, or I could add a specific one
+                  : null,
+            remarks: formData.remarks,
+            details: ['HH_AVAILABILITY', 'HH_COMPLIANCE', 'PPE_AVAILABILITY', 'PPE_COMPLIANCE', 'SAFE_INJECTION', 'ENV_CLEANING'].includes(selectedType) ? checklist : null,
+            profession: selectedType === 'HH_COMPLIANCE' 
+              ? formData.profession 
+              : selectedType === 'PPE_COMPLIANCE' 
+                ? checklist.ppeCompliance.staffType 
+                : selectedType === 'SAFE_INJECTION'
+                  ? formData.profession
+                  : null,
+            isValidated: false,
+            createdAt: serverTimestamp()
+          });
+        }
       }
 
-      await addDoc(collection(db, 'audits'), {
-        type: selectedType,
-        unit: formData.unit,
-        auditorId: user.uid,
-        auditorEmail: user.email,
-        timestamp: new Date().toISOString(),
-        score,
-        total,
-        remarks: formData.remarks,
-        details: ['HH_AVAILABILITY', 'HH_COMPLIANCE', 'PPE_AVAILABILITY', 'PPE_COMPLIANCE', 'SAFE_INJECTION', 'ENV_CLEANING'].includes(selectedType) ? checklist : null,
-        profession: selectedType === 'HH_COMPLIANCE' ? formData.profession : null,
-        isValidated: false,
-        createdAt: serverTimestamp()
-      });
       setIsAdding(false);
+      setPendingHHObservations([]);
       setFormData({ unit: UNITS[0], score: 0, total: 10, remarks: '', profession: '1', staffType: 'Nurse' });
       setChecklist({
         abhr: { poc: false, notEmpty: false, expiry: '', notIndicated: false, functional: false, mounted: false },
@@ -285,7 +458,9 @@ export default function Audits({ user }: { user: UserProfile | null }) {
         posters: { visible: false, clean: false },
         hhObs: {
           indications: { befPat: false, befAsept: false, aftBF: false, aftPat: false, aftSurr: false },
-          action: 'missed',
+          actions: { befPat: 'missed', befAsept: 'missed', aftBF: 'missed', aftPat: 'missed', aftSurr: 'missed' },
+          momentsGloves: { befPat: false, befAsept: false, aftBF: false, aftPat: false, aftSurr: false },
+          staffIdentifier: '',
           gloves: false
         },
         ppe: {
@@ -297,6 +472,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
         },
         ppeCompliance: {
           staffType: 'Nurse',
+          staffIdentifier: '',
           correctPPE: false,
           missingItems: '',
           incorrectPPE: false,
@@ -307,57 +483,21 @@ export default function Audits({ user }: { user: UserProfile | null }) {
           nonComplianceReason: ''
         },
         safeInjection: {
-          prepClean: false,
-          alcoholAvail: false,
-          alcoholExpiry: '',
-          alcoholNotIndicated: false,
-          hhBefore: false,
-          skinDisinfected: false,
-          allowedToDry: false,
-          noTouchSite: false,
-          singleDoseOnce: false,
-          multiDoseCorrect: false,
-          vialExpiry: '',
-          vialNotIndicated: false,
-          vialNotContaminated: false,
-          sterileSyringe: false,
-          sterileNeedle: false,
-          noRecapping: false,
-          needleNotReused: false,
-          correctRoute: false,
-          correctDose: false,
-          noReuseBetween: false,
-          disposedImmediately: false,
-          sharpsDisposed: false,
-          sharpsNotFull: false,
-          sharpsMounted: false
+          prepClean: false, alcoholAvail: false, alcoholExpiry: '', alcoholNotIndicated: false,
+          hhBefore: false, skinDisinfected: false, allowedToDry: false, noTouchSite: false,
+          singleDoseOnce: false, multiDoseCorrect: false, vialExpiry: '', vialNotIndicated: false, vialNotContaminated: false,
+          sterileSyringe: false, sterileNeedle: false, noRecapping: false, needleNotReused: false,
+          correctRoute: false, correctDose: false, noReuseBetween: false,
+          disposedImmediately: false, sharpsDisposed: false, sharpsNotFull: false, sharpsMounted: false
         },
         envCleaning: {
           surfaces: {
-            bedRails: 'cleaned',
-            trayTable: 'cleaned',
-            ivPole: 'cleaned',
-            callButton: 'cleaned',
-            telephone: 'cleaned',
-            bedsideTable: 'cleaned',
-            chair: 'cleaned',
-            roomSink: 'cleaned',
-            lightSwitch: 'cleaned',
-            innerDoorKnob: 'cleaned',
-            bathroomDoorKnob: 'cleaned',
-            bathroomLightSwitch: 'cleaned',
-            bathroomHandrails: 'cleaned',
-            bathroomSink: 'cleaned',
-            toiletSeat: 'cleaned',
-            toiletFlush: 'cleaned',
-            bedpanCleaner: 'cleaned',
-            ivPump: 'cleaned',
-            monitorControls: 'cleaned',
-            monitorTouch: 'cleaned',
-            monitorCables: 'cleaned',
-            ventilatorPanel: 'cleaned'
-          },
-          monitoringMethod: 'direct'
+            bedRails: 'cleaned', trayTable: 'cleaned', ivPole: 'cleaned', callButton: 'cleaned', telephone: 'cleaned',
+            bedsideTable: 'cleaned', chair: 'cleaned', roomSink: 'cleaned', lightSwitch: 'cleaned', innerDoorKnob: 'cleaned',
+            bathroomDoorKnob: 'cleaned', bathroomLightSwitch: 'cleaned', bathroomHandrails: 'cleaned', bathroomSink: 'cleaned',
+            toiletSeat: 'cleaned', toiletFlush: 'cleaned', bedpanCleaner: 'cleaned', ivPump: 'cleaned',
+            monitorControls: 'cleaned', monitorTouch: 'cleaned', monitorCables: 'cleaned', ventilatorPanel: 'cleaned'
+          }
         }
       });
     } catch (error) {
@@ -384,21 +524,31 @@ export default function Audits({ user }: { user: UserProfile | null }) {
       {/* Grid Layout */}
       <div className="grid grid-cols-12 gap-6 h-fit">
         {/* Quick Stats Bento Cards */}
-        <div className="col-span-12 lg:col-span-8 grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {AUDIT_OPTIONS.map((opt) => (
-            <div key={opt.id} className="bento-card p-4 bg-white flex flex-col gap-2 group hover:border-brand-primary/20 transition-all">
-              <div className="flex items-center justify-between">
-                <div className="p-1.5 bg-slate-50 rounded-lg text-slate-400 group-hover:text-brand-primary transition-colors">
-                  <opt.icon className="w-4 h-4" />
-                </div>
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              </div>
-              <div>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">{opt.label}</p>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-xl font-bold text-slate-800">88%</span>
-                  <span className="text-[9px] font-bold text-emerald-600">Stable</span>
-                </div>
+        <div className="col-span-12 lg:col-span-8 space-y-4">
+          {AUDIT_GROUPS.map((group) => (
+            <div key={group.title} className="space-y-3">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">{group.title}</h4>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {group.options.map((opt) => {
+                  const stats = getStatsForType(opt.id);
+                  return (
+                    <div key={opt.id} className="bento-card p-4 bg-white flex flex-col gap-2 group hover:border-brand-primary/20 transition-all">
+                      <div className="flex items-center justify-between">
+                        <div className="p-1.5 bg-slate-50 rounded-lg text-slate-400 group-hover:text-brand-primary transition-colors">
+                          <opt.icon className="w-4 h-4" />
+                        </div>
+                        <div className={cn("w-1.5 h-1.5 rounded-full", stats.percentage === 0 ? "bg-slate-300" : stats.color.replace('text', 'bg'))} />
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">{opt.label}</p>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-xl font-bold text-slate-800">{stats.percentage}%</span>
+                          <span className={cn("text-[9px] font-bold uppercase", stats.color)}>{stats.status}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -456,26 +606,57 @@ export default function Audits({ user }: { user: UserProfile | null }) {
             <div className="mt-8 pt-6 border-t border-white/10 relative z-10">
               <div className="flex items-center justify-between mb-4">
                  <span className="text-[10px] font-bold text-slate-500 uppercase">Unit Coverage</span>
-                 <span className="text-[10px] font-bold text-teal-400">82%</span>
+                 <span className="text-[10px] font-bold text-teal-400">{unitCoverage}%</span>
               </div>
               <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full bg-teal-500 w-[82%]" />
+                <div 
+                  className="h-full bg-teal-500 transition-all duration-1000 ease-out" 
+                  style={{ width: `${unitCoverage}%` }}
+                />
               </div>
             </div>
           </div>
 
           <div className="bento-card p-6 bg-white space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-tight text-slate-900">Unit Distribution</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-tight text-slate-900">Unit Distribution</h3>
+              <span className="text-[9px] font-black text-slate-400 uppercase bg-slate-100 px-1.5 py-0.5 rounded">Top Performing</span>
+            </div>
             <div className="space-y-3">
-              {['ICU A', 'WARD D', 'NICU', 'OR 2'].map(unit => (
-                <div key={unit} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl">
-                  <span className="text-xs font-bold text-slate-700">{unit}</span>
-                  <div className="flex gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                    <div className="w-2 h-2 rounded-full bg-emerald-400 opacity-50" />
+              {unitDistribution.slice(0, 6).map(unit => (
+                <div key={unit.name} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-slate-700">{unit.name}</span>
+                    <span className="text-[9px] font-bold text-slate-400 uppercase">{unit.count} audits recorded</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={cn(
+                      "text-[10px] font-black",
+                      unit.compliance >= 85 ? "text-emerald-500" : unit.compliance >= 70 ? "text-amber-500" : "text-rose-500"
+                    )}>
+                      {unit.compliance}%
+                    </span>
+                    <div className="flex gap-1.5">
+                      <div className={cn(
+                        "w-2 h-2 rounded-full",
+                        unit.compliance >= 70 ? "bg-emerald-400" : "bg-rose-400 shadow-sm shadow-rose-200"
+                      )} />
+                      <div className={cn(
+                        "w-2 h-2 rounded-full opacity-50",
+                        unit.compliance >= 85 ? "bg-emerald-400" : "bg-rose-400"
+                      )} />
+                    </div>
                   </div>
                 </div>
               ))}
+              {unitDistribution.length === 0 && (
+                <div className="py-8 text-center space-y-2">
+                  <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
+                    <div className="w-1 h-1 bg-slate-300 rounded-full" />
+                  </div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">No Unit Data Synced</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -508,22 +689,27 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Observation Vector</label>
                     <div className="grid grid-cols-2 md:grid-cols-1 gap-2">
-                      {AUDIT_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => setSelectedType(opt.id as AuditType)}
-                          className={cn(
-                            "w-full flex items-center gap-3 sm:gap-4 p-2 sm:p-3.5 rounded-xl sm:rounded-2xl border transition-all text-[11px] sm:text-sm font-bold sm:font-semibold",
-                            selectedType === opt.id 
-                              ? "bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-900/10" 
-                              : "bg-white text-slate-500 border-slate-200 hover:border-slate-400"
-                          )}
-                        >
-                          <opt.icon className="w-4 h-4 sm:w-5 sm:h-5" />
-                          <span className="flex-1 text-left truncate">{opt.label}</span>
-                          {selectedType === opt.id && <div className="w-1.5 h-1.5 bg-teal-400 rounded-full shrink-0" />}
-                        </button>
+                      {AUDIT_GROUPS.map((group) => (
+                        <div key={group.title} className="space-y-2 mt-2 first:mt-0">
+                          <label className="text-[8px] font-black uppercase text-slate-300 ml-1">{group.title}</label>
+                          {group.options.map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setSelectedType(opt.id as AuditType)}
+                              className={cn(
+                                "w-full flex items-center gap-3 sm:gap-4 p-2 sm:p-3.5 rounded-xl sm:rounded-2xl border transition-all text-[11px] sm:text-sm font-bold sm:font-semibold",
+                                selectedType === opt.id 
+                                  ? "bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-900/10" 
+                                  : "bg-white text-slate-500 border-slate-200 hover:border-slate-400"
+                              )}
+                            >
+                              <opt.icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                              <span className="flex-1 text-left truncate">{opt.label}</span>
+                              {selectedType === opt.id && <div className="w-1.5 h-1.5 bg-teal-400 rounded-full shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -679,45 +865,42 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                             </div>
                           ))}
 
-                          <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-6 mb-2">Monitoring Method</h4>
-                          <div className="flex flex-wrap gap-2">
-                             {[
-                               { id: 'direct', label: 'Direct observation' },
-                               { id: 'fluorescent', label: 'Fluorescent gel' },
-                               { id: 'swab', label: 'Swab cultures' },
-                               { id: 'atp', label: 'ATP system' },
-                               { id: 'agar', label: 'Agar slide cultures' },
-                                { id: 'other', label: 'Other' }
-                             ].map(method => (
-                               <button
-                                 key={method.id}
-                                 type="button"
-                                 onClick={() => setChecklist({...checklist, envCleaning: {...checklist.envCleaning, monitoringMethod: method.id}})}
-                                 className={cn(
-                                   "px-4 py-2 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all",
-                                   checklist.envCleaning.monitoringMethod === method.id 
-                                     ? "bg-slate-900 text-teal-400 border-slate-900" 
-                                     : "bg-slate-100 text-slate-400 border-transparent hover:border-slate-300"
-                                 )}
-                               >
-                                 {method.label}
-                               </button>
-                             ))}
-                          </div>
-                          {checklist.envCleaning.monitoringMethod === 'other' && (
-                            <input 
-                              placeholder="Specify other monitoring method..." 
-                              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 mt-3 font-semibold outline-none focus:ring-2 focus:ring-slate-900" 
-                              value={checklist.envCleaning.monitoringOther || ''}
-                              onChange={e => setChecklist({...checklist, envCleaning: {...checklist.envCleaning, monitoringOther: e.target.value}})}
-                            />
-                          )}
+
                         </div>
                       </div>
                     ) : selectedType === 'SAFE_INJECTION' ? (
                       <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                        <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                           <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-900 mb-4">HCW Verification</h4>
+                           <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-1.5">
+                                 <label className="text-[9px] font-black uppercase text-slate-400">HCW Category</label>
+                                 <select 
+                                   value={formData.profession} 
+                                   onChange={e => setFormData({...formData, profession: e.target.value})}
+                                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-brand-primary"
+                                 >
+                                   <option value="1">Nurse / Midwife</option>
+                                   <option value="2">Auxiliary</option>
+                                   <option value="3">Medical Doctor</option>
+                                   <option value="4">Other HCW</option>
+                                 </select>
+                              </div>
+                              <div className="space-y-1.5">
+                                 <label className="text-[9px] font-black uppercase text-slate-400">Staff Name (Optional)</label>
+                                 <input 
+                                   type="text"
+                                   placeholder="Staff Name"
+                                   value={checklist.hhObs.staffIdentifier}
+                                   onChange={e => setChecklist({...checklist, hhObs: {...checklist.hhObs, staffIdentifier: e.target.value}})}
+                                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 placeholder:text-slate-300 outline-none focus:ring-2 focus:ring-brand-primary"
+                                 />
+                              </div>
+                           </div>
+                        </div>
+
                         <div className="space-y-3">
-                          <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Preparation Area</h4>
+                           <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Preparation Area</h4>
                           <div className="grid grid-cols-1 gap-2">
                              <CheckItem label="Injection prepared in clean area" checked={checklist.safeInjection.prepClean} onChange={v => setChecklist({...checklist, safeInjection: {...checklist.safeInjection, prepClean: v}})} />
                              <CheckItem label="Alcohol pad available" checked={checklist.safeInjection.alcoholAvail} onChange={v => setChecklist({...checklist, safeInjection: {...checklist.safeInjection, alcoholAvail: v}})} />
@@ -838,8 +1021,19 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                       <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                         <div className="space-y-3">
                           <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Staff Information</label>
-                          <div className="flex flex-wrap gap-2">
-                             {STAFF_TYPES.map(type => (
+                          <div className="space-y-3">
+                            <div className="space-y-1.5">
+                              <label className="text-[9px] font-black uppercase text-slate-400">Staff Name (Optional)</label>
+                              <input 
+                                type="text"
+                                placeholder="Staff Name"
+                                value={checklist.ppeCompliance.staffIdentifier}
+                                onChange={e => setChecklist({...checklist, ppeCompliance: {...checklist.ppeCompliance, staffIdentifier: e.target.value}})}
+                                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 placeholder:text-slate-300 outline-none focus:ring-2 focus:ring-brand-primary"
+                              />
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                               {STAFF_TYPES.map(type => (
                                <button
                                  key={type}
                                  type="button"
@@ -864,6 +1058,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                              )}
                           </div>
                         </div>
+                      </div>
 
                         <div className="space-y-3">
                           <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Correct PPE for Zone</h4>
@@ -907,19 +1102,34 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                       </div>
                     ) : selectedType === 'HH_COMPLIANCE' ? (
                       <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                        <div className="space-y-3">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">HCW Profession</label>
-                          <select 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-brand-primary"
-                            value={formData.profession}
-                            onChange={(e) => setFormData({...formData, profession: e.target.value})}
-                          >
-                            <option value="1">Nurse / Midwife</option>
-                            <option value="2">Auxiliary</option>
-                            <option value="3">Medical Doctor</option>
-                            <option value="4">Other HCW</option>
-                          </select>
-                          {formData.profession === '4' && (
+                        <div className="space-y-4">
+                           <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Staff Details</h4>
+                           <div className="grid grid-cols-2 gap-4">
+                             <div className="space-y-1.5">
+                                <label className="text-[9px] font-black uppercase text-slate-400">HCW Category</label>
+                                <select 
+                                  value={formData.profession} 
+                                  onChange={e => setFormData({...formData, profession: e.target.value})}
+                                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-brand-primary"
+                                >
+                                  <option value="1">Nurse / Midwife</option>
+                                  <option value="2">Auxiliary</option>
+                                  <option value="3">Medical Doctor</option>
+                                  <option value="4">Other HCW</option>
+                                </select>
+                             </div>
+                             <div className="space-y-1.5">
+                                <label className="text-[9px] font-black uppercase text-slate-400">Staff Name (Internal)</label>
+                                <input 
+                                  type="text"
+                                  placeholder="Nurse 1, Nurse A..."
+                                  value={checklist.hhObs.staffIdentifier}
+                                  onChange={e => setChecklist({...checklist, hhObs: {...checklist.hhObs, staffIdentifier: e.target.value}})}
+                                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 placeholder:text-slate-300 outline-none focus:ring-2 focus:ring-brand-primary"
+                                />
+                             </div>
+                           </div>
+                           {formData.profession === '4' && (
                             <motion.input 
                               initial={{ opacity: 0, y: -10 }}
                               animate={{ opacity: 1, y: 0 }}
@@ -932,43 +1142,161 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                         </div>
 
                         <div className="space-y-4">
-                          <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Indications</h4>
-                          <div className="grid grid-cols-1 gap-2">
-                             <CheckItem label="bef-pat. (Before touching patient)" checked={checklist.hhObs.indications.befPat} onChange={v => setChecklist({...checklist, hhObs: {...checklist.hhObs, indications: {...checklist.hhObs.indications, befPat: v}}})} />
-                             <CheckItem label="bef-asept. (Before clean/aseptic)" checked={checklist.hhObs.indications.befAsept} onChange={v => setChecklist({...checklist, hhObs: {...checklist.hhObs, indications: {...checklist.hhObs.indications, befAsept: v}}})} />
-                             <CheckItem label="aft-b.f. (After body fluid risk)" checked={checklist.hhObs.indications.aftBF} onChange={v => setChecklist({...checklist, hhObs: {...checklist.hhObs, indications: {...checklist.hhObs.indications, aftBF: v}}})} />
-                             <CheckItem label="aft-pat. (After touching patient)" checked={checklist.hhObs.indications.aftPat} onChange={v => setChecklist({...checklist, hhObs: {...checklist.hhObs, indications: {...checklist.hhObs.indications, aftPat: v}}})} />
-                             <CheckItem label="aft.p.surr. (After surroundings)" checked={checklist.hhObs.indications.aftSurr} onChange={v => setChecklist({...checklist, hhObs: {...checklist.hhObs, indications: {...checklist.hhObs.indications, aftSurr: v}}})} />
-                          </div>
+                           <div className="flex items-center justify-between">
+                              <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Indications & Actions</h4>
+                              <button 
+                                type="button" 
+                                onClick={() => setChecklist({
+                                  ...checklist, 
+                                  hhObs: {
+                                    ...checklist.hhObs, 
+                                    indications: { befPat: true, befAsept: true, aftBF: true, aftPat: true, aftSurr: true }
+                                  }
+                                })}
+                                className="text-[8px] font-black uppercase tracking-tight text-brand-primary bg-teal-50 px-2 py-1 rounded-lg border border-brand-primary/20 hover:bg-teal-100 transition-colors"
+                              >
+                                Select All Moments
+                              </button>
+                           </div>
+                           <div className="grid grid-cols-1 gap-3">
+                              {[
+                                { id: 'befPat', label: '1. Before touch patient' },
+                                { id: 'befAsept', label: '2. Before clean/aseptic' },
+                                { id: 'aftBF', label: '3. After body fluid risk' },
+                                { id: 'aftPat', label: '4. After touch patient' },
+                                { id: 'aftSurr', label: '5. After surroundings' },
+                              ].map(moment => (
+                                <div key={moment.id} className="space-y-2">
+                                   <CheckItem 
+                                     label={moment.label} 
+                                     checked={checklist.hhObs.indications[moment.id]} 
+                                     onChange={v => setChecklist({
+                                       ...checklist, 
+                                       hhObs: {
+                                         ...checklist.hhObs, 
+                                         indications: { ...checklist.hhObs.indications, [moment.id]: v }
+                                       }
+                                     })} 
+                                   />
+                                   {checklist.hhObs.indications[moment.id] && (
+                                     <motion.div 
+                                       initial={{ opacity: 0, height: 0 }}
+                                       animate={{ opacity: 1, height: 'auto' }}
+                                       className="space-y-3 pb-2"
+                                     >
+                                       <div className="flex gap-1 ml-6 overflow-hidden">
+                                         {['HR', 'HW', 'Missed'].map(act => (
+                                           <button
+                                             key={act}
+                                             type="button"
+                                             onClick={() => setChecklist({
+                                               ...checklist, 
+                                               hhObs: {
+                                                 ...checklist.hhObs, 
+                                                 actions: { ...checklist.hhObs.actions, [moment.id]: act.toLowerCase() }
+                                               }
+                                             })}
+                                             className={cn(
+                                               "px-3 py-1 rounded-lg border text-[8px] font-black uppercase tracking-tight transition-all",
+                                               checklist.hhObs.actions[moment.id] === act.toLowerCase()
+                                                 ? "bg-slate-900 text-teal-400 border-slate-900"
+                                                 : "bg-slate-100 text-slate-400 border-transparent hover:border-slate-300"
+                                             )}
+                                           >
+                                             {act}
+                                           </button>
+                                         ))}
+                                       </div>
+                                       <div className="ml-6 flex items-center gap-2">
+                                          <label className="text-[8px] font-black uppercase tracking-tight text-slate-400">Gloves used for this moment?</label>
+                                          <input 
+                                            type="checkbox"
+                                            checked={checklist.hhObs.momentsGloves?.[moment.id]}
+                                            onChange={e => setChecklist({
+                                              ...checklist,
+                                              hhObs: {
+                                                ...checklist.hhObs,
+                                                momentsGloves: { ...checklist.hhObs.momentsGloves, [moment.id]: e.target.checked }
+                                              }
+                                            })}
+                                            className="w-3.5 h-3.5 rounded border-slate-200 text-brand-primary focus:ring-brand-primary"
+                                          />
+                                       </div>
+                                     </motion.div>
+                                   )}
+                                </div>
+                              ))}
+                           </div>
                         </div>
 
-                        <div className="space-y-4">
-                          <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">HH Action</h4>
-                          <div className="flex flex-wrap gap-2">
-                             {['HR', 'HW', 'Missed'].map(act => (
-                               <button
-                                 key={act}
-                                 type="button"
-                                 onClick={() => setChecklist({...checklist, hhObs: {...checklist.hhObs, action: act.toLowerCase()}})}
-                                 className={cn(
-                                   "px-6 py-2 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all",
-                                   checklist.hhObs.action === act.toLowerCase() 
-                                     ? "bg-slate-900 text-teal-400 border-slate-900" 
-                                     : "bg-slate-100 text-slate-400 border-transparent hover:border-slate-300"
-                                 )}
-                               >
-                                 {act}
-                               </button>
-                             ))}
-                          </div>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={handleAddHHObservation}
+                          className="w-full py-3 bg-slate-900 text-teal-400 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-800 transition-all border border-slate-800 border-dashed"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Add HCW to Multi-Audit Batch
+                        </button>
 
-                        <div className="pt-2">
-                           <CheckItem label="Gloves" checked={checklist.hhObs.gloves} onChange={v => setChecklist({...checklist, hhObs: {...checklist.hhObs, gloves: v}})} />
-                        </div>
+                        {pendingHHObservations.length > 0 && (
+                          <div className="space-y-2 mt-4 pt-4 border-t border-slate-100">
+                             <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Batch Queue ({pendingHHObservations.length})</h4>
+                             <div className="space-y-1">
+                               {pendingHHObservations.map((obs) => (
+                                 <div key={obs.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+                                   <div className="flex items-center justify-between">
+                                     <div className="flex flex-col">
+                                       <div className="flex items-center gap-2">
+                                          <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">
+                                            {obs.profession === '1' ? 'Nurse' : obs.profession === '2' ? 'Auxiliary' : obs.profession === '3' ? 'MD' : 'Other HCW'}
+                                          </span>
+                                          {obs.staffIdentifier && (
+                                            <span className="text-[8px] font-bold text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded uppercase">{obs.staffIdentifier}</span>
+                                          )}
+                                       </div>
+                                       <span className={cn(
+                                         "text-[8px] font-bold uppercase px-1.5 py-0.5 rounded-md w-fit mt-0.5",
+                                         obs.score === obs.total ? "bg-emerald-100 text-emerald-700" : obs.score > 0 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
+                                       )}>
+                                         {obs.score}/{obs.total} Correct
+                                       </span>
+                                     </div>
+                                     <button 
+                                       type="button" 
+                                       onClick={() => setPendingHHObservations(prev => prev.filter(p => p.id !== obs.id))}
+                                       className="p-1.5 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded-lg transition-colors"
+                                     >
+                                       <Trash2 className="w-3.5 h-3.5" />
+                                     </button>
+                                   </div>
+                                   <div className="flex flex-wrap gap-1">
+                                      {[
+                                        { id: 'befPat', label: 'M1' },
+                                        { id: 'befAsept', label: 'M2' },
+                                        { id: 'aftBF', label: 'M3' },
+                                        { id: 'aftPat', label: 'M4' },
+                                        { id: 'aftSurr', label: 'M5' }
+                                      ].map(m => obs.indications[m.id] && (
+                                        <span key={m.id} className="text-[7px] font-black bg-slate-200 text-slate-600 px-1 py-0.5 rounded border border-slate-300 uppercase flex items-center gap-1">
+                                          {m.label}
+                                          <span className={cn(
+                                            "w-2.5 h-2.5 rounded-full flex items-center justify-center text-[5px] text-white",
+                                            (obs.actions[m.id] === 'hr' || obs.actions[m.id] === 'hw') ? "bg-emerald-500" : "bg-rose-500"
+                                          )}>
+                                            {obs.actions[m.id] === 'hr' ? 'R' : obs.actions[m.id] === 'hw' ? 'W' : 'M'}
+                                          </span>
+                                          {obs.momentsGloves?.[m.id] && <span className="text-[5px] font-bold text-blue-500 border border-blue-200 px-0.5 rounded">G</span>}
+                                        </span>
+                                      ))}
+                                   </div>
+                                 </div>
+                               ))}
+                             </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
-                      <>
+                      <div className="space-y-6">
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-1.5">
                             <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Successes</label>
@@ -999,31 +1327,31 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                             onChange={(e) => setFormData({...formData, remarks: e.target.value})}
                           ></textarea>
                         </div>
-                      </>
+                      </div>
                     )}
                   </div>
                 </div>
+              </div>
 
-                </div>
-                <div className="flex flex-col sm:flex-row gap-4 p-4 sm:p-6 bg-slate-50 border-t border-slate-100 shrink-0">
-                  <button 
-                    type="button"
-                    onClick={() => setIsAdding(false)}
-                    className="flex-1 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest hover:text-slate-900 transition-colors border border-slate-200 sm:border-none rounded-2xl sm:rounded-none"
-                  >
-                    Discard Changes
-                  </button>
-                  <button 
-                    type="submit"
-                    className="btn-primary flex-[2] sm:flex-1 py-4 shadow-xl shadow-teal-900/10 active:scale-[0.98] transition-transform font-bold uppercase tracking-widest text-[10px]"
-                  >
-                    Validate & Transmit Audit
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
+              <div className="flex flex-col sm:flex-row gap-4 p-4 sm:p-6 bg-slate-50 border-t border-slate-100 shrink-0">
+                <button 
+                  type="button"
+                  onClick={() => setIsAdding(false)}
+                  className="flex-1 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest hover:text-slate-900 transition-colors border border-slate-200 sm:border-none rounded-2xl sm:rounded-none"
+                >
+                  Discard Changes
+                </button>
+                <button 
+                  type="submit"
+                  className="btn-primary flex-[2] sm:flex-1 py-4 shadow-xl shadow-teal-900/10 active:scale-[0.98] transition-transform font-bold uppercase tracking-widest text-[10px]"
+                >
+                  Validate & Transmit Audit
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
         {selectedAuditForValidation && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full h-full sm:h-auto sm:max-w-md bg-white sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
@@ -1046,12 +1374,57 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                           <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={validationForm.time} onChange={e => setValidationForm({...validationForm, time: e.target.value})} />
                        </div>
                     </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Validator Name</label>
-                       <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none" value={validationForm.validatorName} onChange={e => setValidationForm({...validationForm, validatorName: e.target.value})} />
-                    </div>
-                    <div className="space-y-1.5">
-                       <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Remarks</label>
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Validator Name</label>
+                      <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none" value={validationForm.validatorName} onChange={e => setValidationForm({...validationForm, validatorName: e.target.value})} placeholder="Enter your full name" />
+                   </div>
+
+                   {selectedAuditForValidation.type === 'ENV_CLEANING' && (
+                     <div className="space-y-4 pt-2 border-t border-slate-100">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Monitoring Method</label>
+                          <select 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none"
+                            value={validationForm.monitoringMethod}
+                            onChange={e => setValidationForm({...validationForm, monitoringMethod: e.target.value})}
+                          >
+                             <option value="">Select Method</option>
+                             <option value="Visual Observation">Visual Observation</option>
+                             <option value="Fluorescent Marker">Fluorescent Marker</option>
+                             <option value="ATP Bioluminescence">ATP Bioluminescence</option>
+                             <option value="Culturing">Culturing</option>
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Result</label>
+                           <div className="flex gap-2">
+                              <button 
+                                type="button"
+                                onClick={() => setValidationForm({...validationForm, monitoringStatus: 'PASS'})}
+                                className={cn(
+                                  "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                                  validationForm.monitoringStatus === 'PASS' ? "bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-500/20" : "bg-slate-50 border-slate-200 text-slate-400"
+                                )}
+                              >
+                                Passed
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => setValidationForm({...validationForm, monitoringStatus: 'FAIL'})}
+                                className={cn(
+                                  "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                                  validationForm.monitoringStatus === 'FAIL' ? "bg-rose-500 border-rose-500 text-white shadow-lg shadow-rose-500/20" : "bg-slate-50 border-slate-200 text-slate-400"
+                                )}
+                              >
+                                Failed
+                              </button>
+                           </div>
+                        </div>
+                     </div>
+                   )}
+
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Remarks</label>
                        <textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs h-24 resize-none outline-none" value={validationForm.remarks} onChange={e => setValidationForm({...validationForm, remarks: e.target.value})} placeholder="Validation notes..." />
                     </div>
                  </div>
@@ -1065,7 +1438,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
   );
 }
 
-function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, isValidated, validatedBy, onValidate, isAdmin }: any) {
+function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, auditorName, isValidated, validatedBy, validatorName, onValidate, isAdmin }: any) {
   const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
   const colorClass = percentage >= 90 ? 'text-emerald-600' : percentage >= 80 ? 'text-amber-600' : 'text-rose-600';
   const barClass = percentage >= 90 ? 'bg-emerald-500' : percentage >= 80 ? 'bg-amber-500' : 'bg-rose-500';
@@ -1101,13 +1474,13 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, isV
         </div>
         <div className="flex flex-col gap-0.5">
            <div className="flex items-center justify-between">
-              <span className="text-sm font-bold text-slate-700 truncate max-w-[150px]">{auditorEmail || 'System'}</span>
+              <span className="text-sm font-bold text-slate-700 truncate max-w-[150px]">{auditorName || auditorEmail || 'System'}</span>
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{formatDate(timestamp)}</span>
            </div>
            {isValidated && (
              <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 uppercase tracking-tight">
                 <CheckCircle2 className="w-2.5 h-2.5" />
-                <span>Validated by: {validatedBy}</span>
+                <span>Validated by: {validatorName || validatedBy}</span>
              </div>
            )}
         </div>
@@ -1116,7 +1489,7 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, isV
       <div className="sm:hidden w-full flex items-center justify-between border-t border-slate-50 pt-2">
          <div className="flex flex-col">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{formatDate(timestamp)}</span>
-            <span className="text-[10px] font-bold text-slate-700 truncate max-w-[120px]">{auditorEmail || 'System'}</span>
+            <span className="text-[10px] font-bold text-slate-700 truncate max-w-[120px]">{auditorName || auditorEmail || 'System'}</span>
          </div>
          {isValidated && (
              <div className="flex items-center gap-1 text-[8px] font-bold text-emerald-600 uppercase tracking-tight">
@@ -1150,6 +1523,7 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, isV
                 try {
                   await deleteDoc(doc(db, 'audits', id));
                 } catch (error) {
+                  console.error("Delete error:", error);
                   handleFirestoreError(error, OperationType.DELETE, `audits/${id}`);
                 }
               }}

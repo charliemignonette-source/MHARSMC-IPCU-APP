@@ -18,7 +18,10 @@ import {
   Trash2,
   Download,
   AlertTriangle,
-  FileDown
+  FileDown,
+  Activity,
+  Fingerprint,
+  Target
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
@@ -41,7 +44,99 @@ const getAwareStyles = (drugName: string) => {
 };
 
 export default function AMS({ user }: { user: UserProfile | null }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [requests, setRequests] = useState<AMSRequest[]>([]);
+  const [viewMode, setViewMode] = useState<'LIST' | 'DASHBOARD'>('LIST');
+
+  const getDepartment = (unit: string) => {
+    if (['ICU', 'NICU', 'PICU', 'HDU'].includes(unit)) return 'Critical Care';
+    if (['Ward 1A', 'Ward 1B', 'Ward 1C', 'Medical Ward'].includes(unit)) return 'Medicine';
+    if (['Ward 2A', 'Ward 2B', 'Surgical Ward', 'OR'].includes(unit)) return 'Surgery';
+    if (['OB Ward', 'DR'].includes(unit)) return 'OB-GYN';
+    if (['Ward 3A', 'Ward 3B', 'Pedia Ward'].includes(unit)) return 'Pediatrics';
+    if (['ER', 'OPD 1', 'OPD 2'].includes(unit)) return 'Emergency/Outpatient';
+    return 'Ancillary/Other';
+  };
+
+  const getStats = () => {
+    const stats = {
+      commonAntibiotic: 'N/A',
+      wardWithMostRequests: 'N/A',
+      deptWithMostRequests: 'N/A',
+      indications: { Prophylactic: 0, Empiric: 0, Definitive: 0 },
+      focusOfInfection: {} as Record<string, number>,
+      extensionsPerWard: {} as Record<string, number>,
+      antibioticUsage: [] as { name: string, count: number }[],
+      wardRequests: [] as { name: string, count: number }[],
+      deptRequests: [] as { name: string, count: number }[],
+      commonIndication: 'N/A',
+      commonFocus: 'N/A',
+    };
+
+    if (requests.length === 0) return stats;
+
+    const abUsage: Record<string, number> = {};
+    const wRequests: Record<string, number> = {};
+    const dRequests: Record<string, number> = {};
+
+    requests.forEach(req => {
+      req.antimicrobialsRequested?.forEach(ab => {
+        abUsage[ab] = (abUsage[ab] || 0) + 1;
+      });
+
+      wRequests[req.unit] = (wRequests[req.unit] || 0) + 1;
+
+      const dept = getDepartment(req.unit);
+      dRequests[dept] = (dRequests[dept] || 0) + 1;
+
+      if (req.type === 'EXTENSION_7D') {
+        stats.extensionsPerWard[req.unit] = (stats.extensionsPerWard[req.unit] || 0) + 1;
+      }
+
+      if (req.indicationForUse) {
+        stats.indications[req.indicationForUse] = (stats.indications[req.indicationForUse] || 0) + 1;
+      }
+
+      req.focusOfInfection?.forEach(focus => {
+        stats.focusOfInfection[focus] = (stats.focusOfInfection[focus] || 0) + 1;
+      });
+    });
+
+    stats.antibioticUsage = Object.entries(abUsage)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+    
+    stats.wardRequests = Object.entries(wRequests)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    stats.deptRequests = Object.entries(dRequests)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    stats.commonAntibiotic = stats.antibioticUsage[0]?.name || 'N/A';
+    stats.wardWithMostRequests = stats.wardRequests[0]?.name || 'N/A';
+    stats.deptWithMostRequests = stats.deptRequests[0]?.name || 'N/A';
+
+    const topIndication = Object.entries(stats.indications).sort((a, b) => b[1] - a[1])[0];
+    stats.commonIndication = topIndication && topIndication[1] > 0 ? topIndication[0] : 'N/A';
+
+    const topFocus = Object.entries(stats.focusOfInfection).sort((a, b) => b[1] - a[1])[0];
+    stats.commonFocus = topFocus && topFocus[1] > 0 ? topFocus[0] : 'N/A';
+
+    return stats;
+  };
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return 'N/A';
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return dateStr;
+      return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } catch (e) {
+      return dateStr;
+    }
+  };
   const [isAdding, setIsAdding] = useState(false);
   const [activeFilter, setActiveFilter] = useState<AMSStatus | 'ALL'>('ALL');
   const [formData, setFormData] = useState<Partial<AMSRequest>>({
@@ -140,19 +235,28 @@ export default function AMS({ user }: { user: UserProfile | null }) {
 
     try {
       const patientName = `${formData.firstName} ${formData.middleName ? formData.middleName + ' ' : ''}${formData.lastName}`;
-      const now = new Date();
-      const dateTimeRequested = `${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      const dateTimeRequested = new Date().toISOString();
       
-      await addDoc(collection(db, 'ams_requests'), {
-        ...formData,
-        patientName,
-        dateTimeRequested,
-        prescriberId: user.uid,
-        prescriberEmail: user.email || '',
-        status: 'PENDING',
-        isValidated: false,
-        createdAt: serverTimestamp()
-      });
+      if (editingId) {
+        await updateDoc(doc(db, 'ams_requests', editingId), {
+          ...formData,
+          patientName,
+          updatedAt: serverTimestamp()
+        });
+        setEditingId(null);
+      } else {
+        await addDoc(collection(db, 'ams_requests'), {
+          ...formData,
+          patientName,
+          dateTimeRequested,
+          prescriberId: user.uid,
+          prescriberEmail: user.email || '',
+          prescriberName: user.name, // adding name
+          status: 'PENDING',
+          isValidated: false,
+          createdAt: serverTimestamp()
+        });
+      }
       setIsAdding(false);
       resetForm();
     } catch (error) {
@@ -213,6 +317,24 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     });
   };
 
+  const handleEdit = (req: AMSRequest) => {
+    setFormData({
+      ...req,
+      date: req.date || new Date().toISOString().split('T')[0]
+    });
+    setEditingId(req.id!);
+    setIsAdding(true);
+  };
+
+  const handleDelete = async (requestId: string) => {
+    if (!window.confirm('Are you sure you want to delete this drug request? This action cannot be undone.')) return;
+    try {
+      await deleteDoc(doc(db, 'ams_requests', requestId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `ams_requests/${requestId}`);
+    }
+  };
+
   const handleAction = async (requestId: string, status: AMSStatus) => {
     if (!user) return;
     const req = requests.find(r => r.id === requestId);
@@ -229,6 +351,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         remarks,
         reviewerId: user.uid,
         reviewerEmail: user.email,
+        reviewerName: user.name,
         reviewedAt: new Date().toISOString(),
         updatedAt: serverTimestamp()
       };
@@ -285,7 +408,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     ];
     
     const rows = filteredRequests.map(req => [
-      req.dateTimeRequested || '',
+      formatDate(req.dateTimeRequested || ''),
       req.patientName || '',
       req.hospNo || '',
       req.unit || '',
@@ -306,7 +429,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `AMS_Report_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `Antimicrobial_Stewardship_Report_${new Date().toISOString().split('T')[0]}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -357,7 +480,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       // Header
       doc.setFontSize(18);
       doc.setTextColor(13, 148, 136); // Teal-600
-      doc.text('AMS Drug Stewardship Request', pageWidth / 2, currentY, { align: 'center' });
+      doc.text('Antimicrobial Stewardship Request', pageWidth / 2, currentY, { align: 'center' });
       currentY += 7;
       
       doc.setFontSize(10);
@@ -552,7 +675,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       doc.setFontSize(8);
       doc.setTextColor(100);
       doc.text('Attending Physician Signature', 14, currentY + 20);
-      doc.text('Infectious Disease Consultant / AMS Lead', pageWidth - 80, currentY + 20);
+      doc.text('Infectious Disease Consultant / Antimicrobial Stewardship Lead', pageWidth - 80, currentY + 20);
 
       // Footer
       const pageCount = (doc as any).internal.getNumberOfPages();
@@ -563,7 +686,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         doc.text(`Page ${i} of ${pageCount} | Generated by IPCU Management System | ${new Date().toLocaleString()}`, pageWidth / 2, 285, { align: 'center' });
       }
 
-      doc.save(`AMS_Order_${req.hospNo}_${req.lastName}.pdf`);
+      doc.save(`Antimicrobial_Order_${req.hospNo}_${req.lastName}.pdf`);
     } catch (error) {
       console.error("PDF generation failed", error);
       alert("Failed to generate PDF. Error: " + (error instanceof Error ? error.message : String(error)));
@@ -581,7 +704,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row shadow-sm sm:shadow-none items-start sm:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 uppercase">AMS Stewardship</h2>
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 uppercase">Antimicrobial Stewardship</h2>
           <p className="text-[10px] sm:text-xs text-slate-500 font-medium tracking-tight">Antimicrobial stewardship and restriction protocols</p>
         </div>
         <button 
@@ -594,80 +717,39 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       </div>
 
       <div className="grid grid-cols-12 gap-6">
-        {/* Statistics highlights in a bento-like sidebar for this view - Only for IPCU/Admin/Physician */}
-        {(user?.role !== 'USER') && (
-          <div className="col-span-12 lg:col-span-4 space-y-6">
-            <div className="bento-card p-6 bg-white overflow-hidden relative">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-teal-50 rounded-full -mr-16 -mt-16 blur-2xl opacity-40" />
-              <div className="relative">
-                <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Unit Pressure</h3>
-                <div className="space-y-4">
-                  {['ICU A', 'WARD C', 'NICU'].map((unit, i) => (
-                    <div key={unit}>
-                      <div className="flex justify-between text-xs font-bold mb-1.5 flex items-center">
-                        <span className="text-slate-700">{unit}</span>
-                        <span className={cn("text-[9px] px-1.5 py-0.5 rounded uppercase", i === 0 ? "bg-rose-50 text-rose-600" : "bg-slate-50 text-slate-500")}>
-                          {i === 0 ? 'High' : 'Normal'}
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: i === 0 ? '85%' : i === 1 ? '45%' : '15%' }}
-                          className={cn("h-full rounded-full", i === 0 ? "bg-rose-500" : "bg-teal-500")} 
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-brand-dark p-6 rounded-3xl text-white shadow-xl shadow-slate-900/10">
-              <div className="flex items-center gap-3 mb-4">
-                <ShieldAlert className="w-6 h-6 text-teal-400" />
-                <h3 className="text-sm font-bold uppercase tracking-tight">Rapid Response Protocol</h3>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed font-medium mb-6">
-                All restricted antimicrobials require mandatory review within 72 hours of initiation. 
-                Manual overrides must be documented with emergent clinical justification.
-              </p>
-              <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-2xl font-black">12.4</p>
-                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">AVG DAILY REQ</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs font-bold text-emerald-400">+1.2%</p>
-                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">VS LW</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Ledger - The main list */}
-        <div className={cn(
-          "col-span-12 bento-card bg-white min-h-[500px] flex flex-col",
-          user?.role !== 'USER' ? "lg:col-span-8" : "lg:col-span-12"
-        )}>
+        <div className="col-span-12 bento-card bg-white min-h-[500px] flex flex-col">
           <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/30">
             <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto no-scrollbar">
-              {['ALL', 'PENDING', 'APPROVED', 'DENIED', 'DISPENSED'].map((f) => (
+              {['LIST', 'DASHBOARD'].map((mode) => (
                 <button
-                  key={f}
-                  onClick={() => setActiveFilter(f as any)}
+                  key={mode}
+                  onClick={() => setViewMode(mode as any)}
                   className={cn(
                     "px-3 sm:px-4 py-1.5 text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap",
-                    activeFilter === f ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                    viewMode === mode ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
                   )}
                 >
-                  {f}
+                  {mode}
                 </button>
               ))}
             </div>
+            {viewMode === 'LIST' && (
+              <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto no-scrollbar ml-auto">
+                {['ALL', 'PENDING', 'APPROVED', 'DENIED', 'DISPENSED'].map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setActiveFilter(f as any)}
+                    className={cn(
+                      "px-3 sm:px-4 py-1.5 text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap",
+                      activeFilter === f ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                    )}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <button 
                 onClick={exportToCSV}
@@ -684,7 +766,10 @@ export default function AMS({ user }: { user: UserProfile | null }) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {filteredRequests.map((req) => (
+            {viewMode === 'DASHBOARD' ? (
+              <AMSDashboard stats={getStats()} />
+            ) : (
+              filteredRequests.map((req) => (
               <div key={req.id} className="group border border-transparent hover:border-slate-100 rounded-2xl transition-all">
                 <div 
                   className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 cursor-pointer"
@@ -705,12 +790,12 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                       </div>
                       <div className="flex flex-col gap-0.5">
                          <p className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-tight opacity-80">{req.type.replace('_', ' ')} • MISSION CRITICAL</p>
-                         {req.dateTimeRequested && <p className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase">Req: {req.dateTimeRequested}</p>}
-                         <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px] sm:max-w-none">Physician: {req.requestingPhysician || req.prescriberEmail}</p>
+                         {req.dateTimeRequested && <p className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase">Req: {formatDate(req.dateTimeRequested)}</p>}
+                         <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px] sm:max-w-none">Physician: {req.prescriberName || req.requestingPhysician || req.prescriberEmail}</p>
                          {req.isValidated && (
                             <p className="text-[8px] sm:text-[9px] font-bold text-emerald-600 uppercase tracking-tight flex items-center gap-1">
                                <CheckCircle2 className="w-2.5 h-2.5" />
-                               <span className="hidden sm:inline">Validated by:</span> {req.validatedBy}
+                               <span className="hidden sm:inline">Validated by:</span> {req.reviewerName || req.validatedBy}
                             </p>
                          )}
                       </div>
@@ -726,6 +811,24 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                       <FileDown className="w-5 h-5" />
                     </button>
                     <div className="flex items-center gap-3">
+                      {req.prescriberId === user?.uid && req.status === 'PENDING' && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleEdit(req); }}
+                          className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
+                          title="Edit Request"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+                      )}
+                      {(user?.role === 'ADMIN' || user?.role === 'IPCN') && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDelete(req.id!); }}
+                          className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                          title="Delete Request"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                       {req.status === 'PENDING' && isApprover ? null : (
                          <div className={cn(
                             "px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[8px] sm:text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5",
@@ -973,8 +1076,9 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                   )}
                 </AnimatePresence>
               </div>
-            ))}
-          </div>
+            ))
+          )}
+        </div>
         </div>
       </div>
 
@@ -994,29 +1098,33 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                     <div className="bg-brand-primary p-2 rounded-xl text-white">
                       <FlaskConical className="w-5 h-5" />
                     </div>
-                    <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">AMS Stewardship Request</h3>
+                    <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">
+                      {editingId ? 'Edit AMS Request' : 'Antimicrobial Stewardship Request'}
+                    </h3>
                   </div>
                   
-                  <div className="flex bg-slate-200 p-1 rounded-xl">
-                    {[
-                      { id: 'RESTRICTED_USE', label: 'Initial Request' },
-                      { id: 'EXTENSION_7D', label: '7-Day Extension' }
-                    ].map(t => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, type: t.id as any })}
-                        className={cn(
-                          "px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
-                          formData.type === t.id ? "bg-white text-brand-primary shadow-sm" : "text-slate-500 hover:text-slate-700"
-                        )}
-                      >
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
+                  {!editingId && (
+                    <div className="flex bg-slate-200 p-1 rounded-xl">
+                      {[
+                        { id: 'RESTRICTED_USE', label: 'Initial Request' },
+                        { id: 'EXTENSION_7D', label: '7-Day Extension' }
+                      ].map(t => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, type: t.id as any })}
+                          className={cn(
+                            "px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
+                            formData.type === t.id ? "bg-white text-brand-primary shadow-sm" : "text-slate-500 hover:text-slate-700"
+                          )}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <button onClick={() => setIsAdding(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+                <button onClick={() => { setIsAdding(false); setEditingId(null); resetForm(); }} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
                   <XCircle className="w-6 h-6" />
                 </button>
               </div>
@@ -1803,7 +1911,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                    <div className="flex gap-4 w-full sm:w-auto">
                     <button 
                       type="button"
-                      onClick={() => setIsAdding(false)}
+                      onClick={() => { setIsAdding(false); setEditingId(null); resetForm(); }}
                       className="flex-1 sm:flex-none px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest hover:text-slate-900 transition-colors border border-slate-200 sm:border-none rounded-2xl sm:rounded-none"
                     >
                       Cancel
@@ -1812,7 +1920,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                       type="submit"
                       className="flex-[2] sm:flex-none btn-primary px-10 py-4 shadow-xl shadow-teal-900/10 font-black uppercase tracking-widest text-[10px] active:scale-[0.98] transition-transform"
                     >
-                      Process AMS Order
+                      {editingId ? 'Update Antimicrobial Order' : 'Process Antimicrobial Order'}
                     </button>
                    </div>
                 </div>
@@ -1824,3 +1932,118 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     </div>
   );
 }
+
+function AMSDashboard({ stats }: { stats: any }) {
+  return (
+    <div className="p-4 space-y-8 h-full">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {[
+          { label: 'Common Indication', value: stats.commonIndication, sub: 'Top Driver', icon: Fingerprint, color: 'text-indigo-500' },
+          { label: 'Primary Infection Focus', value: stats.commonFocus, sub: 'Clinical Target', icon: Target, color: 'text-rose-500' },
+          { label: 'Top Restricted Drug', value: stats.commonAntibiotic, sub: 'Most Prescribed', icon: FlaskConical, color: 'text-amber-500' },
+          { label: 'Top Unit', value: stats.wardWithMostRequests, sub: 'By Volume', icon: SteppedAreaChartIcon, color: 'text-teal-500' },
+          { label: 'Top Dept', value: stats.deptWithMostRequests, sub: 'By Volume', icon: LayoutDashboard, color: 'text-blue-500' },
+        ].map((item, idx) => (
+          <div key={idx} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-start gap-3">
+            <div className={cn("p-2 rounded-xl bg-white shadow-sm", item.color)}>
+              {item.icon ? <item.icon className="w-4 h-4" /> : <FlaskConical className="w-4 h-4" />}
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.label}</p>
+              <p className="text-sm font-black text-slate-800 truncate max-w-[120px]">{item.value}</p>
+              <p className="text-[9px] font-bold text-slate-500 italic uppercase opacity-60">{item.sub}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Request Distribution by Ward</h4>
+            <FileText className="w-4 h-4 text-slate-300" />
+          </div>
+          <div className="space-y-3">
+            {stats.wardRequests.slice(0, 8).map((ward: any) => {
+              const total = stats.wardRequests.reduce((acc: number, curr: any) => acc + curr.count, 0);
+              const percent = total > 0 ? Math.round((ward.count / total) * 100) : 0;
+              return (
+                <div key={ward.name}>
+                  <div className="flex justify-between text-[11px] font-bold mb-1">
+                    <span className="text-slate-600">{ward.name}</span>
+                    <span className="text-slate-900">{ward.count} ({percent}%)</span>
+                  </div>
+                  <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-teal-500 rounded-full" style={{ width: `${percent}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+            {stats.wardRequests.length === 0 && <p className="text-[10px] text-slate-400 italic">No request data found.</p>}
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Infectious Indication Analysis</h4>
+              <AlertTriangle className="w-4 h-4 text-slate-300" />
+            </div>
+            <div className="space-y-3">
+               <div className="flex h-2.5 w-full rounded-full overflow-hidden bg-slate-100">
+                  {Object.entries(stats.indications).map(([name, count], idx) => {
+                    const colors = ['bg-teal-500', 'bg-rose-500', 'bg-indigo-500'];
+                    const total = Object.values(stats.indications).reduce((a: any, b: any) => a + b, 0) as number;
+                    const width = total > 0 ? (count / total) * 100 : 0;
+                    if (width === 0) return null;
+                    return (
+                      <div key={name} className={cn("h-full transition-all duration-500", colors[idx % colors.length])} style={{ width: `${width}%` }} />
+                    );
+                  })}
+               </div>
+               <div className="flex flex-wrap gap-4">
+                  {Object.entries(stats.indications).map(([name, count], idx) => {
+                    const colors = ['text-teal-500', 'text-rose-500', 'text-indigo-500'];
+                    const total = Object.values(stats.indications).reduce((a: any, b: any) => a + b, 0) as number;
+                    const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+                    return (
+                      <div key={name} className="flex items-center gap-1.5">
+                        <div className={cn("w-1.5 h-1.5 rounded-full", colors[idx % colors.length].replace('text', 'bg'))} />
+                        <span className="text-[10px] font-bold text-slate-600 uppercase">{name} ({percent}%)</span>
+                      </div>
+                    );
+                  })}
+               </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+             <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Focus Analysis</h4>
+             <div className="flex flex-wrap gap-2">
+                {Object.entries(stats.focusOfInfection).sort((a: any, b: any) => b[1] - a[1]).slice(0, 5).map(([focus, count]: [string, any]) => (
+                  <span key={focus} className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-[9px] font-bold">
+                    {focus}: {count}
+                  </span>
+                ))}
+                {Object.keys(stats.focusOfInfection).length === 0 && <p className="text-[9px] text-slate-400 italic">No focus data recorded.</p>}
+             </div>
+          </div>
+          
+          <div className="p-4 bg-slate-900 rounded-2xl text-white">
+            <div className="flex items-center gap-2 mb-2">
+              <ShieldAlert className="w-4 h-4 text-teal-400" />
+              <h5 className="text-[10px] font-bold uppercase tracking-widest">Rapid Response Protocol</h5>
+            </div>
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              Restricted antimicrobials require mandatory review within 72h. Document clinical justification for all manual overrides.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Simple icons fallback
+function LayoutDashboard(props: any) { return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>; }
+function SteppedAreaChartIcon(props: any) { return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M7 15h4v3H7z"/><path d="M13 9h4v9h-4z"/></svg>; }

@@ -184,7 +184,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!user || user.role !== 'ADMIN') return;
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'IPCN')) return;
     if (!confirm('Are you sure you want to delete this outbreak report? This action is permanent.')) return;
     try {
       await deleteDoc(doc(db, 'outbreaks', id));
