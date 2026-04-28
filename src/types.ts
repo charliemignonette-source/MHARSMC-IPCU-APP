@@ -264,73 +264,72 @@ export interface FormCompletionDetail {
 
 export type Population = 'Adult' | 'Pediatric';
 
-export interface DailyObservation {
-  section: string;
-  elements: Record<string, boolean>;
-  remarks?: string;
+export interface AssignedDoctor {
+  name: string;
+  position: string;
 }
 
-export interface ClinicalCriteriaObservation {
-  fever: boolean;
-  chills: boolean;
-  hypotension: boolean;
-  bloodCultureCatheter?: boolean;
-  bloodCulturePeripheral?: boolean;
-  isSigned: boolean;
+export interface WHOMomentData {
+  opportunities: number;
+  HR: number;
+  HW: number;
+  Missed: number;
 }
 
-export interface DailyShiftCheck {
-  done: boolean;
-  staffId?: string;
-  staffName?: string;
-  elements: Record<string, boolean>;
-  clinicalCriteria?: ClinicalCriteriaObservation;
-  updatedAt?: any;
+export interface WHOMomentsState {
+  M1: WHOMomentData;
+  M2: WHOMomentData;
+  M3: WHOMomentData;
+  M4: WHOMomentData;
+  M5: WHOMomentData;
 }
 
-export interface BundleDailyCheck {
+export interface MonitoringDay {
   date: string;
-  shifts: {
-    AM: DailyShiftCheck;
-    PM: DailyShiftCheck;
-    Night: DailyShiftCheck;
+  dayNumber: number;
+  bundleType: 'CLABSI' | 'VAP' | 'CAUTI' | 'SSI';
+  isPedia: boolean;
+  bundleChecklist: Record<string, boolean>;
+  clinicalCriteria: Record<string, any>;
+  whoMoments: WHOMomentsState;
+  complianceScores: {
+    bundle: number;
+    clinical: number;
+    who: number;
+    overall: number;
   };
-  missed?: boolean;
+  missedDay?: boolean;
   missedReason?: string;
-}
-
-export interface InsertionBundle {
-  date: string;
-  time: string;
-  inserterName: string;
-  inserterType: 'Physician' | 'Nurse';
-  nurseAssisting?: string;
-  elements: Record<string, boolean>;
-  isCompliant: boolean;
+  doctor: AssignedDoctor;
+  staffId: string;
+  staffName: string;
 }
 
 export interface BundleMonitoring {
   id?: string;
-  population: Population;
+  hospitalNo: string;
   patientName: string;
-  hospNo: string;
   age: string;
-  gender: 'Male' | 'Female';
+  sex: 'Male' | 'Female';
   unit: string;
-  deviceType: 'CLABSI' | 'VAP' | 'CAUTI' | 'SSI';
-  deviceDetail?: string; // e.g. IJ, PICC line for CLABSI
-  insertionDate: string;
-  insertionTime?: string;
-  removalDate?: string;
+  assignedDoctor: AssignedDoctor;
+  devices: {
+    clabsi?: { type: string; insertionDate: string; removalDate?: string };
+    cauti?: { type: string; insertionDate: string; removalDate?: string };
+    vap?: { type: string; intubationDate: string; extubationDate?: string };
+  };
+  surgery?: {
+    type: string;
+    preOpBundle?: Record<string, boolean>;
+    intraOpBundle?: Record<string, boolean>;
+    postOpDaily?: MonitoringDay[];
+  };
+  monitoringDays: MonitoringDay[];
   status: 'ACTIVE' | 'DISCONTINUED';
-  
-  insertionBundle?: InsertionBundle;
-  dailyChecks: Record<string, BundleDailyCheck>; // Key is YYYY-MM-DD
-  
+  createdAt: any;
+  updatedAt: any;
   staffId: string;
   staffName: string;
-  createdAt: any;
-  updatedAt?: any;
 }
 
 export interface BOCLog {

@@ -23,13 +23,55 @@ import { cn, formatDate } from '../lib/utils';
 
 export default function HAI({ user }: { user: UserProfile | null }) {
   const isIPCU = user?.role === 'ADMIN' || user?.role === 'IPCN';
-  const [activeView, setActiveView] = useState<'surveillance' | 'bundles'>(isIPCU ? 'surveillance' : 'bundles');
-  
-  useEffect(() => {
-    if (!isIPCU && activeView === 'surveillance') {
-      // Logic for non-IPCU users if needed, though they usually use bundles
+  const [activeView, setActiveView] = useState<'surveillance' | 'monitoring'>(isIPCU ? 'surveillance' : 'monitoring');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState<BundleMonitoring[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedPatient, setSelectedPatient] = useState<BundleMonitoring | null>(null);
+  const [isAddingDay, setIsAddingDay] = useState(false);
+
+  const calculateCompliance = (day: MonitoringDay) => {
+    const bundleTotal = Object.keys(day.bundleChecklist).length;
+    const bundleChecked = Object.values(day.bundleChecklist).filter(Boolean).length;
+    const bundleScore = bundleTotal > 0 ? (bundleChecked / bundleTotal) * 100 : 0;
+
+    let whoOps = 0;
+    let whoActions = 0;
+    Object.values(day.whoMoments).forEach(m => {
+      whoOps += m.opportunities;
+      whoActions += (m.HR + m.HW);
+    });
+    const whoScore = whoOps > 0 ? (whoActions / whoOps) * 100 : 0;
+
+    const clinicalTotal = Object.keys(day.clinicalCriteria).length;
+    const clinicalFilled = Object.values(day.clinicalCriteria).filter(v => v !== undefined && v !== null && v !== '').length;
+    const clinicalScore = clinicalTotal > 0 ? (clinicalFilled / clinicalTotal) * 100 : 0;
+
+    const overall = (0.4 * bundleScore) + (0.4 * whoScore) + (0.2 * clinicalScore);
+
+    return {
+      bundle: parseFloat(bundleScore.toFixed(2)),
+      who: parseFloat(whoScore.toFixed(2)),
+      clinical: parseFloat(clinicalScore.toFixed(2)),
+      overall: parseFloat(overall.toFixed(2))
+    };
+  };
+
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) return;
+    setIsSearching(true);
+    try {
+      const qH = query(collection(db, 'bundle_monitorings'), where('hospitalNo', '==', searchTerm));
+      const qN = query(collection(db, 'bundle_monitorings'), where('patientName', '>=', searchTerm), where('patientName', '<=', searchTerm + '\uf8ff'));
+      const [snapH, snapN] = await Promise.all([getDocs(qH), getDocs(qN)]);
+      const results = [...snapH.docs, ...snapN.docs].map(d => ({ id: d.id, ...d.data() } as BundleMonitoring));
+      setSearchResults(results);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, 'bundle_monitorings');
+    } finally {
+      setIsSearching(false);
     }
-  }, [isIPCU, activeView]);
+  };
 
   const [isAddingCase, setIsAddingCase] = useState(false);
   const [isAddingBundle, setIsAddingBundle] = useState(false);
@@ -321,65 +363,48 @@ export default function HAI({ user }: { user: UserProfile | null }) {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row shadow-sm sm:shadow-none items-start sm:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 uppercase">Infection Surveillance</h2>
-          <p className="text-[10px] sm:text-xs text-slate-500 font-medium tracking-tight">Active HAI detection and therapeutic bundle monitoring</p>
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 uppercase">IPCU Clinical Monitor</h2>
+          <p className="text-[10px] sm:text-xs text-slate-500 font-medium tracking-tight">Standardized HAI surveillance and device monitoring workflow</p>
         </div>
         <div className="flex gap-4 w-full sm:w-auto">
-           {isIPCU && (
-             <button 
-               onClick={() => setIsManagingDenominators(true)}
-               className="flex-1 sm:flex-none px-6 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-[10px] sm:text-xs font-bold uppercase tracking-widest hover:bg-slate-200 transition-colors"
-             >
-               Set Monthly Data
-             </button>
-           )}
-           {activeView === 'surveillance' ? (
-             <button 
-              onClick={() => setIsAddingCase(true)}
-              className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2 shadow-lg shadow-teal-900/10 active:scale-95 transition-transform"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center">Report Case</span>
-            </button>
-           ) : (
-             <div className="flex gap-2 w-full sm:w-auto">
-               <button 
-                 onClick={() => setIsEnrollingDevice(true)}
-                 className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2 shadow-lg shadow-teal-900/10 active:scale-95 transition-transform"
-               >
-                 <ShieldCheck className="w-4 h-4" />
-                 <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center text-nowrap">Enroll Device</span>
-               </button>
-               <button 
-                onClick={() => setIsAddingBundle(true)}
-                className="flex-1 sm:flex-none bg-slate-100 text-slate-600 px-6 py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-200 active:scale-95 transition-transform"
+            {activeView === 'monitoring' && (
+              <button 
+                onClick={() => setIsEnrollingDevice(true)}
+                className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2 shadow-lg shadow-teal-900/10"
               >
                 <Plus className="w-4 h-4" />
-                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center text-nowrap">Quick Log</span>
+                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">Enroll Patient</span>
               </button>
-             </div>
-           )}
+            )}
+            {isIPCU && activeView === 'surveillance' && (
+              <button 
+                onClick={() => setIsAddingCase(true)}
+                className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2"
+              >
+                <AlertTriangle className="w-4 h-4" />
+                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">Report Case</span>
+              </button>
+            )}
         </div>
       </div>
 
-      {/* Modern Switcher */}
-      <div className="flex bg-slate-100 p-1 w-full sm:w-fit rounded-xl sm:rounded-2xl mb-8 overflow-x-auto no-scrollbar">
-        {(['surveillance', 'bundles'] as const).map(view => (
+      <div className="flex bg-slate-100 p-1 w-full sm:w-fit rounded-xl overflow-x-auto no-scrollbar">
+        {(['surveillance', 'monitoring'] as const).map(view => (
           <button
             key={view}
             onClick={() => setActiveView(view)}
             className={cn(
-              "flex-1 sm:flex-none px-4 sm:px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg sm:rounded-xl transition-all whitespace-nowrap",
+              "flex-1 sm:flex-none px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap",
               activeView === view ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-500"
             )}
           >
-            {view === 'surveillance' ? 'Active Surveillance' : 'Bundles of Care'}
+            {view === 'surveillance' ? 'Active Surveillance' : 'Patient Monitoring'}
           </button>
         ))}
       </div>
 
       <AnimatePresence mode="wait">
-        {activeView === 'surveillance' ? (
+        {activeView === 'surveillance' && (
           <motion.div 
             key="surveillance"
             initial={{ opacity: 0, y: 10 }}
@@ -507,265 +532,162 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                 </div>
               </div>
             </div>
-
-            {/* Root Cause Flags */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">HAI Risk Flags & Root Cause Analysis</h3>
-                <div className="h-px flex-1 bg-slate-200" />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                 {cases.filter(c => c.status === 'PENDING').slice(0, 3).map(c => (
-                   <div key={c.id} className="bento-card p-6 bg-white border-l-4 border-l-rose-500">
-                      <div className="flex justify-between items-start mb-4">
-                         <div>
-                            <h4 className="text-xs font-black text-slate-900 uppercase">{c.patientName}</h4>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{c.unit} • {c.type}</p>
-                         </div>
-                         <div className="p-1.5 bg-rose-50 rounded-lg text-rose-500">
-                            <AlertTriangle className="w-4 h-4" />
-                         </div>
-                      </div>
-                      <div className="space-y-3">
-                         <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-tight">
-                            <div className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-sm" />
-                            <span className="text-slate-600">Bundle Compliance: {c.bundleCompliance || 0}%</span>
-                         </div>
-                         <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-tight">
-                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-sm" />
-                            <span className="text-slate-600">Device Days: {c.deviceDays} Days</span>
-                         </div>
-                      </div>
-                   </div>
-                 ))}
-                 {cases.filter(c => c.status === 'PENDING').length === 0 && (
-                   <div className="col-span-full py-12 text-center bento-card border-dashed">
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No active flags detected</p>
-                   </div>
-                 )}
-              </div>
-            </div>
-
-            {/* Confirmed HAI Events (MTD) */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Confirmed HAI Events (Month-to-Date)</h3>
-                <div className="h-px flex-1 bg-slate-200" />
-              </div>
-              <div className="bento-card bg-white overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50/50 border-b border-slate-100">
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Patient</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Unit</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">HAI Type</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Date</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Validator</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {cases.filter(c => c.status === 'CONFIRMED').map(c => (
-                      <tr key={c.id}>
-                        <td className="px-6 py-4 text-xs font-bold text-slate-800">{c.patientName}</td>
-                        <td className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-tight">{c.unit}</td>
-                        <td className="px-6 py-4">
-                           <span className="px-2 py-0.5 bg-rose-50 text-rose-600 rounded-full text-[9px] font-black uppercase tracking-widest">{c.type}</span>
-                        </td>
-                        <td className="px-6 py-4 text-xs font-medium text-slate-600">{c.triggerDate}</td>
-                        <td className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-tight">{c.validatorName || 'System'}</td>
-                        {isIPCU && (
-                          <td className="px-6 py-4 text-right">
-                            <button 
-                              onClick={(e) => handleDelete(e, 'hai_cases', c.id)}
-                              className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
-                              title="Delete Confirmed Case"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
           </motion.div>
-        ) : (
-          <motion.div 
-            key="bundles"
+        )}
+
+        {activeView === 'monitoring' && (
+          <motion.div
+            key="monitoring"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             className="space-y-8"
           >
-             {/* New Monitoring Dashboard */}
-             <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Active Device Monitorings</h3>
-                  <div className="h-px flex-1 bg-slate-200" />
+            {/* Search Section */}
+            <div className="bento-card p-6 bg-white">
+              <div className="max-w-2xl mx-auto flex gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search Hospital No. or Patient Name..."
+                    className="w-full pl-12 pr-4 py-3 bg-slate-50 border-transparent focus:bg-white focus:border-teal-500/20 rounded-xl text-sm transition-all"
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                  />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                   {monitorings.filter(m => m.status === 'ACTIVE').map(m => (
-                     <div 
-                       key={m.id} 
-                       onClick={() => { setSelectedMonitoring(m); setIsViewingDailyChecks(true); }}
-                       className="bento-card p-6 bg-white hover:border-teal-500/30 transition-all cursor-pointer group border-b-4 border-b-teal-500 shadow-teal-900/5 shadow-xl relative overflow-hidden"
-                     >
-                       <div className="absolute top-0 right-0 w-24 h-24 bg-teal-50/50 rounded-full translate-x-12 -translate-y-12 transition-transform group-hover:scale-125" />
-                       
-                       <div className="relative">
-                         <div className="flex justify-between items-start mb-4">
-                            <span className={cn(
-                              "text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest",
-                              m.population === 'Adult' ? "bg-slate-100 text-slate-600" : "bg-purple-50 text-purple-600"
-                            )}>{m.population}</span>
-                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{m.unit}</span>
-                         </div>
-                         
-                         <h4 className="text-sm font-black text-slate-900 mb-1 group-hover:text-teal-700 transition-colors uppercase">{m.patientName}</h4>
-                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-4">Hosp #: {m.hospNo} • AGE: {m.age}</p>
-                         
-                         <div className="flex items-center gap-3 mb-6">
-                            <div className="p-2 bg-teal-50 rounded-xl text-teal-600 group-hover:bg-teal-600 group-hover:text-white transition-colors">
-                               <ShieldCheck className="w-5 h-5" />
-                            </div>
-                            <div>
-                               <p className="text-[9px] font-black text-slate-400 uppercase leading-none">Device Type</p>
-                               <p className="text-xs font-black text-slate-900 uppercase">{m.deviceType} <span className="text-[10px] text-slate-400 font-bold ml-1">{m.deviceDetail}</span></p>
-                            </div>
-                         </div>
+                <button 
+                  onClick={handleSearch}
+                  disabled={isSearching}
+                  className="px-8 py-3 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-slate-800 transition-colors disabled:opacity-50"
+                >
+                  {isSearching ? 'Searching...' : 'Search'}
+                </button>
+              </div>
 
-                         <div className="flex items-center justify-between pt-4 border-t border-slate-50">
-                            <div className="flex flex-col">
-                               <span className="text-[8px] font-bold text-slate-400 uppercase leading-tight">Inserted On</span>
-                               <span className="text-[11px] font-black text-slate-700 uppercase">{m.insertionDate}</span>
-                            </div>
-                            <button 
-                              className="px-4 py-1.5 bg-teal-50 text-teal-600 text-[9px] font-black uppercase tracking-widest rounded-lg group-hover:bg-teal-600 group-hover:text-white transition-colors"
-                            >
-                              Add Daily Check
-                            </button>
-                         </div>
+              {searchResults.length > 0 && (
+                <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {searchResults.map(p => (
+                    <div 
+                      key={p.id}
+                      onClick={() => { setSelectedPatient(p); setActiveView('monitoring'); }}
+                      className="bento-card p-4 hover:border-teal-500/30 cursor-pointer transition-all"
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.hospitalNo}</span>
+                        <ChevronRight className="w-4 h-4 text-slate-300" />
+                      </div>
+                      <h4 className="text-sm font-bold text-slate-900 uppercase">{p.patientName}</h4>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">{p.unit} • {p.sex} • {p.age}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Patient File */}
+            {selectedPatient && (
+              <div className="bento-card bg-white overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="bg-slate-900 p-8 text-white">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                    <div>
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-2xl font-black uppercase tracking-tight">{selectedPatient.patientName}</h3>
+                        <span className="px-3 py-1 bg-white/10 rounded-full text-[10px] font-bold uppercase tracking-widest">{selectedPatient.hospitalNo}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-4 text-slate-400 text-[10px] font-bold uppercase tracking-widest">
+                        <span>{selectedPatient.sex}</span>
+                        <span>{selectedPatient.age} Years Old</span>
+                        <span className="text-teal-400">{selectedPatient.unit}</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-4">
+                       <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Assigned MD</p>
+                         <p className="text-xs font-black uppercase">{selectedPatient.assignedDoctor.name || 'UNASSIGNED'}</p>
+                         <p className="text-[9px] font-bold text-teal-400 uppercase">{selectedPatient.assignedDoctor.position}</p>
                        </div>
-                     </div>
-                   ))}
-                   {monitorings.filter(m => m.status === 'ACTIVE').length === 0 && (
-                     <div className="col-span-full py-20 text-center bento-card border-dashed">
-                        <Activity className="w-8 h-8 text-slate-200 mx-auto mb-4" />
-                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No active device monitorings found</p>
-                        <button 
-                          onClick={() => setIsEnrollingDevice(true)}
-                          className="mt-4 text-[9px] font-black text-teal-600 uppercase tracking-widest hover:underline"
-                        >
-                          Enroll First Patient
-                        </button>
-                     </div>
-                   )}
-                </div>
-             </div>
-
-             <div className="space-y-4 pt-8">
-                <div className="flex items-center gap-3">
-                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Recent One-off Bundle Logs</h3>
-                  <div className="h-px flex-1 bg-slate-200" />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {bundleLogs.map(log => (
-                    <div key={log.id} className="bento-card p-6 bg-white hover:border-teal-500/20 transition-all cursor-pointer group relative flex flex-col">
-                      {/* ... existing bundleLog item contents ... */}
-                 <div className="flex items-center justify-between mb-6">
-                    <div className={cn(
-                       "p-2 rounded-xl transition-colors",
-                       log.compliancePercentage === 100 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
-                    )}>
-                      {log.compliancePercentage === 100 ? <ShieldCheck className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {log.isValidated && <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />}
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{log.unit}</span>
-                    </div>
-                 </div>
-                 <h4 className="text-sm font-bold text-slate-900 mb-1">{log.patientName}</h4>
-                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-2">Hosp #: {log.hospNo} • AGE: {log.age}</p>
-                 
-                 <div className="flex flex-wrap gap-1 mb-4">
-                    {log.devicesPresent?.map(dev => (
-                      <span key={dev} className="text-[8px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded uppercase">
-                        {DEVICES.find(d => d.id === dev)?.label || dev}
-                      </span>
-                    ))}
-                 </div>
-
-                 <div className="mb-4 space-y-1">
-                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tight">Logged by: {log.staffName || 'Staff'}</p>
-                    {log.isValidated && (
-                       <div className="space-y-0.5">
-                         <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-tight flex items-center gap-1">
-                            <CheckCircle2 className="w-2.5 h-2.5" />
-                            Verified by: {log.verification?.validatorName || 'IPCU'}
-                         </p>
-                         <p className="text-[8px] font-medium text-slate-400 uppercase">
-                           {formatDate(log.verification?.date || log.timestamp)}
-                         </p>
+                       <div className="bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20 text-center min-w-[120px]">
+                         <p className="text-[8px] font-black text-emerald-500 uppercase tracking-widest mb-1">Patient Risk</p>
+                         <p className="text-xl font-black text-emerald-400">84%</p>
+                         <p className="text-[9px] font-bold text-emerald-600 uppercase">Compliance</p>
                        </div>
-                    )}
-                 </div>
-
-                 <div className="mt-auto pt-4 border-t border-slate-50 flex items-center justify-between">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase">Compliance</span>
-                      <span className={cn(
-                        "text-lg font-black tracking-tight",
-                        log.compliancePercentage === 100 ? "text-emerald-500" : log.compliancePercentage > 70 ? "text-amber-500" : "text-rose-500"
-                      )}>
-                        {Math.round(log.compliancePercentage)}%
-                      </span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {isIPCU && (
-                        <button 
-                          onClick={(e) => handleDelete(e, 'boc_logs', log.id)}
-                          className="p-2.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                          title="Delete Bundle Log"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                      {(user?.role === 'IPCN' || user?.role === 'ADMIN') && !log.isValidated && (
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedLog(log);
-                            setVerificationForm({
-                              ...verificationForm!,
-                              independentAssessment: log.devicesPresent.reduce((acc, dev) => ({
-                                ...acc,
-                                [dev]: { isCompliant: log.bundles[dev]?.isCompliant || false, notes: '' }
-                              }), {})
-                            });
-                            setIsVerifying(true);
-                          }}
-                          className="px-3 py-1.5 bg-teal-600 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg flex items-center gap-2"
-                        >
-                          <ShieldCheck className="w-3 h-3" />
-                          Verify
-                        </button>
-                      )}
-                      {log.isValidated && (
-                        <div className="bg-emerald-50 text-emerald-600 p-1.5 rounded-lg">
-                          <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                </div>
+
+                <div className="p-8">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+                    <h4 className="text-xs font-black uppercase tracking-widest text-slate-400">Monitoring History</h4>
+                    <button 
+                      onClick={() => {
+                        if (!selectedPatient.assignedDoctor.name) {
+                          alert("Please assign a doctor before starting monitoring.");
+                          return;
+                        }
+                        setIsAddingDay(true);
+                      }}
+                      className="px-6 py-2.5 bg-teal-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-teal-900/20 active:scale-95 transition-all"
+                    >
+                      Add Monitoring Day
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {selectedPatient.monitoringDays?.map((day, idx) => (
+                      <div key={idx} className="bento-card p-6 bg-slate-50 relative group">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className={cn(
+                            "w-12 h-12 rounded-2xl flex items-center justify-center text-white",
+                            day.complianceScores.overall >= 90 ? "bg-emerald-500" : 
+                            day.complianceScores.overall >= 70 ? "bg-amber-500" : "bg-rose-500"
+                          )}>
+                            <span className="text-sm font-black">{day.complianceScores.overall}%</span>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Day {day.dayNumber}</p>
+                            <p className="text-[9px] font-bold text-slate-500">{day.date}</p>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                 </div>
-               </div>
-             ))}
-             {bundleLogs.length === 0 && <div className="col-span-full py-20 text-center bento-card border-dashed"><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No bundle surveillance logs recorded today</p></div>}
+                        
+                        <div className="space-y-4">
+                          <div>
+                            <div className="flex justify-between text-[8px] font-black uppercase text-slate-400 mb-1">
+                              <span>Bundle Compliance</span>
+                              <span>{day.complianceScores.bundle}%</span>
+                            </div>
+                            <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
+                              <div className="h-full bg-teal-500 transition-all" style={{ width: `${day.complianceScores.bundle}%` }} />
+                            </div>
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[8px] font-black uppercase text-slate-400 mb-1">
+                              <span>WHO Hand Hygiene</span>
+                              <span>{day.complianceScores.who}%</span>
+                            </div>
+                            <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
+                              <div className="h-full bg-blue-500 transition-all" style={{ width: `${day.complianceScores.who}%` }} />
+                            </div>
+                          </div>
+                          <div className="pt-4 border-t border-slate-200/50">
+                            <p className="text-[9px] font-bold text-slate-500 uppercase">Observer: {day.staffName}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {(!selectedPatient.monitoringDays || selectedPatient.monitoringDays.length === 0) && (
+                      <div className="col-span-full py-12 text-center text-slate-400 bento-card border-dashed">
+                        <p className="text-[10px] font-bold uppercase tracking-widest">No clinical monitoring days recorded for this patient yet.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-             </div>
+              </div>
+            )}
           </motion.div>
         )}
+
       </AnimatePresence>
 
       {/* Portals / Modals updated with bento theme */}
@@ -814,19 +736,35 @@ export default function HAI({ user }: { user: UserProfile | null }) {
             user={user}
           />
         )}
+
         {isEnrollingDevice && (
-          <DeviceEnrollmentModal 
+          <DeviceEnrollmentModal
             onClose={() => setIsEnrollingDevice(false)}
             user={user}
           />
         )}
-        {isViewingDailyChecks && selectedMonitoring && (
-          <DailyCheckModal 
-            onClose={() => { setIsViewingDailyChecks(false); setSelectedMonitoring(null); }}
-            monitoring={selectedMonitoring}
+
+        {isAddingDay && selectedPatient && (
+          <MonitoringDayModal
+            patient={selectedPatient}
+            onClose={() => setIsAddingDay(false)}
             user={user}
+            onSave={async (day) => {
+              try {
+                const updatedDays = [...(selectedPatient.monitoringDays || []), day];
+                await updateDoc(doc(db, 'bundle_monitorings', selectedPatient.id!), {
+                  monitoringDays: updatedDays,
+                  updatedAt: serverTimestamp()
+                });
+                setSelectedPatient({ ...selectedPatient, monitoringDays: updatedDays });
+                setIsAddingDay(false);
+              } catch (err) {
+                handleFirestoreError(err, OperationType.UPDATE, 'bundle_monitorings');
+              }
+            }}
           />
         )}
+
       </AnimatePresence>
     </div>
   );
@@ -1757,15 +1695,11 @@ function HAIValidationModal({ onClose, haiCase, onSubmit, user }: any) {
   );
 }
 
-
-  );
-}
-
 function DeviceEnrollmentModal({ onClose, user }: { onClose: () => void, user: UserProfile | null }) {
   const [form, setForm] = useState<Partial<BundleMonitoring>>({
     population: 'Adult',
     patientName: '',
-    hospNo: '',
+    hospitalNo: '',
     age: '',
     gender: 'Male',
     unit: UNITS[0],
@@ -1832,7 +1766,7 @@ function DeviceEnrollmentModal({ onClose, user }: { onClose: () => void, user: U
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Hosp #</label>
-                  <input required className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={form.hospNo} onChange={e => setForm({...form, hospNo: e.target.value})} />
+                  <input required className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold" value={form.hospitalNo} onChange={e => setForm({...form, hospitalNo: e.target.value})} />
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Population</label>
@@ -2149,6 +2083,199 @@ function DailyCheckModal({ onClose, monitoring, user }: { onClose: () => void, m
   );
 }
 
+function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: BundleMonitoring, onClose: () => void, user: UserProfile | null, onSave: (day: MonitoringDay) => void }) {
+  const [dayNumber, setDayNumber] = useState((patient.monitoringDays?.length || 0) + 1);
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isMissed, setIsMissed] = useState(false);
+  const [missedReason, setMissedReason] = useState('');
+  
+  const [bundleChecklist, setBundleChecklist] = useState<Record<string, boolean>>({});
+  const [clinicalCriteria, setClinicalCriteria] = useState<Record<string, any>>({});
+  const [whoMoments, setWhoMoments] = useState<WHOMomentsState>({
+    M1: { opportunities: 0, HR: 0, HW: 0, Missed: 0 },
+    M2: { opportunities: 0, HR: 0, HW: 0, Missed: 0 },
+    M3: { opportunities: 0, HR: 0, HW: 0, Missed: 0 },
+    M4: { opportunities: 0, HR: 0, HW: 0, Missed: 0 },
+    M5: { opportunities: 0, HR: 0, HW: 0, Missed: 0 }
+  });
+
+  const bundleType = patient.devices.clabsi ? 'CLABSI' : patient.devices.vap ? 'VAP' : patient.devices.cauti ? 'CAUTI' : 'SSI';
+  const isPedia = patient.age.toLowerCase().includes('mo') || parseInt(patient.age) < 18;
+
+  const bundleItems = isPedia 
+    ? (bundleType === 'CLABSI' ? CLABSI_DETAILED_BUNDLES.MAINTENANCE_PEDIA : bundleType === 'CAUTI' ? CAUTI_BUNDLES.PEDIA : VAP_BUNDLES.PEDIA)
+    : (bundleType === 'CLABSI' ? CLABSI_DETAILED_BUNDLES.MAINTENANCE_ADULT : bundleType === 'CAUTI' ? CAUTI_BUNDLES.ADULT : VAP_BUNDLES.ADULT);
+
+  const clinicalItems = CLINICAL_CRITERIA_DETAILED[(`${bundleType}_${isPedia ? 'PEDIA' : 'ADULT'}`) as keyof typeof CLINICAL_CRITERIA_DETAILED] || CLINICAL_CRITERIA_DETAILED.SSI;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+
+    const compliance = calculateComplianceScores();
+
+    const day: MonitoringDay = {
+      date,
+      dayNumber,
+      bundleType: bundleType as any,
+      isPedia,
+      bundleChecklist,
+      clinicalCriteria,
+      whoMoments,
+      complianceScores: compliance,
+      missedDay: isMissed,
+      missedReason: isMissed ? missedReason : undefined,
+      doctor: patient.assignedDoctor,
+      staffId: user.uid,
+      staffName: user.name
+    };
+
+    onSave(day);
+  };
+
+  const calculateComplianceScores = () => {
+    const bundleTotal = bundleItems.length;
+    const bundleChecked = bundleItems.filter(item => bundleChecklist[item]).length;
+    const bundleScore = bundleTotal > 0 ? (bundleChecked / bundleTotal) * 100 : 100;
+
+    let whoOps = 0;
+    let whoActions = 0;
+    Object.values(whoMoments).forEach(m => {
+      whoOps += m.opportunities;
+      whoActions += (m.HR + m.HW);
+    });
+    const whoScore = whoOps > 0 ? (whoActions / whoOps) * 100 : 0;
+
+    const clinicalTotal = clinicalItems.length;
+    const clinicalSymptomatic = clinicalItems.filter(item => clinicalCriteria[item]).length;
+    // In clinical criteria, more symptoms usually means LOWER compliance or higher risk?
+    // Let's define compliance as (Absence of symptoms).
+    const clinicalScore = clinicalTotal > 0 ? ((clinicalTotal - clinicalSymptomatic) / clinicalTotal) * 100 : 100;
+
+    const overall = (0.4 * bundleScore) + (0.4 * whoScore) + (0.2 * clinicalScore);
+
+    return {
+      bundle: parseFloat(bundleScore.toFixed(2)),
+      who: parseFloat(whoScore.toFixed(2)),
+      clinical: parseFloat(clinicalScore.toFixed(2)),
+      overall: parseFloat(overall.toFixed(2))
+    };
+  };
+
+  return (
+    <div className="fixed inset-0 z-[140] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full h-full sm:h-auto sm:max-h-[95vh] sm:max-w-6xl bg-white sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+        <div className="p-6 bg-slate-900 text-white flex justify-between items-center shrink-0">
+          <div>
+             <h3 className="text-xl font-black uppercase tracking-tight">Record Monitoring — Day {dayNumber}</h3>
+             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{patient.patientName} • {bundleType} Bundle</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors"><XCircle className="w-8 h-8" /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-8 space-y-12 custom-scrollbar bg-slate-50/30">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+             <div className="space-y-4">
+               <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Date of Monitoring</label>
+                  <input type="date" className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold" value={date} onChange={e => setDate(e.target.value)} />
+               </div>
+               <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm">
+                  <label className="flex items-center gap-4 cursor-pointer">
+                     <input type="checkbox" className="w-5 h-5 rounded-lg border-slate-300 text-rose-500" checked={isMissed} onChange={e => setIsMissed(e.target.checked)} />
+                     <span className="text-xs font-black uppercase tracking-widest text-rose-500">Mark as Missed Day</span>
+                  </label>
+                  {isMissed && (
+                    <textarea 
+                      className="w-full mt-4 p-4 text-xs border border-rose-100 bg-rose-50 rounded-xl resize-none h-24" 
+                      placeholder="Specify reason for missed day..."
+                      value={missedReason}
+                      onChange={e => setMissedReason(e.target.value)}
+                    />
+                  )}
+               </div>
+             </div>
+
+             <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Bundle Checklist */}
+                <div className="space-y-4">
+                  <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest border-b pb-2">Maintenance Checklist</h4>
+                  <div className="space-y-2">
+                    {bundleItems.map(item => (
+                      <label key={item} className={cn(
+                        "flex items-start gap-3 p-4 bg-white rounded-2xl border transition-all cursor-pointer",
+                        bundleChecklist[item] ? "border-emerald-500/30 bg-emerald-50/50" : "border-slate-100 hover:border-slate-200"
+                      )}>
+                         <input 
+                           type="checkbox" 
+                           className="mt-1 w-4 h-4 rounded border-slate-300 text-emerald-500" 
+                           checked={bundleChecklist[item] || false}
+                           onChange={e => setBundleChecklist({...bundleChecklist, [item]: e.target.checked})}
+                         />
+                         <span className="text-[10px] font-bold text-slate-700 leading-tight">{item}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Clinical Criteria */}
+                <div className="space-y-4">
+                   <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest border-b pb-2">Clinical Criteria</h4>
+                   <div className="space-y-2">
+                     {clinicalItems.map(item => (
+                       <div key={item} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-700 uppercase tracking-tight">{item}</span>
+                          <div className="flex bg-slate-50 p-1 rounded-xl">
+                             <button type="button" onClick={() => setClinicalCriteria({...clinicalCriteria, [item]: true})} className={cn("px-4 py-1.5 text-[9px] font-black rounded-lg transition-all", clinicalCriteria[item] === true ? "bg-rose-500 text-white shadow-sm" : "text-slate-400")}>Yes</button>
+                             <button type="button" onClick={() => setClinicalCriteria({...clinicalCriteria, [item]: false})} className={cn("px-4 py-1.5 text-[9px] font-black rounded-lg transition-all", clinicalCriteria[item] === false ? "bg-emerald-500 text-white shadow-sm" : "text-slate-400")}>No</button>
+                          </div>
+                       </div>
+                     ))}
+                   </div>
+                </div>
+             </div>
+          </div>
+
+          <div className="space-y-6">
+             <div className="flex items-center gap-4">
+                <h4 className="text-sm font-black uppercase text-slate-900 tracking-tight">WHO 5 Moments Observation (This Shift)</h4>
+                <div className="h-px flex-1 bg-slate-200" />
+             </div>
+             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                {(['M1', 'M2', 'M3', 'M4', 'M5'] as const).map(mKey => (
+                  <div key={mKey} className="bento-card p-4 bg-white space-y-4">
+                     <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{mKey}</div>
+                     <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                           <span className="text-[9px] font-bold text-slate-500 uppercase">Ops</span>
+                           <input type="number" min="0" className="w-12 bg-slate-50 border-none rounded text-xs font-black text-center" value={whoMoments[mKey].opportunities} onChange={e => {
+                             const val = parseInt(e.target.value) || 0;
+                             setWhoMoments({...whoMoments, [mKey]: {...whoMoments[mKey], opportunities: val}});
+                           }} />
+                        </div>
+                        <div className="flex items-center justify-between">
+                           <span className="text-[9px] font-bold text-teal-500 uppercase">Actions</span>
+                           <input type="number" min="0" className="w-12 bg-slate-50 border-none rounded text-xs font-black text-center" value={whoMoments[mKey].HR + whoMoments[mKey].HW} onChange={e => {
+                             const val = parseInt(e.target.value) || 0;
+                             // Just distribute to HR for simplicity in this manual entry
+                             setWhoMoments({...whoMoments, [mKey]: {...whoMoments[mKey], HR: val, HW: 0}});
+                           }} />
+                        </div>
+                     </div>
+                  </div>
+                ))}
+             </div>
+          </div>
+
+          <div className="pt-8 shrink-0">
+             <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-2xl shadow-slate-900/20 active:scale-95 transition-all">Save Monitoring Day Entry</button>
+          </div>
+        </form>
+      </motion.div>
+    </div>
+  );
+}
+
 function RateTile({ label, rate, unit, baseline }: { label: string, rate: number, unit: string, baseline: number }) {
   const isRising = rate > baseline;
   return (
@@ -2167,6 +2294,80 @@ function RateTile({ label, rate, unit, baseline }: { label: string, rate: number
           <div className="text-[8px] font-bold uppercase tracking-tight text-slate-400 mb-1">{unit}</div>
           <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Baseline: {baseline}</div>
        </div>
+    </div>
+  );
+}
+
+function WHOActionModal({ momentKey, onClose, onSave }: { momentKey: keyof WHOMomentsState, onClose: () => void, onSave: (data: { action: 'HR' | 'HW' | 'Missed', gloves: boolean }) => void }) {
+  const [data, setData] = useState<{ action: 'HR' | 'HW' | 'Missed' | null, gloves: boolean }>({
+    action: null,
+    gloves: false
+  });
+
+  return (
+    <div className="fixed inset-0 z-[150] flex items-center justify-center p-6 bg-slate-900/10 backdrop-blur-md">
+       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+          <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
+             <div>
+                <h4 className="text-sm font-black uppercase tracking-tight">{momentKey}: {WHO_5_MOMENTS_MAP[momentKey]}</h4>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Record Opportunity Action</p>
+             </div>
+             <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors"><XCircle className="w-6 h-6" /></button>
+          </div>
+          <div className="p-8 space-y-8">
+             <div className="space-y-4">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block text-center">Select Action Observed</label>
+                <div className="grid grid-cols-1 gap-3">
+                   {[
+                     { id: 'HR', label: 'Handrub (Alcohol)', color: 'bg-teal-500' },
+                     { id: 'HW', label: 'Handwash (Soap)', color: 'bg-blue-500' },
+                     { id: 'Missed', label: 'Missed Opportunity', color: 'bg-rose-500' }
+                   ].map(opt => (
+                     <button
+                       key={opt.id}
+                       onClick={() => setData({ ...data, action: opt.id as any })}
+                       className={cn(
+                         "w-full p-4 rounded-2xl flex items-center justify-between border transition-all active:scale-95",
+                         data.action === opt.id ? `${opt.color} text-white border-transparent shadow-lg` : "bg-slate-50 border-slate-100 text-slate-600 hover:border-slate-200"
+                       )}
+                     >
+                        <span className="text-xs font-black uppercase tracking-widest">{opt.label}</span>
+                        {data.action === opt.id && <CheckCircle2 className="w-4 h-4" />}
+                     </button>
+                   ))}
+                </div>
+             </div>
+
+             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="flex items-center gap-3">
+                   <div className={cn("p-2 rounded-lg", data.gloves ? "bg-amber-100 text-amber-600" : "bg-slate-200 text-slate-400")}>
+                      <ShieldAlert className="w-4 h-4" />
+                   </div>
+                   <span className="text-[10px] font-black uppercase text-slate-900 tracking-tight">Gloves Worn?</span>
+                </div>
+                <button
+                  onClick={() => setData({ ...data, gloves: !data.gloves })}
+                  className={cn(
+                    "w-12 h-6 rounded-full transition-colors relative",
+                    data.gloves ? "bg-amber-400" : "bg-slate-300"
+                  )}
+                >
+                   <div className={cn(
+                     "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                     data.gloves ? "left-7" : "left-1"
+                   )} />
+                </button>
+             </div>
+
+             <button
+               onClick={() => data.action && onSave(data as any)}
+               disabled={!data.action}
+               className="w-full py-4 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-2xl shadow-slate-900/10 active:scale-95 transition-all disabled:opacity-50"
+             >
+                Record Opportunity
+             </button>
+          </div>
+       </motion.div>
     </div>
   );
 }

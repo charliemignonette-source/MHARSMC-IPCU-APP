@@ -83,40 +83,123 @@ export const BUNDLE_ELEMENTS = {
 };
 
 export const CLABSI_DETAILED_BUNDLES = {
-  INSERTION: [
-    'Proper hand hygiene (5 moments practiced)',
-    'Best insertion site chosen (minimize infection/non-infectious complications)',
-    '0.5% Chlorhexidine in alcohol prep scrubbed for 30s, allowed to dry for 2m',
-    'Inserter and assistant practiced full sterile barrier (gown, gloves, cap, mask)',
-    'Full body drape used for the patient',
-    'Sterile gauze or transparent semi-permeable dressing used'
+  INSERTION_ADULT: [
+    "Proper hand hygiene practiced in all 5 WHO moments",
+    "Best insertion site chosen to minimize infection",
+    "0.5% chlorhexidine in alcohol used for skin prep (30 sec scrub, 2 min dry)",
+    "Full sterile barrier precautions used (gown, gloves, cap, mask, full drape)",
+    "Sterile gauze or sterile transparent dressing applied over insertion site"
   ],
-  MAINTENANCE: [
-    'Review of central line necessity',
-    'Hand hygiene practiced before/after maintenance/access',
-    'Contact precautions practiced (gloves, mask, shield, gown)',
-    'Wet, soiled, dislodged dressing replaced using aseptic technique',
-    'Scrub access port/hub with friction before use (0.5% chlorhexidine/alcohol)',
-    'Sterile devices used to access catheter'
+  MAINTENANCE_ADULT: [
+    "Review done for central line necessity",
+    "Hand hygiene practiced before/after all maintenance or access procedures",
+    "Contact precaution practiced (sterile gloves, mask, face shield, gown)",
+    "Wet, soiled, or dislodged dressing replaced using aseptic technique",
+    "Scrub access port/hub with friction before each use (0.5% chlorhexidine in alcohol)",
+    "Dressing changed according to type/indication (7d transparent, 24h gauze, etc.)",
+    "Sterile devices used to access catheters",
+    "Sterile gauze or sterile transparent semi-permeable dressing over insertion site"
   ],
-  DRESSING_ADULT: [
-    'Transparent dressing changed every 7 days',
-    'Sterile gauze changed every 24 hours',
-    'Feeding line feeding change every 24 hours',
-    'Lipids/Blood change every 24 hours',
-    'Propofol administration change every 12 hours'
-  ],
-  CLINICAL_ADULT: [
-    'Fever (> 38 C)',
-    'Chills',
-    'Hypotension'
-  ],
-  CLINICAL_PEDIA: [
-    'Fever / Hypothermia',
-    'Apnea',
-    'Bradycardia',
-    'Hypotension'
+  MAINTENANCE_PEDIA: [
+    "Review done for central line necessity",
+    "Hand hygiene practiced before all maintenance/access procedures",
+    "New clean gloves worn",
+    "70% alcohol used to disinfect hub for at least 30 sec, allowed to dry 2 mins",
+    "Dressing changed using aseptic technique",
+    "Gloves removed after procedure",
+    "Hand hygiene done after glove removal",
+    "IV tubings replaced appropriately"
   ]
+};
+
+export const CAUTI_BUNDLES = {
+  ADULT: [
+    "Daily review of catheter necessity",
+    "Daily perineal care with 2% chlorhexidine wash",
+    "Closed drainage system maintained with proper securement",
+    "Drainage bag kept below bladder level at all times",
+    "Regular emptying of collecting bag using separate clean container"
+  ],
+  PEDIA: [
+    "Hand hygiene before and after procedure",
+    "Daily review of catheter necessity",
+    "Use of standard precautions",
+    "Daily perineal care",
+    "Closed drainage system maintained with proper securement",
+    "Drainage bag kept below bladder level",
+    "Regular emptying of collecting bag per shift"
+  ]
+};
+
+export const VAP_BUNDLES = {
+  ADULT: [
+    "Hand hygiene practiced in all 5 WHO moments",
+    "Assessment for readiness to wean/extubate",
+    "Daily assessment for sedation break",
+    "Turn to sides every 2 hours",
+    "Oral care with toothbrushing every shift",
+    "Head elevation at least 30 degrees",
+    "DVT prophylaxis"
+  ],
+  PEDIA: [
+    "Hand hygiene before and after patient care",
+    "Head of bed elevation (30-45inf/15-30neo)",
+    "Chlorhexidine or saline oral care",
+    "Suctioning done properly",
+    "Sedation holiday",
+    "Assessment for readiness to wean/extubate"
+  ]
+};
+
+export const SSI_BUNDLES = {
+  PREOP: [
+    "Antimicrobial prophylaxis given according to guidelines",
+    "Proper surgical hand scrub performed",
+    "Surfaces and environment cleaned prior to surgery",
+    "Surgical instruments properly sterilized",
+    "Sterile barrier precautions practiced",
+    "Daily baths with 2% chlorhexidine for at least 2 days prior"
+  ],
+  INTRAOP: [
+    "Blood glucose monitored and maintained",
+    "Foot traffic kept to minimum",
+    "Normothermia maintained"
+  ],
+  POSTOP: [
+    "Hand hygiene practiced in all 5 WHO moments",
+    "Post-operative wound care performed",
+    "Wet, soiled, or dislodged dressing replaced using aseptic technique",
+    "Contact precautions practiced"
+  ]
+};
+
+export const CLINICAL_CRITERIA_DETAILED = {
+  CLABSI_ADULT: [
+    "Fever ≥ 38°C", "Chills", "Hypotension", "Blood culture pos via catheter", "Blood culture pos via peripheral"
+  ],
+  CLABSI_PEDIA: [
+    "Fever ≥ 38°C", "Hypothermia ≤ 36.5°C", "Apnea", "Bradycardia", "Peripheral culture pos", "Catheter culture pos"
+  ],
+  CAUTI_ADULT: [
+    "Fever ≥ 38°C", "Suprapubic tenderness", "CVA pain/tenderness", "Urgency", "Frequency", "Dysuria", "Pyuria", "Urine culture pos"
+  ],
+  CAUTI_PEDIA: [
+    "Fever ≥ 38°C", "Dysuria", "Urgency", "Frequency", "Suprapubic tenderness", "Chills", "Nitrite positive", "Urine culture pos"
+  ],
+  SSI: [
+    "Localized pain/tenderness", "Localized swelling", "Erythema", "Heat", "Fever ≥ 38°C", "Purulent drainage", "Pos culture"
+  ],
+  VAP: [
+    "Temperature outlier", "FiO2 requirement", "PEEP requirement", "WBC outlier", "New rales/ronchi", "X-ray changes"
+  ]
+};
+
+export const WHO_5_MOMENTS_MAP = {
+  M1: "Before touching a patient",
+  M2: "Before clean/aseptic procedure",
+  M3: "After body fluid exposure risk",
+  M4: "After touching a patient",
+  M5: "After touching patient surroundings"
 };
 
 export const NSI_CONSTANTS = {

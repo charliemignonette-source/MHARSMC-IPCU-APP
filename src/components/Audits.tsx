@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { 
   ClipboardCheck, 
   Plus, 
+  Minus,
   Search, 
   Filter, 
   HandMetal, 
@@ -10,7 +11,12 @@ import {
   Trash2,
   CheckCircle2,
   XCircle,
-  Calendar
+  Calendar,
+  Check,
+  ShieldAlert,
+  Droplets,
+  Info,
+  Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, addDoc, serverTimestamp, query, where, onSnapshot, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -180,29 +186,15 @@ export default function Audits({ user }: { user: UserProfile | null }) {
     sink: { sink: false, water: false, soap: false, expiry: '', notIndicated: false, towels: false, notClogged: false },
     posters: { visible: false, clean: false },
     hhObs: {
-      indications: {
-        befPat: false,
-        befAsept: false,
-        aftBF: false,
-        aftPat: false,
-        aftSurr: false
-      },
-      actions: {
-        befPat: 'missed',
-        befAsept: 'missed',
-        aftBF: 'missed',
-        aftPat: 'missed',
-        aftSurr: 'missed'
-      },
-      momentsGloves: {
-        befPat: false,
-        befAsept: false,
-        aftBF: false,
-        aftPat: false,
-        aftSurr: false
+      moments: {
+        M1: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 1: Before touching patient' },
+        M2: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 2: Before clean/aseptic procedure' },
+        M3: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 3: After body fluid exposure risk' },
+        M4: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 4: After touching patient' },
+        M5: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 5: After touching patient surroundings' }
       },
       staffIdentifier: '',
-      gloves: false
+      role: 'Registered Nurse'
     },
     ppe: {
       gloves: { avail: false, sizes: false, expiry: '', notIndicated: false },
@@ -278,31 +270,21 @@ export default function Audits({ user }: { user: UserProfile | null }) {
   });
 
   const calculateHHScore = (obs: any) => {
-    const activeIndications = Object.entries(obs.indications)
-      .filter(([_, isActive]) => isActive === true);
-    
-    if (activeIndications.length === 0) {
-      return { score: 0, total: 0 };
-    }
+    let totalOpp = 0;
+    let totalPerf = 0;
 
-    let score = 0;
-    let total = 0;
-
-    activeIndications.forEach(([key]) => {
-      const action = obs.actions?.[key] || 'missed';
-      if (action === 'hr' || action === 'hw') {
-        score += 1;
-      }
-      total += 1;
+    Object.values(obs.moments || {}).forEach((m: any) => {
+      totalOpp += (m.opp || 0);
+      totalPerf += (m.perf || 0);
     });
-
-    return { score, total };
+    
+    return { score: totalPerf, total: totalOpp };
   };
 
   const handleAddHHObservation = () => {
     const calculation = calculateHHScore(checklist.hhObs);
     if (calculation.total === 0) {
-      alert("Please select at least one WHO Moment indication.");
+      alert("Please record at least one opportunity.");
       return;
     }
     
@@ -310,10 +292,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
       id: Date.now(),
       profession: formData.profession,
       staffIdentifier: checklist.hhObs.staffIdentifier,
-      indications: { ...checklist.hhObs.indications },
-      actions: { ...checklist.hhObs.actions },
-      momentsGloves: { ...checklist.hhObs.momentsGloves },
-      gloves: checklist.hhObs.gloves,
+      moments: { ...checklist.hhObs.moments },
       ...calculation
     }]);
 
@@ -321,11 +300,15 @@ export default function Audits({ user }: { user: UserProfile | null }) {
     setChecklist(prev => ({
       ...prev,
       hhObs: {
-        indications: { befPat: false, befAsept: false, aftBF: false, aftPat: false, aftSurr: false },
-        actions: { befPat: 'missed', befAsept: 'missed', aftBF: 'missed', aftPat: 'missed', aftSurr: 'missed' },
-        momentsGloves: { befPat: false, befAsept: false, aftBF: false, aftPat: false, aftSurr: false },
+        moments: {
+          M1: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 1: Before touching patient' },
+          M2: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 2: Before clean/aseptic procedure' },
+          M3: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 3: After body fluid exposure risk' },
+          M4: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 4: After touching patient' },
+          M5: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 5: After touching patient surroundings' }
+        },
         staffIdentifier: '',
-        gloves: false
+        role: 'Registered Nurse'
       }
     }));
   };
@@ -457,11 +440,15 @@ export default function Audits({ user }: { user: UserProfile | null }) {
         sink: { sink: false, water: false, soap: false, expiry: '', notIndicated: false, towels: false, notClogged: false },
         posters: { visible: false, clean: false },
         hhObs: {
-          indications: { befPat: false, befAsept: false, aftBF: false, aftPat: false, aftSurr: false },
-          actions: { befPat: 'missed', befAsept: 'missed', aftBF: 'missed', aftPat: 'missed', aftSurr: 'missed' },
-          momentsGloves: { befPat: false, befAsept: false, aftBF: false, aftPat: false, aftSurr: false },
+          moments: {
+            M1: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 1: Before touching patient' },
+            M2: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 2: Before clean/aseptic procedure' },
+            M3: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 3: After body fluid exposure risk' },
+            M4: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 4: After touching patient' },
+            M5: { opp: 0, perf: 0, missed: 0, gloveMissed: 0, label: 'Moment 5: After touching patient surroundings' }
+          },
           staffIdentifier: '',
-          gloves: false
+          role: 'Registered Nurse'
         },
         ppe: {
           gloves: { avail: false, sizes: false, expiry: '', notIndicated: false },
@@ -1101,197 +1088,289 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                         </div>
                       </div>
                     ) : selectedType === 'HH_COMPLIANCE' ? (
-                      <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                        <div className="space-y-4">
-                           <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Staff Details</h4>
-                           <div className="grid grid-cols-2 gap-4">
-                             <div className="space-y-1.5">
-                                <label className="text-[9px] font-black uppercase text-slate-400">HCW Category</label>
-                                <select 
-                                  value={formData.profession} 
-                                  onChange={e => setFormData({...formData, profession: e.target.value})}
-                                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-brand-primary"
-                                >
-                                  <option value="1">Nurse / Midwife</option>
-                                  <option value="2">Auxiliary</option>
-                                  <option value="3">Medical Doctor</option>
-                                  <option value="4">Other HCW</option>
-                                </select>
+                      <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                        {/* WHO Header Card */}
+                        <div className="bg-orange-500 rounded-2xl p-6 text-white text-center shadow-lg relative overflow-hidden">
+                          <div className="absolute top-0 right-0 p-4 opacity-20">
+                            <HandMetal className="w-20 h-20" />
+                          </div>
+                          <div className="relative z-10 space-y-2">
+                             <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-2">
+                               <Droplets className="w-6 h-6 text-white" />
                              </div>
-                             <div className="space-y-1.5">
-                                <label className="text-[9px] font-black uppercase text-slate-400">Staff Name (Internal)</label>
-                                <input 
-                                  type="text"
-                                  placeholder="Nurse 1, Nurse A..."
-                                  value={checklist.hhObs.staffIdentifier}
-                                  onChange={e => setChecklist({...checklist, hhObs: {...checklist.hhObs, staffIdentifier: e.target.value}})}
-                                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 placeholder:text-slate-300 outline-none focus:ring-2 focus:ring-brand-primary"
-                                />
-                             </div>
-                           </div>
-                           {formData.profession === '4' && (
-                            <motion.input 
-                              initial={{ opacity: 0, y: -10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              placeholder="Specify other HCW profession..." 
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold mt-2 outline-none focus:ring-2 focus:ring-brand-primary" 
-                              value={formData.professionOther || ''}
-                              onChange={e => setFormData({...formData, professionOther: e.target.value})}
-                            />
-                          )}
+                             <h4 className="text-sm sm:text-lg font-black uppercase tracking-tight">WHO 5 Moments Observation Tool</h4>
+                             <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest leading-none text-orange-100">Directly record opportunities in the grid below</p>
+                          </div>
                         </div>
 
-                        <div className="space-y-4">
-                           <div className="flex items-center justify-between">
-                              <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Indications & Actions</h4>
-                              <button 
-                                type="button" 
-                                onClick={() => setChecklist({
-                                  ...checklist, 
-                                  hhObs: {
-                                    ...checklist.hhObs, 
-                                    indications: { befPat: true, befAsept: true, aftBF: true, aftPat: true, aftSurr: true }
-                                  }
-                                })}
-                                className="text-[8px] font-black uppercase tracking-tight text-brand-primary bg-teal-50 px-2 py-1 rounded-lg border border-brand-primary/20 hover:bg-teal-100 transition-colors"
-                              >
-                                Select All Moments
-                              </button>
+                        {/* Observer Information */}
+                        <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
+                           <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                              <Search className="w-3 h-3" /> Observer Information
+                           </h5>
+                           <div className="grid grid-cols-1 gap-4">
+                              <div className="space-y-1.5">
+                                 <label className="text-[9px] font-black uppercase text-slate-400 ml-1">Healthcare Worker Name / ID</label>
+                                 <input 
+                                   type="text"
+                                   placeholder="e.g. Dr. Sarah Johnson"
+                                   value={checklist.hhObs.staffIdentifier}
+                                   onChange={e => setChecklist({...checklist, hhObs: {...checklist.hhObs, staffIdentifier: e.target.value}})}
+                                   className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                                 />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1.5">
+                                  <label className="text-[9px] font-black uppercase text-slate-400 ml-1">HCW Category</label>
+                                  <select 
+                                    value={formData.profession} 
+                                    onChange={e => setFormData({...formData, profession: e.target.value})}
+                                    className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
+                                  >
+                                    <option value="1">Nurse / Midwife</option>
+                                    <option value="2">Auxiliary</option>
+                                    <option value="3">Medical Doctor</option>
+                                    <option value="4">Other HCW</option>
+                                  </select>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-[9px] font-black uppercase text-slate-400 ml-1">Staff Role</label>
+                                  <select 
+                                    value={checklist.hhObs.role} 
+                                    onChange={e => setChecklist({...checklist, hhObs: {...checklist.hhObs, role: e.target.value}})}
+                                    className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
+                                  >
+                                    {STAFF_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                  </select>
+                                </div>
+                              </div>
                            </div>
-                           <div className="grid grid-cols-1 gap-3">
-                              {[
-                                { id: 'befPat', label: '1. Before touch patient' },
-                                { id: 'befAsept', label: '2. Before clean/aseptic' },
-                                { id: 'aftBF', label: '3. After body fluid risk' },
-                                { id: 'aftPat', label: '4. After touch patient' },
-                                { id: 'aftSurr', label: '5. After surroundings' },
-                              ].map(moment => (
-                                <div key={moment.id} className="space-y-2">
-                                   <CheckItem 
-                                     label={moment.label} 
-                                     checked={checklist.hhObs.indications[moment.id]} 
-                                     onChange={v => setChecklist({
-                                       ...checklist, 
-                                       hhObs: {
-                                         ...checklist.hhObs, 
-                                         indications: { ...checklist.hhObs.indications, [moment.id]: v }
-                                       }
-                                     })} 
-                                   />
-                                   {checklist.hhObs.indications[moment.id] && (
-                                     <motion.div 
-                                       initial={{ opacity: 0, height: 0 }}
-                                       animate={{ opacity: 1, height: 'auto' }}
-                                       className="space-y-3 pb-2"
-                                     >
-                                       <div className="flex gap-1 ml-6 overflow-hidden">
-                                         {['HR', 'HW', 'Missed'].map(act => (
-                                           <button
-                                             key={act}
-                                             type="button"
-                                             onClick={() => setChecklist({
-                                               ...checklist, 
-                                               hhObs: {
-                                                 ...checklist.hhObs, 
-                                                 actions: { ...checklist.hhObs.actions, [moment.id]: act.toLowerCase() }
-                                               }
-                                             })}
-                                             className={cn(
-                                               "px-3 py-1 rounded-lg border text-[8px] font-black uppercase tracking-tight transition-all",
-                                               checklist.hhObs.actions[moment.id] === act.toLowerCase()
-                                                 ? "bg-slate-900 text-teal-400 border-slate-900"
-                                                 : "bg-slate-100 text-slate-400 border-transparent hover:border-slate-300"
-                                             )}
+                        </div>
+
+                        {/* Observation Grid */}
+                        <div className="space-y-4">
+                           <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                              <ClipboardCheck className="w-3 h-3" /> Observation Grid
+                           </h5>
+                           <p className="text-[9px] text-slate-400 -mt-2 ml-1">Record opportunities and actions for each moment</p>
+                           
+                           <div className="space-y-3">
+                              {Object.entries(checklist.hhObs.moments).map(([id, m]: [string, any]) => (
+                                <div key={id} className="p-4 bg-emerald-50/30 border border-emerald-100 rounded-2xl space-y-4">
+                                  <div className="flex items-center gap-2">
+                                     <div className="w-6 h-6 bg-emerald-100 rounded-lg flex items-center justify-center text-emerald-600">
+                                        {id === 'M1' && <Search className="w-3.5 h-3.5" />}
+                                        {id === 'M2' && <ShieldCheck className="w-3.5 h-3.5" />}
+                                        {id === 'M3' && <Droplets className="w-3.5 h-3.5" />}
+                                        {id === 'M4' && <HandMetal className="w-3.5 h-3.5" />}
+                                        {id === 'M5' && <Syringe className="w-3.5 h-3.5" />}
+                                     </div>
+                                     <h6 className="text-[11px] font-black text-slate-800 uppercase tracking-tight">{m.label}</h6>
+                                  </div>
+
+                                  <div className="grid grid-cols-3 gap-3">
+                                     {/* Opportunity */}
+                                     <div className="space-y-1.5">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest text-center block">Opp...</label>
+                                        <div className="flex items-center justify-between bg-white border border-slate-100 rounded-xl p-1 shadow-sm">
+                                           <button 
+                                              type="button" 
+                                              onClick={() => {
+                                                const val = Math.max(0, m.opp - 1);
+                                                const updated = { ...checklist.hhObs.moments };
+                                                updated[id] = { ...m, opp: val };
+                                                setChecklist({ ...checklist, hhObs: { ...checklist.hhObs, moments: updated } });
+                                              }}
+                                              className="w-7 h-7 flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
                                            >
-                                             {act}
+                                              <Minus className="w-3 h-3" />
                                            </button>
-                                         ))}
-                                       </div>
-                                       <div className="ml-6 flex items-center gap-2">
-                                          <label className="text-[8px] font-black uppercase tracking-tight text-slate-400">Gloves used for this moment?</label>
-                                          <input 
-                                            type="checkbox"
-                                            checked={checklist.hhObs.momentsGloves?.[moment.id]}
-                                            onChange={e => setChecklist({
-                                              ...checklist,
-                                              hhObs: {
-                                                ...checklist.hhObs,
-                                                momentsGloves: { ...checklist.hhObs.momentsGloves, [moment.id]: e.target.checked }
-                                              }
-                                            })}
-                                            className="w-3.5 h-3.5 rounded border-slate-200 text-brand-primary focus:ring-brand-primary"
-                                          />
-                                       </div>
-                                     </motion.div>
-                                   )}
+                                           <span className="text-xs font-black text-slate-900">{m.opp}</span>
+                                           <button 
+                                              type="button" 
+                                              onClick={() => {
+                                                const val = m.opp + 1;
+                                                const updated = { ...checklist.hhObs.moments };
+                                                updated[id] = { ...m, opp: val };
+                                                setChecklist({ ...checklist, hhObs: { ...checklist.hhObs, moments: updated } });
+                                              }}
+                                              className="w-7 h-7 flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                                           >
+                                              <Plus className="w-3 h-3" />
+                                           </button>
+                                        </div>
+                                     </div>
+
+                                     {/* Performed */}
+                                     <div className="space-y-1.5">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest text-center block">Perfor...</label>
+                                        <div className="flex items-center justify-between bg-white border border-slate-100 rounded-xl p-1 shadow-sm">
+                                           <button 
+                                              type="button" 
+                                              onClick={() => {
+                                                const val = Math.max(0, m.perf - 1);
+                                                const updated = { ...checklist.hhObs.moments };
+                                                updated[id] = { ...m, perf: val, opp: Math.max(val + m.missed, m.opp - 1) };
+                                                setChecklist({ ...checklist, hhObs: { ...checklist.hhObs, moments: updated } });
+                                              }}
+                                              className="w-7 h-7 flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                                           >
+                                              <Minus className="w-3 h-3" />
+                                           </button>
+                                           <span className="text-xs font-black text-slate-900">{m.perf}</span>
+                                           <button 
+                                              type="button" 
+                                              onClick={() => {
+                                                const val = m.perf + 1;
+                                                const updated = { ...checklist.hhObs.moments };
+                                                updated[id] = { ...m, perf: val, opp: val + m.missed };
+                                                setChecklist({ ...checklist, hhObs: { ...checklist.hhObs, moments: updated } });
+                                              }}
+                                              className="w-7 h-7 flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                                           >
+                                              <Plus className="w-3 h-3" />
+                                           </button>
+                                        </div>
+                                     </div>
+
+                                     {/* Missed */}
+                                     <div className="space-y-1.5 col-span-3">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest block hover:text-rose-500 transition-colors">Missed Opportunity Actions</label>
+                                        <div className="flex gap-2">
+                                           <div className="flex-1 flex items-center justify-between bg-white border border-slate-100 rounded-xl p-1 shadow-sm">
+                                              <button 
+                                                 type="button" 
+                                                 onClick={() => {
+                                                   const val = Math.max(0, m.missed - 1);
+                                                   const updated = { ...checklist.hhObs.moments };
+                                                   updated[id] = { ...m, missed: val, opp: Math.max(m.perf + val, m.opp - 1) };
+                                                   setChecklist({ ...checklist, hhObs: { ...checklist.hhObs, moments: updated } });
+                                                 }}
+                                                 className="w-7 h-7 flex items-center justify-center rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors"
+                                              >
+                                                 <Minus className="w-3 h-3" />
+                                              </button>
+                                              <div className="flex flex-col items-center">
+                                                 <span className="text-xs font-black text-slate-900">{m.missed}</span>
+                                                 <span className="text-[6px] font-bold text-slate-400 uppercase">Missed</span>
+                                              </div>
+                                              <button 
+                                                 type="button" 
+                                                 onClick={() => {
+                                                   const val = m.missed + 1;
+                                                   const updated = { ...checklist.hhObs.moments };
+                                                   updated[id] = { ...m, missed: val, opp: m.perf + val };
+                                                   setChecklist({ ...checklist, hhObs: { ...checklist.hhObs, moments: updated } });
+                                                 }}
+                                                 className="w-7 h-7 flex items-center justify-center rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors"
+                                              >
+                                                 <Plus className="w-3 h-3" />
+                                              </button>
+                                           </div>
+
+                                           <div className="flex-1 flex items-center justify-between bg-amber-50 border border-amber-100 rounded-xl p-1 shadow-sm">
+                                              <button 
+                                                 type="button" 
+                                                 onClick={() => {
+                                                   const val = Math.max(0, m.gloveMissed - 1);
+                                                   const updated = { ...checklist.hhObs.moments };
+                                                   updated[id] = { ...m, gloveMissed: val, opp: Math.max(m.perf + m.missed + val, m.opp - 1) };
+                                                   setChecklist({ ...checklist, hhObs: { ...checklist.hhObs, moments: updated } });
+                                                 }}
+                                                 className="w-7 h-7 flex items-center justify-center rounded-lg bg-amber-100 text-amber-600 hover:bg-amber-200 transition-colors"
+                                              >
+                                                 <Minus className="w-3 h-3" />
+                                              </button>
+                                              <div className="flex flex-col items-center">
+                                                 <span className="text-xs font-black text-amber-900">{m.gloveMissed}</span>
+                                                 <span className="text-[6px] font-bold text-amber-500 uppercase">Glove use</span>
+                                              </div>
+                                              <button 
+                                                 type="button" 
+                                                 onClick={() => {
+                                                   const val = m.gloveMissed + 1;
+                                                   const updated = { ...checklist.hhObs.moments };
+                                                   updated[id] = { ...m, gloveMissed: val, opp: m.perf + m.missed + val };
+                                                   setChecklist({ ...checklist, hhObs: { ...checklist.hhObs, moments: updated } });
+                                                 }}
+                                                 className="w-7 h-7 flex items-center justify-center rounded-lg bg-amber-100 text-amber-600 hover:bg-amber-200 transition-colors"
+                                              >
+                                                 <Plus className="w-3 h-3" />
+                                              </button>
+                                           </div>
+                                        </div>
+                                     </div>
+                                  </div>
                                 </div>
                               ))}
                            </div>
                         </div>
 
+                        {/* Summary Footer */}
+                        <div className="p-4 bg-slate-900 rounded-3xl grid grid-cols-3 gap-6 shadow-xl shadow-slate-900/20">
+                           <div className="flex flex-col items-center gap-1 border-r border-slate-800">
+                             <span className="text-[14px] sm:text-lg font-black text-blue-400">
+                               {calculateHHScore(checklist.hhObs).total}
+                             </span>
+                             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">Total Opp.</span>
+                           </div>
+                           <div className="flex flex-col items-center gap-1 border-r border-slate-800">
+                             <span className="text-[14px] sm:text-lg font-black text-emerald-400">
+                               {calculateHHScore(checklist.hhObs).score}
+                             </span>
+                             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">Total Perf.</span>
+                           </div>
+                           <div className="flex flex-col items-center gap-1 border-r border-slate-800">
+                             <span className="text-[14px] sm:text-lg font-black text-rose-400">
+                               {Object.values(checklist.hhObs.moments).reduce((acc: number, m: any) => acc + (m.missed || 0) + (m.gloveMissed || 0), 0)}
+                             </span>
+                             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">Total Missed</span>
+                           </div>
+                           <div className="flex flex-col items-center gap-1">
+                             <span className="text-[14px] sm:text-lg font-black text-amber-400">
+                               {Object.values(checklist.hhObs.moments).reduce((acc: number, m: any) => acc + (m.gloveMissed || 0), 0)}
+                             </span>
+                             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">Glove use</span>
+                           </div>
+                        </div>
+
                         <button
                           type="button"
-                          onClick={handleAddHHObservation}
-                          className="w-full py-3 bg-slate-900 text-teal-400 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-800 transition-all border border-slate-800 border-dashed"
+                          onClick={() => handleAddHHObservation()}
+                          className="w-full py-4 bg-white text-emerald-600 border border-emerald-200 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-emerald-50 transition-all shadow-sm"
                         >
                           <Plus className="w-4 h-4" />
-                          Add HCW to Multi-Audit Batch
+                          Complete Observation & Add to Batch
                         </button>
 
                         {pendingHHObservations.length > 0 && (
                           <div className="space-y-2 mt-4 pt-4 border-t border-slate-100">
-                             <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Batch Queue ({pendingHHObservations.length})</h4>
-                             <div className="space-y-1">
-                               {pendingHHObservations.map((obs) => (
-                                 <div key={obs.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
-                                   <div className="flex items-center justify-between">
-                                     <div className="flex flex-col">
-                                       <div className="flex items-center gap-2">
-                                          <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">
-                                            {obs.profession === '1' ? 'Nurse' : obs.profession === '2' ? 'Auxiliary' : obs.profession === '3' ? 'MD' : 'Other HCW'}
-                                          </span>
-                                          {obs.staffIdentifier && (
-                                            <span className="text-[8px] font-bold text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded uppercase">{obs.staffIdentifier}</span>
-                                          )}
-                                       </div>
-                                       <span className={cn(
-                                         "text-[8px] font-bold uppercase px-1.5 py-0.5 rounded-md w-fit mt-0.5",
-                                         obs.score === obs.total ? "bg-emerald-100 text-emerald-700" : obs.score > 0 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
-                                       )}>
-                                         {obs.score}/{obs.total} Correct
+                            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                              <ClipboardCheck className="w-3 h-3" /> Audit Payload Buffer ({pendingHHObservations.length} HCWs)
+                            </h4>
+                            <div className="space-y-2">
+                              {pendingHHObservations.map((obs) => (
+                                <div key={obs.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between">
+                                  <div className="flex flex-col">
+                                    <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">{obs.staffIdentifier || 'Anonymous HCW'}</span>
+                                    <div className="flex items-center gap-2">
+                                       <span className="text-[8px] font-bold text-slate-500 uppercase">{obs.role}</span>
+                                       <span className="text-[8px] font-black text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded leading-none">
+                                          {Math.round((obs.score / (obs.total || 1)) * 100)}% Compliance
                                        </span>
-                                     </div>
-                                     <button 
-                                       type="button" 
-                                       onClick={() => setPendingHHObservations(prev => prev.filter(p => p.id !== obs.id))}
-                                       className="p-1.5 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded-lg transition-colors"
-                                     >
-                                       <Trash2 className="w-3.5 h-3.5" />
-                                     </button>
-                                   </div>
-                                   <div className="flex flex-wrap gap-1">
-                                      {[
-                                        { id: 'befPat', label: 'M1' },
-                                        { id: 'befAsept', label: 'M2' },
-                                        { id: 'aftBF', label: 'M3' },
-                                        { id: 'aftPat', label: 'M4' },
-                                        { id: 'aftSurr', label: 'M5' }
-                                      ].map(m => obs.indications[m.id] && (
-                                        <span key={m.id} className="text-[7px] font-black bg-slate-200 text-slate-600 px-1 py-0.5 rounded border border-slate-300 uppercase flex items-center gap-1">
-                                          {m.label}
-                                          <span className={cn(
-                                            "w-2.5 h-2.5 rounded-full flex items-center justify-center text-[5px] text-white",
-                                            (obs.actions[m.id] === 'hr' || obs.actions[m.id] === 'hw') ? "bg-emerald-500" : "bg-rose-500"
-                                          )}>
-                                            {obs.actions[m.id] === 'hr' ? 'R' : obs.actions[m.id] === 'hw' ? 'W' : 'M'}
-                                          </span>
-                                          {obs.momentsGloves?.[m.id] && <span className="text-[5px] font-bold text-blue-500 border border-blue-200 px-0.5 rounded">G</span>}
-                                        </span>
-                                      ))}
-                                   </div>
-                                 </div>
-                               ))}
-                             </div>
+                                    </div>
+                                  </div>
+                                  <button 
+                                    type="button" 
+                                    onClick={() => setPendingHHObservations(prev => prev.filter(p => p.id !== obs.id))}
+                                    className="p-1.5 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded-lg transition-colors"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1551,6 +1630,8 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, aud
   );
 }
 
+
+
 function CheckItem({ label, checked, onChange }: { label: string, checked: boolean, onChange: (v: boolean) => void }) {
   return (
     <label className={cn(
@@ -1567,3 +1648,6 @@ function CheckItem({ label, checked, onChange }: { label: string, checked: boole
     </label>
   );
 }
+
+
+

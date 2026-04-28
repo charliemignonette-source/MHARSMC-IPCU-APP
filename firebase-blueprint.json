@@ -186,6 +186,30 @@
         "role": { "type": "string", "enum": ["ADMIN", "IPCN", "PHYSICIAN", "PHARMACY", "APPROVER", "USER"] },
         "unit": { "type": "string" }
       }
+    },
+    "BundleMonitoring": {
+      "title": "Device Bundle Monitoring",
+      "description": "Continuous monitoring of patients with devices (CLABSI, VAP, CAUTI).",
+      "type": "object",
+      "properties": {
+        "hospitalNo": { "type": "string" },
+        "patientName": { "type": "string" },
+        "age": { "type": "string" },
+        "sex": { "type": "string", "enum": ["Male", "Female"] },
+        "unit": { "type": "string" },
+        "assignedDoctor": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "position": { "type": "string" }
+          }
+        },
+        "monitoringDays": { "type": "array", "items": { "type": "object" } },
+        "status": { "type": "string", "enum": ["ACTIVE", "DISCONTINUED"] },
+        "staffId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["hospitalNo", "patientName", "unit", "staffId", "status"]
     }
   },
   "firestore": {
@@ -216,6 +240,10 @@
     "boc_logs": {
       "schema": "BOCLog",
       "description": "Daily bundle of care compliance logs."
+    },
+    "bundle_monitorings": {
+      "schema": "BundleMonitoring",
+      "description": "Active clinical monitoring for patients with indwelling devices."
     },
     "outbreaks": {
       "schema": "OutbreakReport",

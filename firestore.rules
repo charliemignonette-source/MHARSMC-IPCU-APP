@@ -82,6 +82,12 @@ service cloud.firestore {
              data.status in ['Suspected', 'Under Investigation', 'Confirmed', 'Controlled', 'Closed'];
     }
 
+    function isValidBundleMonitoring(data) {
+      return data.keys().hasAll(['hospitalNo', 'patientName', 'unit', 'staffId', 'status']) &&
+             isValidString(data.hospitalNo, 128) &&
+             isValidString(data.patientName, 128);
+    }
+
     // --- Collection Routes ---
 
     match /user_roles/{roleId} {
@@ -151,6 +157,16 @@ service cloud.firestore {
       allow update: if (isIPCN() || isAdmin()) && 
                    incoming().staffId == existing().staffId &&
                    incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'verification', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus']);
+      allow delete: if isAdmin() || isIPCN();
+    }
+
+    match /bundle_monitorings/{id} {
+      allow get: if isSignedIn() && (existing().staffId == request.auth.uid || isIPCN() || isAdmin());
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidBundleMonitoring(incoming()) && incoming().staffId == request.auth.uid && isValidId(id);
+      allow update: if isSignedIn() && (existing().staffId == request.auth.uid || isIPCN() || isAdmin()) &&
+                   incoming().staffId == existing().staffId &&
+                   incoming().diff(existing()).affectedKeys().hasOnly(['monitoringDays', 'updatedAt', 'status', 'assignedDoctor', 'devices', 'surgery']);
       allow delete: if isAdmin() || isIPCN();
     }
 
