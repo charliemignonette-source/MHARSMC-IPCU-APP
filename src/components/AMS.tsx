@@ -1753,7 +1753,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                <input 
                                  type="date"
                                  className="text-input border-brand-primary/20"
-                                 value={formData.microbiology?.date}
+                                 value={formData.microbiology?.date || ''}
                                  onChange={e => setFormData({...formData, microbiology: { ...formData.microbiology!, date: e.target.value }})}
                                />
                             </div>
@@ -1762,7 +1762,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                <input 
                                  className="text-input border-brand-primary/20"
                                  placeholder="e.g. Blood, Urine, CSF"
-                                 value={formData.microbiology?.specimen}
+                                 value={formData.microbiology?.specimen || ''}
                                  onChange={e => setFormData({...formData, microbiology: { ...formData.microbiology!, specimen: e.target.value }})}
                                />
                             </div>
@@ -1770,7 +1770,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                <label className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">Organism</label>
                                <select 
                                  className="text-input border-brand-primary/20"
-                                 value={formData.microbiology?.organism}
+                                 value={formData.microbiology?.organism || ''}
                                  onChange={e => setFormData({...formData, microbiology: { ...formData.microbiology!, organism: e.target.value }})}
                                >
                                  <option value="">Select Organism...</option>
@@ -1884,7 +1884,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                           <input 
                             required
                             className="text-input" 
-                            placeholder="Full Name of Requesting Doctor"
+                            placeholder="e.g. Dr. Charlie Mignonette Bala"
                             value={formData.requestingPhysician}
                             onChange={e => setFormData({...formData, requestingPhysician: e.target.value})}
                           />
@@ -1994,7 +1994,7 @@ function AMSDashboard({ stats }: { stats: any }) {
                   {Object.entries(stats.indications).map(([name, count], idx) => {
                     const colors = ['bg-teal-500', 'bg-rose-500', 'bg-indigo-500'];
                     const total = Object.values(stats.indications).reduce((a: any, b: any) => a + b, 0) as number;
-                    const width = total > 0 ? (count / total) * 100 : 0;
+                    const width = total > 0 ? ((count as number) / total) * 100 : 0;
                     if (width === 0) return null;
                     return (
                       <div key={name} className={cn("h-full transition-all duration-500", colors[idx % colors.length])} style={{ width: `${width}%` }} />
@@ -2005,7 +2005,7 @@ function AMSDashboard({ stats }: { stats: any }) {
                   {Object.entries(stats.indications).map(([name, count], idx) => {
                     const colors = ['text-teal-500', 'text-rose-500', 'text-indigo-500'];
                     const total = Object.values(stats.indications).reduce((a: any, b: any) => a + b, 0) as number;
-                    const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+                    const percent = total > 0 ? Math.round(((count as number) / total) * 100) : 0;
                     return (
                       <div key={name} className="flex items-center gap-1.5">
                         <div className={cn("w-1.5 h-1.5 rounded-full", colors[idx % colors.length].replace('text', 'bg'))} />

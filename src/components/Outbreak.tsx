@@ -571,19 +571,19 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                   <div className="grid grid-cols-2 gap-6">
                      <div className="space-y-1.5">
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Index Case</label>
-                        <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.epidemiology?.indexCase} onChange={e => setFormData({...formData, epidemiology: {...formData.epidemiology!, indexCase: e.target.value}})} />
+                        <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.epidemiology?.indexCase || ''} onChange={e => setFormData({...formData, epidemiology: {...formData.epidemiology!, indexCase: e.target.value}})} />
                      </div>
                      <div className="space-y-1.5">
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Cases</label>
-                        <input type="number" className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.epidemiology?.totalCases} onChange={e => setFormData({...formData, epidemiology: {...formData.epidemiology!, totalCases: parseInt(e.target.value)}})} />
+                        <input type="number" className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.epidemiology?.totalCases || ''} onChange={e => setFormData({...formData, epidemiology: {...formData.epidemiology!, totalCases: parseInt(e.target.value)}})} />
                      </div>
                      <div className="space-y-1.5">
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Attack Rate (%)</label>
-                        <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.epidemiology?.attackRate} onChange={e => setFormData({...formData, epidemiology: {...formData.epidemiology!, attackRate: e.target.value}})} />
+                        <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.epidemiology?.attackRate || ''} onChange={e => setFormData({...formData, epidemiology: {...formData.epidemiology!, attackRate: e.target.value}})} />
                      </div>
                      <div className="space-y-1.5">
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Possible Source</label>
-                        <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.epidemiology?.possibleSource} onChange={e => setFormData({...formData, epidemiology: {...formData.epidemiology!, possibleSource: e.target.value}})} />
+                        <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.epidemiology?.possibleSource || ''} onChange={e => setFormData({...formData, epidemiology: {...formData.epidemiology!, possibleSource: e.target.value}})} />
                      </div>
                   </div>
                   <div className="space-y-4">
@@ -645,11 +645,11 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                      <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Alert Organism</label>
-                           <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.findings?.labAlerts.organism} onChange={e => setFormData({...formData, findings: {...formData.findings!, labAlerts: {...formData.findings!.labAlerts, organism: e.target.value}}})} />
+                           <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.findings?.labAlerts.organism || ''} onChange={e => setFormData({...formData, findings: {...formData.findings!, labAlerts: {...formData.findings!.labAlerts, organism: e.target.value}}})} />
                         </div>
                         <div className="space-y-1.5">
                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resistance Pattern</label>
-                           <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.findings?.labAlerts.resistancePattern} onChange={e => setFormData({...formData, findings: {...formData.findings!, labAlerts: {...formData.findings!.labAlerts, resistancePattern: e.target.value}}})} />
+                           <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.findings?.labAlerts.resistancePattern || ''} onChange={e => setFormData({...formData, findings: {...formData.findings!, labAlerts: {...formData.findings!.labAlerts, resistancePattern: e.target.value}}})} />
                         </div>
                      </div>
                   </div>
@@ -693,11 +693,11 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                   <div className="space-y-4">
                      <div className="space-y-1.5 font-sans">
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Date Implemented</label>
-                        <input type="date" className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={formData.controlMeasures?.dateImplemented} onChange={e => setFormData({...formData, controlMeasures: {...formData.controlMeasures!, dateImplemented: e.target.value}})} />
+                        <input type="date" className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={formData.controlMeasures?.dateImplemented || ''} onChange={e => setFormData({...formData, controlMeasures: {...formData.controlMeasures!, dateImplemented: e.target.value}})} />
                      </div>
                      <div className="space-y-1.5">
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Responsible Unit</label>
-                        <input className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={formData.controlMeasures?.responsibleUnit} onChange={e => setFormData({...formData, controlMeasures: {...formData.controlMeasures!, responsibleUnit: e.target.value}})} />
+                        <input className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={formData.controlMeasures?.responsibleUnit || ''} onChange={e => setFormData({...formData, controlMeasures: {...formData.controlMeasures!, responsibleUnit: e.target.value}})} />
                      </div>
                   </div>
                </div>

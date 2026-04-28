@@ -15,13 +15,15 @@ service cloud.firestore {
     function isGoogleUser() { return isSignedIn() && request.auth.token.firebase.sign_in_provider == 'google.com'; }
     function isAdmin() { 
       return isSignedIn() && (
-        request.auth.token.email == 'charliemignonette@gmail.com' ||
-        request.auth.token.email == 'beeohend@gmail.com' ||
-        request.auth.token.email == 'pharmacy@mharsmc.doh.gov.ph' ||
-        hasRole('ADMIN')
+        (request.auth.token.email_verified == true && (
+          request.auth.token.email == 'charliemignonette@gmail.com' ||
+          request.auth.token.email == 'beeohend@gmail.com' ||
+          request.auth.token.email == 'isabelle.p@example.com' ||
+          request.auth.token.email == 'pharmacy@mharsmc.doh.gov.ph'
+        )) || hasRole('ADMIN')
       ); 
     }
-    function isIPCN() { return isSignedIn() && (hasRole('IPCN') || hasRole('ADMIN') || isAdmin()); }
+    function isIPCN() { return isSignedIn() && (isAdmin() || hasRole('IPCN')); }
     function isUser() { return isSignedIn() && (userExists() || isAdmin()); }
     function isPharmacy() { 
       return isSignedIn() && (
@@ -68,9 +70,9 @@ service cloud.firestore {
     }
 
     function isValidHAICase(data) {
-      return data.keys().hasAll(['type', 'patientName', 'hospNo', 'unit', 'triggerDate', 'status']) &&
+      return data.keys().hasAll(['type', 'patientName', 'hospitalNo', 'unit', 'triggerDate', 'status']) &&
              isValidString(data.patientName, 100) &&
-             isValidString(data.hospNo, 50);
+             isValidString(data.hospitalNo, 128);
     }
 
     function isValidBOCLog(data) {
@@ -112,8 +114,12 @@ service cloud.firestore {
       allow list: if isSignedIn() && (resource.data.auditorId == request.auth.uid || isIPCN() || isAdmin());
       allow create: if isSignedIn() && isValidAudit(incoming()) && incoming().auditorId == request.auth.uid && isValidId(auditId);
       allow update: if (isIPCN() || isAdmin()) && 
-                    incoming().auditorId == existing().auditorId &&
-                    incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus']);
+                    incoming().diff(existing()).affectedKeys().hasOnly([
+                      'status', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reason', 'notes', 
+                      'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 
+                      'monitoringMethod', 'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 
+                      'validationRemarks', 'date', 'time', 'updatedAt'
+                    ]);
       allow delete: if isAdmin() || isIPCN();
     }
 
@@ -122,8 +128,12 @@ service cloud.firestore {
       allow list: if isSignedIn() && (resource.data.reporterId == request.auth.uid || isIPCN() || isAdmin());
       allow create: if isSignedIn() && isValidNSIRep(incoming()) && incoming().reporterId == request.auth.uid && incoming().status == 'PENDING' && isValidId(reportId);
       allow update: if (isIPCN() || isAdmin()) && 
-                    incoming().reporterId == existing().reporterId &&
-                    incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validation', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus']);
+                    incoming().diff(existing()).affectedKeys().hasOnly([
+                      'status', 'validation', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 
+                      'updatedAt', 'notes', 'reason', 'basis', 'rootCauses', 'contributingFactors', 
+                      'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus', 
+                      'clinicalAccuracy', 'complianceAccuracy'
+                    ]);
       allow delete: if isAdmin() || isIPCN();
     }
 
@@ -134,8 +144,8 @@ service cloud.firestore {
       allow update: if (isApprover() || isAdmin() || isPharmacy() || isOwner(existing().prescriberId)) && (
         (isOwner(existing().prescriberId) && existing().status == 'PENDING' && incoming().diff(existing()).affectedKeys().hasOnly(['patientName', 'patientHrn', 'firstName', 'middleName', 'lastName', 'age', 'sex', 'hospNo', 'ward', 'unit', 'dept', 'diagnosis', 'focusOfInfection', 'indicationForUse', 'antibiotic', 'dose', 'frequency', 'route', 'duration', 'isStat', 'isLoadingDose', 'weight', 'creatinine', 'egfr', 'procedure', 'updatedAt'])) ||
         (isApprover() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewerId', 'reviewerEmail', 'reviewerName', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt', 'requestingPhysician'])) ||
-        (isIPCN() && incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus'])) ||
-        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'overrideReason', 'manualApproval', 'requestingPhysician', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reviewerId', 'reviewerEmail', 'reviewerName', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt', 'dispensedBy', 'dispensedAt', 'monitoringMethod', 'monitoringStatus'])) ||
+        (isIPCN() && incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'validationRemarks', 'date', 'time', 'updatedAt'])) ||
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'overrideReason', 'manualApproval', 'requestingPhysician', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reviewerId', 'reviewerEmail', 'reviewerName', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt', 'dispensedBy', 'dispensedAt', 'monitoringMethod', 'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'validationRemarks', 'date', 'time', 'notes', 'reason', 'decision'])) ||
         (isPharmacy() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'dispensedBy', 'dispensedAt']) && (existing().status == 'APPROVED' || existing().status == 'DISPENSED'))
       );
       allow delete: if isAdmin() || isIPCN();
@@ -145,8 +155,15 @@ service cloud.firestore {
       allow get: if isSignedIn() && (existing().auditorId == request.auth.uid || isIPCN() || isAdmin());
       allow list: if isSignedIn() && (resource.data.auditorId == request.auth.uid || isIPCN() || isAdmin());
       allow create: if isSignedIn() && isValidHAICase(incoming()) && isValidId(caseId);
-      allow update: if (isIPCN() || isAdmin()) && 
-                   incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validatedBy', 'validatedAt', 'validatorName', 'isValidated', 'decisionNote', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'validationResult', 'monitoringMethod', 'monitoringStatus', 'date', 'time', 'updatedAt']);
+      allow update: if isSignedIn() && (isAdmin() || isIPCN() || (
+                   existing().auditorId == request.auth.uid &&
+                   incoming().diff(existing()).affectedKeys().hasOnly([
+                     'status', 'validatedBy', 'validatedAt', 'validatorName', 'isValidated', 'decisionNote', 
+                     'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 
+                     'classification', 'validationResult', 'monitoringMethod', 'monitoringStatus', 'date', 
+                     'time', 'updatedAt', 'deviceDays', 'riskLevel', 'clinicalAccuracy', 'complianceAccuracy', 
+                     'validationRemarks', 'correctedDeviceDays', 'correctedRiskLevel'
+                   ])));
       allow delete: if isAdmin() || isIPCN();
     }
 
@@ -155,18 +172,26 @@ service cloud.firestore {
       allow list: if isSignedIn() && (resource.data.staffId == request.auth.uid || isIPCN() || isAdmin());
       allow create: if isSignedIn() && isValidBOCLog(incoming()) && incoming().staffId == request.auth.uid && isValidId(logId);
       allow update: if (isIPCN() || isAdmin()) && 
-                   incoming().staffId == existing().staffId &&
-                   incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'verification', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus']);
+                   incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'verification', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'validationRemarks', 'date', 'time', 'updatedAt']);
       allow delete: if isAdmin() || isIPCN();
     }
 
     match /bundle_monitorings/{id} {
-      allow get: if isSignedIn() && (existing().staffId == request.auth.uid || isIPCN() || isAdmin());
-      allow list: if isSignedIn();
+      allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidBundleMonitoring(incoming()) && incoming().staffId == request.auth.uid && isValidId(id);
-      allow update: if isSignedIn() && (existing().staffId == request.auth.uid || isIPCN() || isAdmin()) &&
-                   incoming().staffId == existing().staffId &&
-                   incoming().diff(existing()).affectedKeys().hasOnly(['monitoringDays', 'updatedAt', 'status', 'assignedDoctor', 'devices', 'surgery']);
+      allow update: if isSignedIn() && (
+        isAdmin() || isIPCN() || 
+        (existing().staffId == request.auth.uid && 
+         incoming().diff(existing()).affectedKeys().hasOnly([
+           'monitoringDays', 'updatedAt', 'status', 'assignedDoctor', 'devices', 'surgery', 
+           'hasUnverifiedDays', 'isValidated', 'validatedBy', 'validatorName', 'validatedAt',
+           'endMonitoring', 'endMonitoringDateTime', 'endMonitoringReason', 'endedByAdmin',
+           'patientName', 'hospitalNo', 'unit', 'age', 'sex', 'roomWard', 'attendingPhysician', 
+           'assignedMonitor', 'staffName', 'staffId', 'createdAt',
+           'isFlaggedPossibleHAI', 'latestTriggerReason', 'latestTriggerDateTime', 'latestTriggeredBy',
+           'isVerifiedByIPCU', 'verifiedAtIPCU', 'verifiedByIPCUId', 'verifiedByIPCUName', 'verificationNote', 'clinicalAccuracy', 'complianceAccuracy'
+         ]))
+      );
       allow delete: if isAdmin() || isIPCN();
     }
 
@@ -175,7 +200,12 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidOutbreak(incoming()) && incoming().reporterId == request.auth.uid && incoming().status == 'Suspected' && isValidId(outbreakId);
       allow update: if (isIPCN() || isAdmin()) && 
                    incoming().reporterId == existing().reporterId &&
-                   incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validation', 'dateClosed', 'closureReason', 'lineList', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus']);
+                   incoming().diff(existing()).affectedKeys().hasOnly([
+                     'status', 'validation', 'dateClosed', 'closureReason', 'lineList', 'isValidated', 
+                     'validatedBy', 'validatorName', 'validatedAt', 'reason', 'notes', 'basis', 'rootCauses', 
+                     'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 
+                     'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'updatedAt'
+                   ]);
       allow delete: if isAdmin() || isIPCN();
     }
 

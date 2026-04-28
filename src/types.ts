@@ -264,45 +264,32 @@ export interface FormCompletionDetail {
 
 export type Population = 'Adult' | 'Pediatric';
 
-export interface AssignedDoctor {
+export interface AssignedMonitor {
   name: string;
-  position: string;
-}
-
-export interface WHOMomentData {
-  opportunities: number;
-  HR: number;
-  HW: number;
-  Missed: number;
-}
-
-export interface WHOMomentsState {
-  M1: WHOMomentData;
-  M2: WHOMomentData;
-  M3: WHOMomentData;
-  M4: WHOMomentData;
-  M5: WHOMomentData;
 }
 
 export interface MonitoringDay {
   date: string;
   dayNumber: number;
-  bundleType: 'CLABSI' | 'VAP' | 'CAUTI' | 'SSI';
+  bundleType: 'CLABSI' | 'CAUTI' | 'VAP' | 'SSI';
+  bundleSubtype?: string;
   isPedia: boolean;
-  bundleChecklist: Record<string, boolean>;
-  clinicalCriteria: Record<string, any>;
-  whoMoments: WHOMomentsState;
+  bundleChecklist: Record<string, 'Done' | 'Not Done' | 'N/A'>;
+  clinicalCriteria: Record<string, boolean | string>;
   complianceScores: {
     bundle: number;
     clinical: number;
-    who: number;
     overall: number;
   };
   missedDay?: boolean;
   missedReason?: string;
-  doctor: AssignedDoctor;
+  monitor: AssignedMonitor;
   staffId: string;
   staffName: string;
+  possibleHAI?: boolean;
+  triggerReason?: string;
+  triggeredBy?: string;
+  triggeredDateTime?: any;
 }
 
 export interface BundleMonitoring {
@@ -312,24 +299,36 @@ export interface BundleMonitoring {
   age: string;
   sex: 'Male' | 'Female';
   unit: string;
-  assignedDoctor: AssignedDoctor;
+  roomWard: string;
+  attendingPhysician: string;
+  assignedMonitor: AssignedMonitor;
   devices: {
     clabsi?: { type: string; insertionDate: string; removalDate?: string };
     cauti?: { type: string; insertionDate: string; removalDate?: string };
     vap?: { type: string; intubationDate: string; extubationDate?: string };
+    ssi?: { type: string; procedure: string; date: string };
   };
   surgery?: {
     type: string;
-    preOpBundle?: Record<string, boolean>;
-    intraOpBundle?: Record<string, boolean>;
-    postOpDaily?: MonitoringDay[];
+    startDate: string;
+    endDate?: string;
+    preOpBundle?: Record<string, 'Done' | 'Not Done' | 'N/A'>;
+    intraOpBundle?: Record<string, 'Done' | 'Not Done' | 'N/A'>;
   };
   monitoringDays: MonitoringDay[];
-  status: 'ACTIVE' | 'DISCONTINUED';
+  status: 'ACTIVE' | 'ARCHIVED';
+  endMonitoring?: boolean;
+  endMonitoringDateTime?: any;
+  endMonitoringReason?: string;
+  endedByAdmin?: string;
   createdAt: any;
   updatedAt: any;
   staffId: string;
   staffName: string;
+  isFlaggedPossibleHAI?: boolean;
+  latestTriggerReason?: string;
+  latestTriggerDateTime?: any;
+  latestTriggeredBy?: string;
 }
 
 export interface BOCLog {
@@ -343,6 +342,7 @@ export interface BOCLog {
   sex: 'Male' | 'Female';
   devicesPresent: string[];
   bundles: Record<string, BundleAssessment>;
+  bundleType?: string;
   totalApplicable: number;
   totalCompliant: number;
   compliancePercentage: number;

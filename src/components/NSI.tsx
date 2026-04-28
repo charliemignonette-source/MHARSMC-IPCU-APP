@@ -466,7 +466,7 @@ export default function NSI({ user }: NSIProps) {
                     <input 
                       placeholder="Optional"
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
-                      value={formData.source?.name}
+                      value={formData.source?.name || ''}
                       onChange={e => setFormData({...formData, source: {...formData.source!, name: e.target.value}})}
                     />
                   </div>
@@ -475,7 +475,7 @@ export default function NSI({ user }: NSIProps) {
                     <input 
                       placeholder="Optional"
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
-                      value={formData.source?.hospNo}
+                      value={formData.source?.hospNo || ''}
                       onChange={e => setFormData({...formData, source: {...formData.source!, hospNo: e.target.value}})}
                     />
                   </div>
@@ -484,7 +484,7 @@ export default function NSI({ user }: NSIProps) {
                     <input 
                       placeholder="Optional"
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
-                      value={formData.source?.diagnosis}
+                      value={formData.source?.diagnosis || ''}
                       onChange={e => setFormData({...formData, source: {...formData.source!, diagnosis: e.target.value}})}
                     />
                   </div>
@@ -926,7 +926,7 @@ export default function NSI({ user }: NSIProps) {
                                   <input 
                                     placeholder="Specify root cause..."
                                     className="col-span-2 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-slate-900"
-                                    value={validationData.rootCauseOther}
+                                    value={validationData.rootCauseOther || ''}
                                     onChange={e => setValidationData({...validationData, rootCauseOther: e.target.value})}
                                   />
                                 )}
@@ -957,7 +957,7 @@ export default function NSI({ user }: NSIProps) {
                                   <input 
                                     placeholder="Specify factor..."
                                     className="col-span-2 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-slate-900"
-                                    value={validationData.factorOther}
+                                    value={validationData.factorOther || ''}
                                     onChange={e => setValidationData({...validationData, factorOther: e.target.value})}
                                   />
                                 )}
@@ -988,7 +988,7 @@ export default function NSI({ user }: NSIProps) {
                                   <input 
                                     placeholder="Specify action..."
                                     className="col-span-2 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-slate-900"
-                                    value={validationData.actionOther}
+                                    value={validationData.actionOther || ''}
                                     onChange={e => setValidationData({...validationData, actionOther: e.target.value})}
                                   />
                                 )}

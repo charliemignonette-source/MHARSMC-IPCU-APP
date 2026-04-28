@@ -76,10 +76,16 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         
         if (d.type === 'HH_COMPLIANCE' && auditDetails.hhObs) {
           const obs = auditDetails.hhObs;
-          findings = Object.entries(obs.indications || {})
-            .filter(([_, active]) => active)
-            .map(([moment, _]) => `${moment}: ${obs.actions?.[moment] || 'missed'}`)
-            .join('; ');
+          if (obs.entries && Array.isArray(obs.entries)) {
+            findings = obs.entries.map((e: any, i: number) => 
+               `Opp ${i+1}: [${e.indications.join(',')}] -> ${e.action}${e.gloves ? ' (G)' : ''}`
+            ).join(' | ');
+          } else {
+            findings = Object.entries(obs.indications || {})
+              .filter(([_, active]) => active)
+              .map(([moment, _]) => `${moment}: ${obs.actions?.[moment] || 'missed'}`)
+              .join('; ');
+          }
         } else if (d.type === 'HH_AVAILABILITY') {
           const missings = [];
           if (!auditDetails.abhr?.poc) missings.push('No ABHR at POC');
@@ -87,7 +93,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           if (!auditDetails.sink?.soap) missings.push('No Soap');
           findings = missings.length > 0 ? `Missing: ${missings.join(', ')}` : 'Full Availability';
         } else if (d.type === 'ENV_CLEANING' && auditDetails.envCleaning?.surfaces) {
-          const missed = Object.entries(auditDetails.envCleaning.surfaces)
+          const missed = Object.entries(auditDetails.envCleaning?.surfaces || {})
             .filter(([_, status]) => status === 'notCleaned')
             .map(([surface, _]) => surface)
             .join(', ');
@@ -262,7 +268,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         }
 
         const querySnapshot = await getDocs(q);
-        return querySnapshot.docs.map(doc => ({ id: doc.id, __source: collName, ...doc.data() }));
+        return querySnapshot.docs.map(doc => ({ id: doc.id, __source: collName, ...doc.data() as any }));
       };
 
       if (reportType === 'CLINICAL_SYSTEMS') {

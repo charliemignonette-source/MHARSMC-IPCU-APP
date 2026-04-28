@@ -83,70 +83,70 @@ export const BUNDLE_ELEMENTS = {
 };
 
 export const CLABSI_DETAILED_BUNDLES = {
-  INSERTION_ADULT: [
-    "Proper hand hygiene practiced in all 5 WHO moments",
-    "Best insertion site chosen to minimize infection",
-    "0.5% chlorhexidine in alcohol used for skin prep (30 sec scrub, 2 min dry)",
-    "Full sterile barrier precautions used (gown, gloves, cap, mask, full drape)",
-    "Sterile gauze or sterile transparent dressing applied over insertion site"
+  INSERTION: [
+    "Proper hand hygiene before insertion",
+    "Best insertion site chosen",
+    "0.5% chlorhexidine in alcohol for skin prep (30 sec scrub, 2 min dry)",
+    "Full sterile barrier precautions",
+    "Sterile gauze or sterile transparent dressing applied"
   ],
   MAINTENANCE_ADULT: [
-    "Review done for central line necessity",
-    "Hand hygiene practiced before/after all maintenance or access procedures",
-    "Contact precaution practiced (sterile gloves, mask, face shield, gown)",
-    "Wet, soiled, or dislodged dressing replaced using aseptic technique",
-    "Scrub access port/hub with friction before each use (0.5% chlorhexidine in alcohol)",
-    "Dressing changed according to type/indication (7d transparent, 24h gauze, etc.)",
-    "Sterile devices used to access catheters",
-    "Sterile gauze or sterile transparent semi-permeable dressing over insertion site"
+    "Review central line necessity",
+    "Hand hygiene before/after maintenance or access",
+    "Contact precautions (sterile gloves, mask, face shield, gown)",
+    "Replace wet/soiled/dislodged dressing using aseptic technique",
+    "Scrub access port/hub with 0.5% chlorhexidine in alcohol",
+    "Dressing changes: transparent every 7 days; sterile gauze every 24 hours; alimentation every 24 hours; blood products/lipids every 24 hours; Propofol every 12 hours",
+    "Use sterile devices to access catheter",
+    "Sterile gauze or sterile transparent dressing over insertion site"
   ],
   MAINTENANCE_PEDIA: [
-    "Review done for central line necessity",
-    "Hand hygiene practiced before all maintenance/access procedures",
+    "Review central line necessity",
+    "Hand hygiene before maintenance/access",
     "New clean gloves worn",
-    "70% alcohol used to disinfect hub for at least 30 sec, allowed to dry 2 mins",
-    "Dressing changed using aseptic technique",
-    "Gloves removed after procedure",
-    "Hand hygiene done after glove removal",
-    "IV tubings replaced appropriately"
+    "70% alcohol to disinfect hub (30 sec, dry 2 min)",
+    "Dressing changes: transparent every 7 days; sterile gauze every 24 hours; umbilical catheter 70% alcohol 3×/day",
+    "Remove gloves after procedure",
+    "Hand hygiene after glove removal",
+    "IV tubing replacement rules (alimentation, blood products, phlebitis, peripheral lines)"
   ]
 };
 
 export const CAUTI_BUNDLES = {
   ADULT: [
     "Daily review of catheter necessity",
-    "Daily perineal care with 2% chlorhexidine wash",
-    "Closed drainage system maintained with proper securement",
-    "Drainage bag kept below bladder level at all times",
-    "Regular emptying of collecting bag using separate clean container"
+    "Daily perineal care with 2% chlorhexidine",
+    "Closed drainage system with proper securement",
+    "Drainage bag below bladder level",
+    "Regular emptying of collecting bag with separate clean container"
   ],
   PEDIA: [
-    "Hand hygiene before and after procedure",
+    "Hand hygiene before/after procedure",
     "Daily review of catheter necessity",
-    "Use of standard precautions",
+    "Standard precautions",
     "Daily perineal care",
-    "Closed drainage system maintained with proper securement",
-    "Drainage bag kept below bladder level",
-    "Regular emptying of collecting bag per shift"
+    "Closed drainage system with proper securement",
+    "Drainage bag below bladder level",
+    "Regular emptying per shift with separate clean container"
   ]
 };
 
 export const VAP_BUNDLES = {
   ADULT: [
-    "Hand hygiene practiced in all 5 WHO moments",
+    "Hand hygiene",
     "Assessment for readiness to wean/extubate",
-    "Daily assessment for sedation break",
+    "Daily sedation break assessment",
     "Turn to sides every 2 hours",
-    "Oral care with toothbrushing every shift",
-    "Head elevation at least 30 degrees",
+    "Oral care with toothbrushing ± 0.2% chlorhexidine every shift",
+    "Head elevation ≥ 30 degrees",
     "DVT prophylaxis"
   ],
   PEDIA: [
-    "Hand hygiene before and after patient care",
-    "Head of bed elevation (30-45inf/15-30neo)",
-    "Chlorhexidine or saline oral care",
+    "Hand hygiene",
+    "Head elevation (30–45° infants; 15–30° neonates)",
+    "Oral care (chlorhexidine >2 months; saline <2 months)",
     "Suctioning done properly",
-    "Sedation holiday",
+    "Sedation holiday with remarks",
     "Assessment for readiness to wean/extubate"
   ]
 };
@@ -154,11 +154,11 @@ export const VAP_BUNDLES = {
 export const SSI_BUNDLES = {
   PREOP: [
     "Antimicrobial prophylaxis given according to guidelines",
-    "Proper surgical hand scrub performed",
-    "Surfaces and environment cleaned prior to surgery",
-    "Surgical instruments properly sterilized",
-    "Sterile barrier precautions practiced",
-    "Daily baths with 2% chlorhexidine for at least 2 days prior"
+    "Proper surgical hand scrub",
+    "Surfaces/environment cleaned",
+    "Instruments properly sterilized",
+    "Sterile barrier precautions",
+    "Daily baths with 2% chlorhexidine for at least 2 days before surgery"
   ],
   INTRAOP: [
     "Blood glucose monitored and maintained",
@@ -166,31 +166,37 @@ export const SSI_BUNDLES = {
     "Normothermia maintained"
   ],
   POSTOP: [
-    "Hand hygiene practiced in all 5 WHO moments",
-    "Post-operative wound care performed",
-    "Wet, soiled, or dislodged dressing replaced using aseptic technique",
-    "Contact precautions practiced"
+    "Hand hygiene",
+    "Post‑operative wound care",
+    "Replace wet/soiled/dislodged dressing using aseptic technique",
+    "Contact precautions"
   ]
 };
 
 export const CLINICAL_CRITERIA_DETAILED = {
   CLABSI_ADULT: [
-    "Fever ≥ 38°C", "Chills", "Hypotension", "Blood culture pos via catheter", "Blood culture pos via peripheral"
+    "Fever ≥ 38°C", "Chills", "Hypotension", "Blood culture positive via catheter", "Blood culture positive via peripheral site"
   ],
   CLABSI_PEDIA: [
-    "Fever ≥ 38°C", "Hypothermia ≤ 36.5°C", "Apnea", "Bradycardia", "Peripheral culture pos", "Catheter culture pos"
+    "Child 1–18 years: fever ≥ 38°C, chills, hypotension",
+    "Infant ≤ 1 year: fever ≥ 38°C, hypothermia ≤ 36.5°C, apnea, bradycardia",
+    "Laboratory: blood culture peripheral",
+    "Laboratory: blood culture via catheter"
   ],
   CAUTI_ADULT: [
-    "Fever ≥ 38°C", "Suprapubic tenderness", "CVA pain/tenderness", "Urgency", "Frequency", "Dysuria", "Pyuria", "Urine culture pos"
+    "Fever ≥ 38°C", "Suprapubic tenderness", "Costovertebral angle pain/tenderness", "Urinary urgency", "Urinary frequency", "Dysuria", "Urinalysis leukocyte/nitrite positive", "Pyuria", "Urine gram stain", "Urine culture", "Blood culture"
   ],
   CAUTI_PEDIA: [
-    "Fever ≥ 38°C", "Dysuria", "Urgency", "Frequency", "Suprapubic tenderness", "Chills", "Nitrite positive", "Urine culture pos"
+    "Fever ≥ 38°C", "Dysuria", "Urgency", "Frequency", "Costovertebral pain/tenderness", "Suprapubic tenderness", "Chills", "No symptoms", "Urinalysis leukocyte positive", "Urinalysis nitrite positive", "Pyuria", "Urine gram stain", "Urine culture", "Blood culture"
+  ],
+  VAP_ADULT: [
+    "Temperature", "FiO2", "PEEP", "WBC", "New onset rales/ronchi/stridor", "Repeat chest X‑ray done"
+  ],
+  VAP_PEDIA: [
+    "Temperature", "FiO2", "PEEP", "WBC", "New onset rales/ronchi/stridor", "Repeat chest X‑ray done"
   ],
   SSI: [
-    "Localized pain/tenderness", "Localized swelling", "Erythema", "Heat", "Fever ≥ 38°C", "Purulent drainage", "Pos culture"
-  ],
-  VAP: [
-    "Temperature outlier", "FiO2 requirement", "PEEP requirement", "WBC outlier", "New rales/ronchi", "X-ray changes"
+    "Localized pain or tenderness", "Localized swelling", "Erythema", "Heat", "Fever ≥ 38°C", "Purulent drainage", "Wound drainage positive culture"
   ]
 };
 

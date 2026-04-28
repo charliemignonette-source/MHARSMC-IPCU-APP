@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, AlertOctagon, ShieldAlert, ShieldCheck, AlertTriangle, CheckCircle2, Clock, Search, Filter, ChevronRight, Activity, Stethoscope, ClipboardList, Layers, XCircle, Mail, Calendar, Microscope, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, orderBy, getDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, HAICase, AMSRequest, Audit, BOCLog, Role, IPCUAction, NSIReport, OutbreakReport } from '../types';
 import { cn, formatDate } from '../lib/utils';
@@ -33,6 +33,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
   const [validatedAMS, setValidatedAMS] = useState<AMSRequest[]>([]);
   const [validatedAudits, setValidatedAudits] = useState<Audit[]>([]);
   const [validatedBundles, setValidatedBundles] = useState<BOCLog[]>([]);
+  const [verifiedDailyDays, setVerifiedDailyDays] = useState<any[]>([]);
   const [validatedNSI, setValidatedNSI] = useState<NSIReport[]>([]);
   const [validatedOutbreaks, setValidatedOutbreaks] = useState<OutbreakReport[]>([]);
 
@@ -91,25 +92,50 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
       updatePendingList('AUDIT', items);
     });
 
-    // 4. Fetch Pending Bundle Logs
+    // 4. Fetch Pending Bundle Audits (boc_logs)
     const qBundles = query(collection(db, 'boc_logs'), where('isValidated', '==', false));
     const unsubBundles = onSnapshot(qBundles, (snap) => {
       const items = snap.docs.map(d => {
         const data = d.data() as BOCLog;
         return {
           id: d.id,
-          type: 'BUNDLE' as ValidationType,
+          type: 'AUDIT' as ValidationType,
           patientName: data.patientName,
           unit: data.unit,
-          subType: 'Bundle Care',
+          subType: `Audit: ${data.bundleType}`,
           dateFlagged: data.date,
           originalData: data
         };
       });
+      updatePendingList('AUDIT', items);
+    });
+
+    // 5. Fetch Pending Daily Bundle Monitoring Days
+    const qClinicalBundles = query(collection(db, 'bundle_monitorings'), where('status', '==', 'ACTIVE'));
+    const unsubClinicalBundles = onSnapshot(qClinicalBundles, (snap) => {
+      const items: PendingItem[] = [];
+      snap.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        const days = data.monitoringDays || [];
+        days.forEach((day: any, index: number) => {
+          if (!day.isVerifiedByIPCU) {
+            items.push({
+              id: `${docSnap.id}-${day.date}-${day.bundleType}`,
+              type: 'BUNDLE' as ValidationType,
+              patientName: data.patientName || 'Unknown',
+              unit: data.unit || 'Unknown',
+              subType: `Daily: ${day.bundleType}`,
+              dateFlagged: day.date,
+              riskLevel: Object.values(day.clinicalCriteria || {}).some(v => v === true) ? 'RED' : undefined,
+              originalData: { ...day, patientId: docSnap.id, dayIndex: index }
+            });
+          }
+        });
+      });
       updatePendingList('BUNDLE', items);
     });
 
-    // 5. Fetch Pending NSI Reports
+    // 6. Fetch Pending NSI Reports
     const qNSI = query(collection(db, 'nsi_reports'), where('status', '==', 'PENDING'));
     const unsubNSI = onSnapshot(qNSI, (snap) => {
       const items = snap.docs.map(d => {
@@ -165,6 +191,35 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
       setValidatedBundles(snap.docs.map(d => ({ id: d.id, ...d.data() } as BOCLog)));
     });
 
+    // 7. Fetch Verified Daily Monitoring Days
+    const qVerifiedDaily = query(collection(db, 'bundle_monitorings'));
+    const unsubVerifiedDaily = onSnapshot(qVerifiedDaily, (snap) => {
+      const allVerified: any[] = [];
+      snap.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        const days = data.monitoringDays || [];
+        days.forEach((day: any) => {
+          if (day.isVerifiedByIPCU) {
+            allVerified.push({
+              id: `${docSnap.id}-${day.date}-${day.bundleType}`,
+              patientName: data.patientName,
+              unit: data.unit,
+              bundleType: day.bundleType,
+              compliance: day.compliancePercentage,
+              verifiedAt: day.verifiedAtIPCU,
+              verifiedBy: day.verifiedByIPCUName,
+              clinicalAccuracy: day.clinicalAccuracy,
+              complianceAccuracy: day.complianceAccuracy,
+              notes: day.verificationNote,
+              isDaily: true,
+              dayNumber: day.dayNumber
+            });
+          }
+        });
+      });
+      setVerifiedDailyDays(allVerified);
+    });
+
     const qValidatedNSI = query(collection(db, 'nsi_reports'), where('status', '!=', 'PENDING'));
     const unsubValidatedNSI = onSnapshot(qValidatedNSI, (snap) => {
       setValidatedNSI(snap.docs.map(d => ({ id: d.id, ...d.data() } as NSIReport)));
@@ -180,6 +235,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
       unsubAMS();
       unsubAudits();
       unsubBundles();
+      unsubVerifiedDaily();
       unsubNSI();
       unsubOutbreaks();
       unsubConfirmedHAI();
@@ -198,7 +254,11 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
   const updatePendingList = (type: ValidationType, items: PendingItem[]) => {
     setPendingMap(prev => {
       const newMap = { ...prev, [type]: items };
-      const allPending = (Object.values(newMap).flat() as PendingItem[]).sort((a, b) => new Date(b.dateFlagged).getTime() - new Date(a.dateFlagged).getTime());
+      const allPending = (Object.values(newMap || {}).flat() as PendingItem[]).sort((a, b) => {
+        const dateA = new Date(a.originalData.timestamp || a.originalData.createdAt?.toDate?.() || a.dateFlagged).getTime();
+        const dateB = new Date(b.originalData.timestamp || b.originalData.createdAt?.toDate?.() || b.dateFlagged).getTime();
+        return dateB - dateA;
+      });
       setPendingItems(allPending);
       return newMap;
     });
@@ -212,6 +272,7 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
   const handleValidationSubmit = async (decision: any) => {
     if (!selectedItem || !user) return;
     
+    console.log('Validating item:', selectedItem.id, 'of type:', selectedItem.type);
     const { id, type } = selectedItem;
     let collectionName = '';
     let updateData: any = {
@@ -221,17 +282,67 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
       validatedAt: serverTimestamp(),
       ...decision
     };
+    console.log('Initial updateData:', updateData);
 
     if (type === 'HAI') {
       collectionName = 'hai_cases';
-      // status will be set in decision (CONFIRMED, NOT_HAI, etc)
     } else if (type === 'ANTIMICROBIAL_STEWARDSHIP') {
       collectionName = 'ams_requests';
-      // status set in decision
     } else if (type === 'AUDIT') {
-      collectionName = 'audits';
+      // Check if it's from boc_logs or audits
+      collectionName = selectedItem.originalData.bundleType ? 'boc_logs' : 'audits';
     } else if (type === 'BUNDLE') {
-      collectionName = 'boc_logs';
+      // Manual update for clinical bundle monitoring array
+      const { patientId, dayIndex } = selectedItem.originalData;
+      try {
+        const patientRef = doc(db, 'bundle_monitorings', patientId);
+        // We need to fetch the current patient doc to update the array correctly
+        // Since we are in a listener-driven UI, we might have it in local state if we tracked it,
+        // but here we just perform an atomic-like update or fetch-then-update.
+        // For simplicity and accuracy in rules, we fetch then update.
+        const docSnap = await getDoc(patientRef);
+        if (docSnap.exists()) {
+          const pData = docSnap.data() as any;
+          const days = [...(pData.monitoringDays || [])];
+          if (days[dayIndex]) {
+            days[dayIndex] = {
+              ...days[dayIndex],
+              isVerifiedByIPCU: true,
+              verifiedAtIPCU: new Date().toISOString(),
+              verifiedByIPCUId: user.uid,
+              verifiedByIPCUName: user.name,
+              verificationNote: decision.notes,
+              clinicalAccuracy: decision.clinicalAccuracy || 'Accurate',
+              complianceAccuracy: decision.complianceAccuracy || 'Accurate'
+            };
+            const stillUnverified = days.some((d: any) => !d.isVerifiedByIPCU);
+            await updateDoc(patientRef, { 
+              monitoringDays: days, 
+              updatedAt: serverTimestamp(),
+              hasUnverifiedDays: stillUnverified
+            });
+            
+            // Log IPCU Action
+            await addDoc(collection(db, 'ipcu_actions'), {
+              patientName: pData.patientName,
+              hospNo: pData.hospitalNo,
+              unit: pData.unit,
+              haiType: 'Daily Bundle',
+              action: `Verified Day ${days[dayIndex].dayNumber} - ${decision.clinicalAccuracy || 'Accurate'}`,
+              staffId: user.uid,
+              staffName: user.name,
+              date: new Date().toISOString().split('T')[0],
+              createdAt: serverTimestamp()
+            });
+          }
+        }
+        setIsValidationModalOpen(false);
+        setSelectedItem(null);
+        return;
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, 'bundle_monitorings');
+        return;
+      }
     } else if (type === 'NSI') {
       collectionName = 'nsi_reports';
       updateData = {
@@ -265,7 +376,17 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
     }
 
     try {
-      await updateDoc(doc(db, collectionName, id), updateData);
+      console.log('Final update call to', collectionName, 'id:', id, 'with data:', {
+        ...updateData,
+        isValidated: true,
+        updatedAt: serverTimestamp()
+      });
+      await updateDoc(doc(db, collectionName, id), {
+        ...updateData,
+        isValidated: true,
+        updatedAt: serverTimestamp()
+      });
+      console.log('Update successful!');
       
       setIsValidationModalOpen(false);
       setSelectedItem(null);
@@ -374,7 +495,11 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
                                <span key={c} className="px-1.5 py-0.5 bg-slate-100 text-[8px] font-bold uppercase rounded">{c}</span>
                              ))}
                              {item.type === 'ANTIMICROBIAL_STEWARDSHIP' && <span className="text-[10px] font-bold opacity-60 italic">{item.originalData.antibiotic}</span>}
-                             {item.type === 'AUDIT' && <span className="text-[10px] font-bold text-emerald-600">Score: {item.originalData.score || 0}%</span>}
+                             {item.type === 'AUDIT' && (
+                               <span className="text-[10px] font-bold text-emerald-600">
+                                 Compliance: {Math.round(((item.originalData.score || 0) / (item.originalData.total || 1)) * 100)}%
+                               </span>
+                             )}
                              {item.type === 'BUNDLE' && (
                                <span className={cn(
                                  "text-[10px] font-black uppercase",
@@ -410,20 +535,29 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
                                  <button 
                                    onClick={async (e) => {
                                      e.stopPropagation();
-                                     if (!confirm('Are you sure? This will permanently delete the report.')) return;
-                                     const colMap: Record<string, string> = { 
-                                       HAI: 'hai_cases', 
-                                       ANTIMICROBIAL_STEWARDSHIP: 'ams_requests', 
-                                       AUDIT: 'audits', 
-                                       BUNDLE: 'boc_logs', 
-                                       NSI: 'nsi_reports', 
-                                       OUTBREAK: 'outbreaks' 
-                                     };
-                                     try { 
-                                       await deleteDoc(doc(db, colMap[item.type], item.id)); 
-                                     } catch (e) { 
-                                       handleFirestoreError(e, OperationType.DELETE, item.id); 
-                                     }
+                                     if (!window.confirm('Are you sure? This will permanently delete the report.')) return;
+                                      const getTargetId = (item: any) => {
+                                        if (item.type === 'BUNDLE') return item.originalData.patientId;
+                                        return item.id;
+                                      };
+                                      const getCollection = (item: any) => {
+                                        if (item.type === 'HAI') return 'hai_cases';
+                                        if (item.type === 'ANTIMICROBIAL_STEWARDSHIP') return 'ams_requests';
+                                        if (item.type === 'NSI') return 'nsi_reports';
+                                        if (item.type === 'OUTBREAK') return 'outbreaks';
+                                        if (item.type === 'BUNDLE') return 'bundle_monitorings';
+                                        if (item.type === 'AUDIT') {
+                                          return item.originalData?.bundleType ? 'boc_logs' : 'audits';
+                                        }
+                                        return 'audits';
+                                      };
+                                      const targetCollection = getCollection(item);
+                                      const targetId = getTargetId(item);
+                                      try { 
+                                        await deleteDoc(doc(db, targetCollection, targetId)); 
+                                      } catch (e) { 
+                                        handleFirestoreError(e, OperationType.DELETE, `${targetCollection}/${targetId}`); 
+                                      }
                                    }}
                                    className="p-1.5 text-rose-400 hover:text-rose-600 rounded-lg transition-colors hover:bg-rose-50"
                                    title="Delete Case"
@@ -532,30 +666,55 @@ export default function IPCUValidationConsole({ user }: { user: UserProfile | nu
               title="Validated Bundle Compliance Logs" 
               icon={<Layers className="w-5 h-5 text-amber-500" />}
               headers={['Patient', 'Unit', 'Type', 'Status', 'Monitoring', 'IPCU Decision']}
-              items={validatedBundles.map(b => [
-                b.patientName,
-                b.unit,
-                'Care Bundle',
-                <span className={cn(
-                  "text-[10px] font-bold uppercase",
-                  b.compliancePercentage === 100 ? "text-emerald-500" : "text-rose-500"
-                )}>{b.compliancePercentage}% Reported</span>,
-                <span className="flex flex-col gap-0.5">
-                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight leading-none">{b.monitoringMethod || 'N/A'}</span>
-                   {b.monitoringStatus && (
-                     <span className={cn(
-                       "text-[9px] font-bold uppercase",
-                       b.monitoringStatus === 'PASS' ? "text-emerald-500" : "text-rose-500"
-                     )}>
-                       {b.monitoringStatus === 'PASS' ? 'Success' : 'Discrepancy'}
-                     </span>
-                   )}
-                </span>,
-                <span className={cn(
-                  "px-2 py-1 rounded-xl text-[9px] font-black uppercase",
-                  b.verification?.finalDecision === 'Compliant' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
-                )}>{b.verification?.finalDecision || 'Validated'}</span>
-              ])}
+              items={[
+                ...validatedBundles.map(b => ({
+                  data: [
+                    b.patientName,
+                    b.unit,
+                    `Audit: ${b.bundleType || 'Care Bundle'}`,
+                    <span key="status" className={cn(
+                      "text-[10px] font-bold uppercase",
+                      b.compliancePercentage === 100 ? "text-emerald-500" : "text-rose-500"
+                    )}>{b.compliancePercentage}% Reported</span>,
+                    <span key="monitoring" className="flex flex-col gap-0.5">
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight leading-none">{b.monitoringMethod || 'N/A'}</span>
+                       {b.monitoringStatus && (
+                         <span className={cn(
+                           "text-[9px] font-bold uppercase",
+                           b.monitoringStatus === 'PASS' ? "text-emerald-500" : "text-rose-500"
+                         )}>
+                           {b.monitoringStatus === 'PASS' ? 'Success' : 'Discrepancy'}
+                         </span>
+                       )}
+                    </span>,
+                    <span key="decision" className={cn(
+                      "px-2 py-1 rounded-xl text-[9px] font-black uppercase",
+                      b.verification?.finalDecision === 'Compliant' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                    )}>{b.verification?.finalDecision || 'Validated'}</span>
+                  ],
+                  date: b.validatedAt?.toDate?.() ? b.validatedAt.toDate().getTime() : (b.validatedAt ? new Date(b.validatedAt).getTime() : 0)
+                })),
+                ...verifiedDailyDays.map(d => ({
+                  data: [
+                    d.patientName,
+                    d.unit,
+                    `Daily: ${d.bundleType} (D${d.dayNumber})`,
+                    <span key="status" className={cn(
+                      "text-[10px] font-bold uppercase",
+                      d.compliance === 100 ? "text-emerald-500" : "text-rose-500"
+                    )}>{Math.round(d.compliance)}% Compliance</span>,
+                    <span key="monitoring" className="flex flex-col gap-0.5">
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight leading-none">Clinical Review</span>
+                       <span className="text-[9px] font-bold text-slate-500 uppercase">{d.clinicalAccuracy}</span>
+                    </span>,
+                    <div key="decision" className="flex flex-col gap-1">
+                      <span className="px-2 py-1 bg-emerald-50 text-emerald-600 rounded-xl text-[9px] font-black uppercase w-fit">Verified</span>
+                      <span className="text-[8px] text-slate-400 uppercase font-black">{d.verifiedBy} • {d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '-'}</span>
+                    </div>
+                  ],
+                  date: d.verifiedAt ? new Date(d.verifiedAt).getTime() : 0
+                }))
+              ].sort((a: any, b: any) => b.date - a.date).map(item => Array.isArray(item) ? item : item.data)}
             />
 
             {/* Validated NSI Reports */}
@@ -656,7 +815,9 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
     correctiveActions: [],
     classification: 'Significant Exposure',
     monitoringMethod: '',
-    monitoringStatus: '' // 'PASS' | 'FAIL'
+    monitoringStatus: '', // 'PASS' | 'FAIL'
+    clinicalAccuracy: 'Accurate',
+    complianceAccuracy: 'Accurate'
   });
 
   const [loading, setLoading] = useState(false);
@@ -888,7 +1049,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                            <div className="max-h-[200px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                              {item.subType === 'ENV_CLEANING' && item.originalData.details.surfaces && (
                                <div className="grid grid-cols-1 gap-1">
-                                 {Object.entries(item.originalData.details.surfaces).map(([key, value]: [string, any]) => (
+                                 {Object.entries(item.originalData?.details?.surfaces || {}).map(([key, value]: [string, any]) => (
                                    <div key={key} className="flex justify-between items-center p-2 bg-white border border-slate-50 rounded-xl">
                                       <span className="text-[10px] font-bold text-slate-600 uppercase tracking-tight">
                                         {key.replace(/([A-Z])/g, ' $1').toLowerCase()}
@@ -902,29 +1063,55 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                                </div>
                              )}
                              
-                             {item.subType === 'HH_COMPLIANCE' && item.originalData.details.hhObs && (
+                             {item.subType === 'HH_COMPLIANCE' && item.originalData.details?.hhObs && (
                                <div className="space-y-3">
                                   <div className="p-3 bg-slate-900 rounded-2xl">
                                     <p className="text-[10px] font-black text-white/50 uppercase mb-2">Moments Observed</p>
                                     <div className="grid grid-cols-1 gap-2">
-                                      {Object.entries(item.originalData.details.hhObs.indications).map(([key, active]: [string, any]) => active && (
-                                        <div key={key} className="flex justify-between items-center bg-white/5 p-2 rounded-xl border border-white/5">
-                                          <span className="text-[10px] font-bold text-white/70 uppercase">
-                                            {key === 'befPat' ? 'Before touch Patient' : key === 'befAsept' ? 'Before Clean/Aseptic' : key === 'aftBF' ? 'After Body Fluid' : key === 'aftPat' ? 'After touch Patient' : 'After Surroundings'}
-                                          </span>
-                                          <div className="flex items-center gap-2">
-                                            <span className={cn(
-                                              "text-[9px] font-black uppercase px-2 py-1 rounded-lg",
-                                              (item.originalData.details.hhObs.actions?.[key] === 'hr' || item.originalData.details.hhObs.actions?.[key] === 'hw') ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
-                                            )}>
-                                              {item.originalData.details.hhObs.actions?.[key] || 'Missed'}
-                                            </span>
-                                            {item.originalData.details.hhObs.momentsGloves?.[key] && (
-                                              <span className="bg-blue-500/20 text-blue-400 px-1.5 py-1 rounded text-[8px] font-bold uppercase">Gloves</span>
-                                            )}
+                                      {/* New Format (Array of entries) */}
+                                      {item.originalData.details.hhObs.entries && Array.isArray(item.originalData.details.hhObs.entries) ? (
+                                        item.originalData.details.hhObs.entries.map((entry: any, i: number) => (
+                                          <div key={i} className="flex justify-between items-center bg-white/5 p-2 rounded-xl border border-white/5">
+                                            <div className="flex flex-col">
+                                              <span className="text-[10px] font-bold text-white/70 uppercase">Opportunity {i + 1}</span>
+                                              <span className="text-[8px] text-slate-400 uppercase tracking-tighter">
+                                                {entry.indications.join(', ')}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <span className={cn(
+                                                "text-[9px] font-black uppercase px-2 py-1 rounded-lg",
+                                                (entry.action === 'rub' || entry.action === 'wash') ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+                                              )}>
+                                                {entry.action === 'rub' ? 'Hand Rub' : entry.action === 'wash' ? 'Hand Wash' : 'Missed'}
+                                              </span>
+                                              {entry.gloves && (
+                                                <span className="bg-blue-500/20 text-blue-400 px-1.5 py-1 rounded text-[8px] font-bold uppercase">Gloves</span>
+                                              )}
+                                            </div>
                                           </div>
-                                        </div>
-                                      ))}
+                                        ))
+                                      ) : (
+                                        /* Old Format (indications object) */
+                                        Object.entries(item.originalData?.details?.hhObs?.indications || {}).map(([key, active]: [string, any]) => active && (
+                                          <div key={key} className="flex justify-between items-center bg-white/5 p-2 rounded-xl border border-white/5">
+                                            <span className="text-[10px] font-bold text-white/70 uppercase">
+                                              {key === 'befPat' ? 'Before touch Patient' : key === 'befAsept' ? 'Before Clean/Aseptic' : key === 'aftBF' ? 'After Body Fluid' : key === 'aftPat' ? 'After touch Patient' : 'After Surroundings'}
+                                            </span>
+                                            <div className="flex items-center gap-2">
+                                              <span className={cn(
+                                                "text-[9px] font-black uppercase px-2 py-1 rounded-lg",
+                                                (item.originalData.details.hhObs.actions?.[key] === 'hr' || item.originalData.details.hhObs.actions?.[key] === 'hw') ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+                                              )}>
+                                                {item.originalData.details.hhObs.actions?.[key] || 'Missed'}
+                                              </span>
+                                              {item.originalData.details.hhObs.momentsGloves?.[key] && (
+                                                <span className="bg-blue-500/20 text-blue-400 px-1.5 py-1 rounded text-[8px] font-bold uppercase">Gloves</span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        ))
+                                      )}
                                     </div>
                                   </div>
                                </div>
@@ -932,8 +1119,8 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
 
                              {['HH_AVAILABILITY', 'PPE_AVAILABILITY', 'PPE_COMPLIANCE', 'SAFE_INJECTION'].includes(item.subType) && (
                                <div className="grid grid-cols-1 gap-1">
-                                 {Object.entries(item.originalData.details).map(([section, data]: [string, any]) => (
-                                   typeof data === 'object' && !Array.isArray(data) && Object.entries(data).map(([key, value]) => (
+                                 {Object.entries(item.originalData?.details || {}).map(([section, data]: [string, any]) => (
+                                   typeof data === 'object' && !Array.isArray(data) && Object.entries(data || {}).map(([key, value]) => (
                                      typeof value === 'boolean' && (
                                       <div key={`${section}-${key}`} className="flex justify-between items-center p-2 bg-white border border-slate-50 rounded-xl">
                                         <span className="text-[10px] font-bold text-slate-600 uppercase">
@@ -956,45 +1143,45 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                   )}
 
                   {item.type === 'BUNDLE' && (
-                    <div className="pt-4 border-t border-slate-50 space-y-4">
-                       <div className="flex items-center justify-between p-4 bg-amber-50 rounded-3xl border border-amber-100">
+                    <div className="pt-4 border-t border-slate-50 space-y-6">
+                       <div className="flex items-center justify-between p-4 bg-teal-50 rounded-3xl border border-teal-100">
                         <div>
-                          <p className="text-[10px] font-black text-amber-900 uppercase">Compliance Rate</p>
-                          <p className="text-2xl font-black text-amber-600">{Math.round(item.originalData.compliancePercentage)}%</p>
+                          <p className="text-[10px] font-black text-teal-900 uppercase">Reported Compliance</p>
+                          <p className="text-2xl font-black text-teal-600">{item.originalData.complianceScores?.overall || 0}%</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-[10px] font-black text-amber-900 uppercase">Devices Logged</p>
-                          <p className="text-2xl font-black text-amber-600">{(item.originalData.devicesPresent || []).length}</p>
+                          <p className="text-[10px] font-black text-teal-900 uppercase">Day Number</p>
+                          <p className="text-2xl font-black text-teal-600">{item.originalData.dayNumber}</p>
                         </div>
                       </div>
 
                       <div className="space-y-3">
-                         <p className="text-[9px] font-black text-slate-400 uppercase">Specific Bundle Elements</p>
-                         <div className="max-h-[200px] overflow-y-auto space-y-4 pr-2 custom-scrollbar">
-                           {Object.entries(item.originalData.bundles || {}).map(([type, bundle]: [string, any]) => (
-                             <div key={type} className="p-4 bg-white border border-slate-100 rounded-3xl space-y-3">
-                                <div className="flex justify-between items-center border-b border-slate-50 pb-2">
-                                   <span className="text-xs font-black text-slate-900 uppercase tracking-tighter italic">{type} Bundle</span>
-                                   <span className={cn(
-                                     "text-[10px] font-black uppercase px-2 py-0.5 rounded-lg",
-                                     bundle.isCompliant ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
-                                   )}>
-                                     {bundle.isCompliant ? 'Compliant' : 'Discrepancy Found'}
-                                   </span>
-                                </div>
-                                <div className="grid grid-cols-1 gap-2">
-                                   {Object.entries(bundle.elements || {}).map(([el, status]: [string, any]) => (
-                                      <div key={el} className="flex justify-between items-center">
-                                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight max-w-[80%]">{el}</span>
-                                         <div className={cn(
-                                           "w-2 h-2 rounded-full",
-                                           status ? "bg-emerald-500" : "bg-rose-500"
-                                         )} />
-                                      </div>
-                                   ))}
-                                </div>
-                             </div>
-                           ))}
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Reported Clinical Criteria</p>
+                         <div className="grid grid-cols-2 gap-2">
+                            {Object.entries(item.originalData.clinicalCriteria || {}).map(([key, val]) => (
+                               <div key={key} className={cn(
+                                 "flex items-center justify-between p-3 rounded-2xl border transition-all",
+                                 val ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-white border-slate-100 text-slate-300"
+                               )}>
+                                 <span className="text-[9px] font-black uppercase tracking-tight truncate">{key}</span>
+                                 <div className={cn("w-2 h-2 rounded-full shadow-sm", val ? "bg-amber-500" : "bg-slate-200")} />
+                               </div>
+                            ))}
+                         </div>
+                      </div>
+
+                      <div className="space-y-3">
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Bundle Checklist Items</p>
+                         <div className="grid grid-cols-1 gap-1 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                            {Object.entries(item.originalData.bundleChecklist || {}).map(([key, val]) => (
+                               <div key={key} className="flex justify-between items-center p-3 bg-white border border-slate-50 rounded-2xl">
+                                  <span className="text-[9px] font-bold text-slate-600 uppercase tracking-tight max-w-[70%]">{key}</span>
+                                  <span className={cn(
+                                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest",
+                                    val === 'Done' ? "bg-emerald-50 text-emerald-600" : val === 'Not Done' ? "bg-rose-50 text-rose-600" : "bg-slate-50 text-slate-400"
+                                  )}>{val}</span>
+                               </div>
+                            ))}
                          </div>
                       </div>
                     </div>
@@ -1156,7 +1343,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                         </div>
                         <div className="space-y-4">
                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Validator Narrative</label>
-                           <textarea value={decision.notes} onChange={e => setDecision({...decision, notes: e.target.value})} placeholder="Detailed clinical justification for case status change..." className="w-full h-full bg-slate-50 border border-slate-200 rounded-3xl p-6 text-xs font-medium outline-none" />
+                           <textarea value={decision.notes || ''} onChange={e => setDecision({...decision, notes: e.target.value})} placeholder="Detailed clinical justification for case status change..." className="w-full h-full bg-slate-50 border border-slate-200 rounded-3xl p-6 text-xs font-medium outline-none" />
                         </div>
                      </>
                   ) : (
@@ -1209,6 +1396,47 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                         </div>
                       )}
 
+                      {item.type === 'BUNDLE' && (
+                        <div className="grid grid-cols-2 gap-4">
+                           <div className="space-y-4">
+                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Clinical Signs Accuracy</label>
+                             <div className="flex bg-slate-50 p-1 rounded-2xl border border-slate-100">
+                                {['Accurate', 'Inaccurate'].map(s => (
+                                  <button
+                                    key={s}
+                                    type="button"
+                                    onClick={() => setDecision({ ...decision, clinicalAccuracy: s })}
+                                    className={cn(
+                                      "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                      decision.clinicalAccuracy === s ? "bg-brand-primary text-white shadow-lg shadow-teal-500/20" : "text-slate-400 hover:bg-slate-100"
+                                    )}
+                                  >
+                                    {s}
+                                  </button>
+                                ))}
+                             </div>
+                           </div>
+                           <div className="space-y-4">
+                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Bundle Compliance Accuracy</label>
+                             <div className="flex bg-slate-50 p-1 rounded-2xl border border-slate-100">
+                                {['Accurate', 'Correction Needed'].map(s => (
+                                  <button
+                                    key={s}
+                                    type="button"
+                                    onClick={() => setDecision({ ...decision, complianceAccuracy: s })}
+                                    className={cn(
+                                      "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                      decision.complianceAccuracy === s ? "bg-brand-primary text-white shadow-lg shadow-teal-500/20" : "text-slate-400 hover:bg-slate-100"
+                                    )}
+                                  >
+                                    {s}
+                                  </button>
+                                ))}
+                             </div>
+                           </div>
+                        </div>
+                      )}
+
                       <div className="space-y-4">
                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Clinical Reasoning / Decision Foundation</label>
                          <select 
@@ -1228,7 +1456,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                          <textarea 
                            placeholder="Clinical notes / Addendum..." 
                            className="w-full h-32 bg-slate-50 border border-slate-200 rounded-3xl p-5 text-xs font-medium text-slate-700 outline-none focus:ring-2 focus:ring-brand-primary/20 resize-none"
-                           value={decision.notes}
+                           value={decision.notes || ''}
                            onChange={e => setDecision({ ...decision, notes: e.target.value })}
                          />
                       </div>

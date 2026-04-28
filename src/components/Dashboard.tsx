@@ -8,7 +8,7 @@ import {
   Users, Calendar, ArrowDownRight, Download, Trash2
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { collection, query, getDocs, limit, orderBy, where } from 'firebase/firestore';
+import { collection, query, getDocs, limit, orderBy, where, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserProfile, BOCLog } from '../types';
 import { cn, getComplianceColor, formatDate } from '../lib/utils';
@@ -96,11 +96,11 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
         const currentYear = now.getFullYear();
 
         const bocData = boc.docs.map(d => ({ id: d.id, ...d.data() } as BOCLog));
-        const amsData = ams.docs.map(d => ({ id: d.id, ...d.data() }));
-        const nsiData = nsi.docs.map(d => ({ id: d.id, ...d.data() }));
-        const auditData = audits.docs.map(d => ({ id: d.id, ...d.data() }));
-        const outbreakData = outbreaks.docs.map(d => ({ id: d.id, ...d.data() }));
-        const haiData = hais.docs.map(d => ({ id: d.id, ...d.data() }));
+        const amsData = ams.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        const nsiData = nsi.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        const auditData = audits.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        const outbreakData = outbreaks.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        const haiData = hais.docs.map(d => ({ id: d.id, ...d.data() } as any));
         
         setRawLogs({ 
           boc: bocData, 
@@ -218,7 +218,7 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
                   deviceStats[dev].compliant++;
                 } else {
                   // Track variances (non-compliant items)
-                  Object.entries(bundle.elements).forEach(([el, val]) => {
+                  Object.entries(bundle.elements || {}).forEach(([el, val]) => {
                     if (!val) {
                       deviceStats[dev].variances[el] = (deviceStats[dev].variances[el] || 0) + 1;
                     }

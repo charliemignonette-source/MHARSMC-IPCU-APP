@@ -29,7 +29,7 @@ export default function Maintenance({ user }: MaintenanceProps) {
   const [confirmText, setConfirmText] = useState('');
   const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
 
-  const isAdmin = user?.role === 'IPCU' || user?.role === 'ADMIN';
+  const isAdmin = user?.role === 'IPCN' || user?.role === 'ADMIN';
 
   const dataCategories = [
     { id: 'audits', label: 'IPC Audits', icon: ClipboardCheck, collections: ['audits'] },
