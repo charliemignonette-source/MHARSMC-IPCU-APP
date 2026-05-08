@@ -28,7 +28,8 @@ import {
   Hospital,
   FileBarChart,
   Microscope,
-  Settings2
+  Settings2,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './lib/firebase';
@@ -63,6 +64,16 @@ export default function App() {
   const [pin, setPin] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
 
   const allTabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'IPCN'] },
@@ -288,6 +299,16 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
     }
   };
 
+  const handleInstall = () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    installPrompt.userChoice.then((choiceResult: any) => {
+      if (choiceResult.outcome === 'accepted') {
+        setInstallPrompt(null);
+      }
+    });
+  };
+
   const logout = async () => {
     await signOut(auth);
     localStorage.removeItem('ipc_guard_pin_user');
@@ -470,6 +491,16 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
           </div>
 
           <div className="flex items-center gap-2 lg:gap-4">
+             {installPrompt && (
+                <button 
+                  onClick={handleInstall}
+                  className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-teal-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-teal-700 active:scale-95 transition-all shadow-md mr-1 sm:mr-2"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Install App</span>
+                  <span className="sm:hidden">Install</span>
+                </button>
+             )}
              {profile?.role === 'USER' ? (
                 <button 
                    onClick={loginWithGoogle}

@@ -2839,7 +2839,7 @@ function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: Bundl
   };
 
   const getClinicalItems = () => {
-    if (selectedBundleType === 'SSI' && !isPedia) return CLINICAL_CRITERIA_DETAILED.SSI;
+    if (selectedBundleType === 'SSI') return CLINICAL_CRITERIA_DETAILED.SSI;
     const key = `${selectedBundleType}_${isPedia ? 'PEDIA' : 'ADULT'}` as keyof typeof CLINICAL_CRITERIA_DETAILED;
     return CLINICAL_CRITERIA_DETAILED[key] || [];
   };
@@ -2948,7 +2948,7 @@ function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: Bundl
                <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Select Active Bundle</label>
                   <div className="flex flex-col gap-2">
-                    {(isPedia ? ['CLABSI', 'CAUTI', 'VAP'] : ['CLABSI', 'CAUTI', 'VAP', 'SSI']).map(b => (
+                    {['CLABSI', 'CAUTI', 'VAP', 'SSI'].map(b => (
                       <button 
                         key={b} 
                         type="button"
@@ -2968,7 +2968,7 @@ function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: Bundl
                  <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">CLABSI Phase</label>
                     <div className="flex gap-2">
-                      {(isPedia ? ['Maintenance'] : ['Insertion', 'Maintenance']).map(s => (
+                    {['Insertion', 'Maintenance'].map(s => (
                         <button key={s} type="button" onClick={() => setSelectedSubtype(s)} className={cn("flex-1 py-2 text-[9px] font-black uppercase rounded-xl border transition-all", selectedSubtype === s ? "bg-teal-500 border-teal-500 text-white" : "bg-white border-slate-200 text-slate-400")}>{s}</button>
                       ))}
                     </div>
@@ -3011,7 +3011,7 @@ function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: Bundl
                   <>
                     <div className="space-y-4">
                       <div className="flex items-center gap-4">
-                        <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Maintenance Bundle Checklist</h4>
+                        <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">{selectedSubtype} Bundle Checklist</h4>
                         <div className="h-px flex-1 bg-slate-200" />
                       </div>
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
