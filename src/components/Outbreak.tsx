@@ -4,18 +4,21 @@ import {
   UserPlus, Plus, Trash2, ClipboardList, 
   ShieldCheck, AlertTriangle, Activity, 
   Microscope, Send, Save, CheckCircle2,
-  XCircle, Filter, Search, ChevronRight
+  XCircle, Filter, Search, ChevronRight,
+  Download, Users, FileText, BarChart3
 } from 'lucide-react';
 import { 
   collection, addDoc, query, orderBy, 
   onSnapshot, serverTimestamp, where,
   doc, updateDoc, deleteDoc
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, OutbreakReport, OutbreakCase, OutbreakStatus } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const REPORTING_SOURCES = [
   'Unit Staff', 'Laboratory', 'Physician', 'IPCU', 'Other'
@@ -55,6 +58,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
   const [reports, setReports] = useState<OutbreakReport[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeReport, setActiveReport] = useState<OutbreakReport | null>(null);
+  const [selectedCaseIndex, setSelectedCaseIndex] = useState<number | null>(null);
 
   const [formData, setFormData] = useState<Partial<OutbreakReport>>({
     detectedAt: format(new Date(), 'yyyy-MM-dd'),
@@ -81,7 +85,10 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
       dateImplemented: format(new Date(), 'yyyy-MM-dd'),
       responsibleUnit: ''
     },
-    status: 'Suspected'
+    status: 'Suspected',
+    investigationTeam: [],
+    conclusion: '',
+    recommendations: ''
   });
 
   useEffect(() => {
@@ -127,20 +134,22 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     setIsSubmitting(true);
 
     try {
+      const { id, ...cleanData } = formData;
       if (activeReport?.id) {
         // Update existing
         await updateDoc(doc(db, 'outbreaks', activeReport.id), {
-          ...formData,
-          createdAt: serverTimestamp() // or keep original? user likely wants latest edits tracked
+          ...cleanData,
+          updatedAt: serverTimestamp()
         });
       } else {
         // New report
         await addDoc(collection(db, 'outbreaks'), {
-          ...formData,
+          ...cleanData,
           reportedBy: user.name,
           reporterId: user.uid,
           reporterEmail: user.email,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
         });
       }
       setView('LIST');
@@ -179,17 +188,217 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
         dateImplemented: format(new Date(), 'yyyy-MM-dd'),
         responsibleUnit: ''
       },
-      status: 'Suspected'
+      status: 'Suspected',
+      investigationTeam: [],
+      conclusion: '',
+      recommendations: ''
     });
   };
 
-  const handleDelete = async (id: string) => {
-    if (!user || (user.role !== 'ADMIN' && user.role !== 'IPCN')) return;
-    if (!confirm('Are you sure you want to delete this outbreak report? This action is permanent.')) return;
+  const generateReport = (report: OutbreakReport) => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.width;
+    
+    // Header - MHARSMC Branding
+    doc.setFillColor(15, 118, 110); // Brand Teal
+    doc.rect(0, 0, pageWidth, 40, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Mayor Hilarion A. Ramiro Sr. Medical Center', pageWidth / 2, 15, { align: 'center' });
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Infection Prevention and Control Unit (IPCU)', pageWidth / 2, 22, { align: 'center' });
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('FINAL OUTBREAK INVESTIGATION REPORT', pageWidth / 2, 32, { align: 'center' });
+    
+    // Administrative Data
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Report ID: ${report.id || 'Draft'}`, 15, 50);
+    doc.text(`Status: ${report.status}`, pageWidth - 15, 50, { align: 'right' });
+    doc.text(`Investigation Date: ${report.detectedAt}`, 15, 55);
+    doc.text(`Reporter: ${report.reportedBy}`, pageWidth - 15, 55, { align: 'right' });
+    
+    doc.setDrawColor(200, 200, 200);
+    doc.line(15, 60, pageWidth - 15, 60);
+
+    // Section 1: Epidemiology Analytics
+    doc.setFontSize(12);
+    doc.setTextColor(15, 118, 110);
+    doc.text('1. EPIDEMIOLOGICAL SUMMARY & ANALYTICS', 15, 70);
+    
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    
+    const epiData = [
+      ['Outbreak Type', (report.type || []).join(', ')],
+      ['Attack Rate', `${report.epidemiology?.attackRate || '0'}%`],
+      ['Total Cases', report.epidemiology?.totalCases?.toString() || '0'],
+      ['Index Case', report.epidemiology?.indexCase || 'Unknown'],
+      ['Affected Units', report.epidemiology?.unitsAffected || 'N/A'],
+      ['Possible Source', report.epidemiology?.possibleSource || 'Under Investigation'],
+      ['Transmission Mode', (report.epidemiology?.transmissionMode || []).join(', ')]
+    ];
+
+    autoTable(doc, {
+      startY: 75,
+      head: [['Metric', 'Value']],
+      body: epiData,
+      theme: 'striped',
+      headStyles: { fillColor: [51, 65, 85] }
+    });
+
+    // Section 2: Case Line List
+    doc.setFontSize(12);
+    doc.setTextColor(15, 118, 110);
+    const lineListY = (doc as any).lastAutoTable.finalY + 15;
+    doc.text('2. CASE LINE LISTING', 15, lineListY);
+    
+    const cases = (report.lineList || []).map(c => [
+      c.patientName,
+      c.hospNo,
+      c.unit,
+      c.onSetDate,
+      c.symptoms,
+      c.outcome
+    ]);
+
+    autoTable(doc, {
+      startY: lineListY + 5,
+      head: [['Patient Name', 'Hosp No', 'Unit', 'Onset', 'Symptoms', 'Outcome']],
+      body: cases.length > 0 ? cases : [['No cases recorded', '', '', '', '', '']],
+      theme: 'grid',
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [15, 118, 110] }
+    });
+
+    // Section 2.5: Detailed Case Findings
+    const detailedCases = (report.lineList || []).filter(c => c.detailsOfOnset || c.pathologyDetails || c.exposureClassification);
+    if (detailedCases.length > 0) {
+      doc.addPage();
+      doc.setFontSize(12);
+      doc.setTextColor(15, 118, 110);
+      doc.text('2.5 DETAILED CASE INVESTIGATION SUMMARIES', 15, 20);
+      
+      let currentY = 30;
+      detailedCases.forEach((c, i) => {
+        if (currentY > 260) {
+          doc.addPage();
+          currentY = 20;
+        }
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Case ${i + 1}: ${c.patientName} (${c.hospNo})`, 15, currentY);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        const summaries = [
+          `• Adm Details: DOB: ${c.dob || 'N/A'}, Adm Date: ${c.admissionDate || 'N/A'}, Ward/Unit/Bed: ${c.wardUnitBed || 'N/A'}`,
+          `• Onset/Isolation: Onset: ${c.detailsOfOnset?.onsetDateTime || 'N/A'}, Isolation: ${c.detailsOfOnset?.isolationDateTime || 'N/A'}`,
+          `• Pathology: Specimen Date: ${c.pathologyDetails?.dateOfPositiveSpecimen || 'N/A'}, Lab #: ${c.pathologyDetails?.labNumber || 'N/A'}, Organism: ${c.pathologyDetails?.organismsIsolated || 'N/A'}`,
+          `• Exposure: facility: ${c.exposureClassification?.healthcareAssociatedFacility || 'N/A'}, community: ${c.exposureClassification?.healthcareAssociatedCommunity || 'N/A'}`
+        ];
+        
+        summaries.forEach((line, lineIdx) => {
+          doc.text(line, 20, currentY + 5 + (lineIdx * 4));
+        });
+        
+        currentY += 25;
+      });
+    }
+
+    // Section 3: Findings & Controls
+    let findingsY = 0;
+    if (detailedCases.length > 0) {
+      doc.addPage();
+      findingsY = 20;
+    } else {
+      findingsY = (doc as any).lastAutoTable.finalY + 15;
+    }
+    
+    if (findingsY > 250) doc.addPage();
+    
+    doc.setFontSize(12);
+    doc.setTextColor(15, 118, 110);
+    doc.text('3. INVESTIGATION FINDINGS & CONTROL MEASURES', 15, findingsY > 250 ? 20 : findingsY);
+    
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    const startY = findingsY > 250 ? 30 : findingsY + 10;
+    doc.text('Laboratory & Environmental Data:', 15, startY);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`- Alert Organism: ${report.findings?.labAlerts.organism || 'N/A'}`, 20, startY + 5);
+    doc.text(`- Resistance: ${report.findings?.labAlerts.resistancePattern || 'N/A'}`, 20, startY + 10);
+    doc.text(`- Env. Swabbing: ${report.findings?.envSwabbing.done ? 'DONE' : 'PENDING'}`, 20, startY + 15);
+    doc.text(`- Water Testing: ${report.findings?.waterTesting.done ? 'DONE' : 'PENDING'}`, 20, startY + 20);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Implementation Status:', 15, startY + 30);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`- Date Implemented: ${report.controlMeasures?.dateImplemented}`, 20, startY + 35);
+    doc.text(`- Responsible Unit: ${report.controlMeasures?.responsibleUnit}`, 20, startY + 40);
+    doc.text(`- Actions: ${(report.controlMeasures?.actions || []).join(', ')}`, 20, startY + 45, { maxWidth: 170 });
+
+    // Section 4: Team, Conclusion & Recommendations
+    const finalY = startY + 60;
+    if (finalY > 230) doc.addPage();
+    const currY = finalY > 230 ? 20 : finalY;
+    
+    doc.setFontSize(12);
+    doc.setTextColor(15, 118, 110);
+    doc.text('4. CONCLUSION & RECOMMENDATIONS', 15, currY);
+    
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Conclusion:', 15, currY + 10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(report.conclusion || 'No conclusion documented.', 15, currY + 15, { maxWidth: 180 });
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text('Recommendations:', 15, currY + 35);
+    doc.setFont('helvetica', 'normal');
+    doc.text(report.recommendations || 'No recommendations documented.', 15, currY + 40, { maxWidth: 180 });
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Investigation Team:', 15, currY + 65);
+    doc.setFont('helvetica', 'normal');
+    doc.text((report.investigationTeam || []).join('; ') || 'N/A', 15, currY + 70, { maxWidth: 180 });
+
+    // Save
+    doc.save(`MHARSMC_Outbreak_Report_${report.detectedAt}.pdf`);
+  };
+
+  const handleDelete = async (id: string, reporterId?: string, status?: string) => {
+    if (!user) {
+      alert("Please log in to perform this action.");
+      return;
+    }
+    const isOwner = user.uid === reporterId && status === 'Suspected';
+    if (user.role !== 'ADMIN' && user.role !== 'IPCN' && !isOwner) {
+      alert("Insufficient permissions: Only IPCN/Admin or the original reporter (if still Suspected) can delete reports.");
+      return;
+    }
+
+    // Sample/Demo Item Detection
+    const isSample = id.startsWith("SAMPLE_") || id.includes("demo");
+    if (isSample) {
+      alert("This is sample data and cannot be deleted.");
+      return;
+    }
+
     try {
       await deleteDoc(doc(db, 'outbreaks', id));
+      alert("Log deleted.");
     } catch (err) {
-      console.error('Delete error:', err);
+      console.error("Delete error:", err);
+      handleFirestoreError(err, OperationType.DELETE, `outbreaks/${id}`);
+      alert("Delete failed. Try again.");
     }
   };
 
@@ -215,12 +424,23 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     setFormData({ ...formData, [field]: updated });
   };
 
+  const handleDetailedCaseUpdate = (idx: number, updates: Partial<OutbreakCase>) => {
+    const newList = [...(formData.lineList || [])];
+    newList[idx] = { ...newList[idx], ...updates };
+    setFormData({ ...formData, lineList: newList });
+  };
+
   return (
     <div className="space-y-8 pb-12">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tight">Outbreak Management</h2>
-          <p className="text-slate-500 text-[9px] sm:text-xs font-bold uppercase tracking-widest mt-1">Surveillance, Detection & Investigation Registry</p>
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-3">
+             <div className="p-2 bg-brand-primary rounded-xl text-white">
+                <ShieldCheck className="w-5 h-5" />
+             </div>
+             Outbreak Management
+          </h2>
+          <p className="text-slate-500 text-[9px] sm:text-xs font-bold uppercase tracking-widest mt-1 ml-11">Surveillance, Detection & Investigation • MHARSMC</p>
         </div>
         <button
           onClick={() => {
@@ -276,9 +496,12 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                          </div>
                       </div>
                        <div className="flex items-center gap-2">
-                          {user?.role === 'ADMIN' && (
+                          {(user?.role === 'ADMIN' || user?.role === 'IPCN' || (user?.uid === report.reporterId && report.status === 'Suspected')) && (
                             <button 
-                              onClick={() => handleDelete(report.id!)}
+                              onClick={(e) => {
+                                 e.stopPropagation();
+                                 handleDelete(report.id!, report.reporterId, report.status);
+                               }}
                               className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                               title="Delete Report"
                             >
@@ -293,7 +516,17 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                             }}
                             className="p-2 hover:bg-slate-50 rounded-xl transition-colors"
                           >
-                             <ChevronRight className="w-5 h-5 text-slate-400" />
+                             <ChevronRight className="w-5 h-5 text-slate-400 group-hover:translate-x-1 transition-transform" />
+                          </button>
+                           <button 
+                            onClick={(e) => {
+                               e.stopPropagation();
+                               generateReport(report);
+                            }}
+                            className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl transition-colors"
+                            title="Generate Final Report"
+                          >
+                             <Download className="w-5 h-5" />
                           </button>
                        </div>
                    </div>
@@ -345,8 +578,33 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
             onSubmit={handleSubmit}
             className="space-y-10"
           >
-            {/* Header Summary */}
-            <div className="p-8 bg-white rounded-[3rem] border border-slate-100 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-8">
+             {/* Header Summary */}
+             <div className="p-8 bg-slate-900 rounded-[3rem] text-white shadow-xl shadow-slate-900/20 mb-8">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                   <div className="flex items-center gap-4">
+                      <div className="p-4 bg-white/10 rounded-[1.5rem]">
+                         <FileText className="w-8 h-8 text-brand-primary" />
+                      </div>
+                      <div>
+                         <h3 className="text-lg font-black uppercase tracking-tight">Investigation Profile</h3>
+                         <p className="text-[10px] text-white/40 font-black uppercase tracking-widest">Mayor Hilarion A. Ramiro Sr. Medical Center</p>
+                      </div>
+                   </div>
+                   <div className="flex flex-wrap gap-2">
+                       {activeReport && (
+                          <button
+                            type="button"
+                            onClick={() => generateReport(activeReport as OutbreakReport)}
+                            className="px-6 py-3 bg-emerald-500 text-white rounded-2xl font-black uppercase tracking-widest text-[11px] flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
+                          >
+                             <BarChart3 className="w-4 h-4" /> Download Analytics Report
+                          </button>
+                       )}
+                   </div>
+                </div>
+             </div>
+
+             <div className="p-8 bg-white rounded-[3rem] border border-slate-100 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-8">
                <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Date Detected</label>
                   <div className="relative">
@@ -516,9 +774,10 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                               <th className="px-6 py-4 text-left text-[9px] font-black uppercase text-slate-400 tracking-widest">Patient Name</th>
                               <th className="px-6 py-4 text-left text-[9px] font-black uppercase text-slate-400 tracking-widest">Hosp Number</th>
                               <th className="px-6 py-4 text-left text-[9px] font-black uppercase text-slate-400 tracking-widest">Unit</th>
-                              <th className="px-6 py-4 text-left text-[9px] font-black uppercase text-slate-400 tracking-widest">Onset Date</th>
+                              <th className="px-6 py-4 text-left text-[9px] font-black uppercase text-slate-400 tracking-widest">Onset</th>
                               <th className="px-6 py-4 text-left text-[9px] font-black uppercase text-slate-400 tracking-widest">Symptoms</th>
                               <th className="px-6 py-4 text-left text-[9px] font-black uppercase text-slate-400 tracking-widest">Outcome</th>
+                              <th className="px-6 py-4 text-center text-[9px] font-black uppercase text-slate-400 tracking-widest">Investigate</th>
                               <th className="px-6 py-4"></th>
                            </tr>
                         </thead>
@@ -547,6 +806,19 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                                    <option>Transferred</option>
                                    <option>Expired</option>
                                  </select>
+                               </td>
+                               <td className="px-4 py-3 text-center">
+                                 <button
+                                   type="button"
+                                   onClick={() => setSelectedCaseIndex(idx)}
+                                   className={cn(
+                                     "p-2 rounded-xl transition-all",
+                                     row.detailsOfOnset ? "bg-brand-primary text-white shadow-md shadow-brand-primary/20" : "bg-slate-100 text-slate-400 hover:bg-slate-200"
+                                   )}
+                                   title="Detailed Case Investigation"
+                                 >
+                                   <ClipboardList className="w-4 h-4" />
+                                 </button>
                                </td>
                                <td className="px-4 py-3 text-right">
                                  <button type="button" onClick={() => handleRemoveCase(idx)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors">
@@ -656,52 +928,97 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                </div>
             </div>
 
-            {/* Control Measures */}
-            <div className="p-8 bg-slate-100 rounded-[3rem] space-y-8">
-               <div className="flex items-center gap-3">
-                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                  <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Control Measures Implemented</h3>
-               </div>
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="flex flex-wrap gap-2">
-                     {CONTROL_MEASURES.map(m => (
-                       <div key={m} className="space-y-2">
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => toggleArrayItem('actions', m, 'controlMeasures.actions')}
-                            className={cn(
-                              "px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border",
-                              formData.controlMeasures?.actions.includes(m)
-                                ? "bg-white text-emerald-600 border-white shadow-md"
-                                : "bg-slate-200/50 text-slate-500 border-transparent hover:bg-white/50"
-                            )}
-                          >
-                            {m}
-                          </button>
-                          {m === 'Other' && formData.controlMeasures?.actions.includes('Other') && (
-                            <input 
-                              placeholder="Specify measure..."
-                              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-emerald-500/20"
-                              value={formData.controlMeasures?.actionsOther || ''}
-                              onChange={e => setFormData({...formData, controlMeasures: {...formData.controlMeasures!, actionsOther: e.target.value}})}
-                            />
-                          )}
-                       </div>
-                     ))}
-                  </div>
-                  <div className="space-y-4">
-                     <div className="space-y-1.5 font-sans">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Date Implemented</label>
-                        <input type="date" className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={formData.controlMeasures?.dateImplemented || ''} onChange={e => setFormData({...formData, controlMeasures: {...formData.controlMeasures!, dateImplemented: e.target.value}})} />
-                     </div>
-                     <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Responsible Unit</label>
-                        <input className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={formData.controlMeasures?.responsibleUnit || ''} onChange={e => setFormData({...formData, controlMeasures: {...formData.controlMeasures!, responsibleUnit: e.target.value}})} />
-                     </div>
-                  </div>
-               </div>
-            </div>
+             {/* Control Measures */}
+             <div className="p-8 bg-slate-100 rounded-[3rem] space-y-8">
+                <div className="flex items-center gap-3">
+                   <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                   <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Control Measures Implemented</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                   <div className="flex flex-wrap gap-2">
+                      {CONTROL_MEASURES.map(m => (
+                        <div key={m} className="space-y-2">
+                           <button
+                             key={m}
+                             type="button"
+                             onClick={() => toggleArrayItem('actions', m, 'controlMeasures.actions')}
+                             className={cn(
+                               "px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                               formData.controlMeasures?.actions.includes(m)
+                                 ? "bg-white text-emerald-600 border-white shadow-md"
+                                 : "bg-slate-200/50 text-slate-500 border-transparent hover:bg-white/50"
+                             )}
+                           >
+                             {m}
+                           </button>
+                           {m === 'Other' && formData.controlMeasures?.actions.includes('Other') && (
+                             <input 
+                               placeholder="Specify measure..."
+                               className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold outline-none focus:ring-2 focus:ring-emerald-500/20"
+                               value={formData.controlMeasures?.actionsOther || ''}
+                               onChange={e => setFormData({...formData, controlMeasures: {...formData.controlMeasures!, actionsOther: e.target.value}})}
+                             />
+                           )}
+                        </div>
+                      ))}
+                   </div>
+                   <div className="space-y-4">
+                      <div className="space-y-1.5 font-sans">
+                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Date Implemented</label>
+                         <input type="date" className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={formData.controlMeasures?.dateImplemented || ''} onChange={e => setFormData({...formData, controlMeasures: {...formData.controlMeasures!, dateImplemented: e.target.value}})} />
+                      </div>
+                      <div className="space-y-1.5">
+                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Responsible Unit</label>
+                         <input className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={formData.controlMeasures?.responsibleUnit || ''} onChange={e => setFormData({...formData, controlMeasures: {...formData.controlMeasures!, responsibleUnit: e.target.value}})} />
+                      </div>
+                   </div>
+                </div>
+             </div>
+
+             {/* Investigation Team & Conclusion */}
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div className="p-8 bg-white rounded-[3rem] border border-slate-100 shadow-sm space-y-6">
+                   <div className="flex items-center gap-3">
+                      <Users className="w-5 h-5 text-brand-primary" />
+                      <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Investigation Team</h3>
+                   </div>
+                   <div className="space-y-3">
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Add name of team members (semicolon separated)</p>
+                      <textarea 
+                        className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-xs font-bold outline-none min-h-[100px]"
+                        placeholder="e.g. Dr. Jane Doe; Nurse John Smith; IPCU Team"
+                        value={(formData.investigationTeam || []).join('; ')}
+                        onChange={e => setFormData({...formData, investigationTeam: e.target.value.split(';').map(n => n.trim()).filter(Boolean)})}
+                      />
+                   </div>
+                </div>
+
+                <div className="p-8 bg-white rounded-[3rem] border border-slate-100 shadow-sm space-y-6">
+                   <div className="flex items-center gap-3">
+                      <FileText className="w-5 h-5 text-brand-primary" />
+                      <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Final Conclusion</h3>
+                   </div>
+                   <textarea 
+                     className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-xs font-bold outline-none min-h-[100px]"
+                     placeholder="State the final summary of the investigation..."
+                     value={formData.conclusion || ''}
+                     onChange={e => setFormData({...formData, conclusion: e.target.value})}
+                   />
+                </div>
+             </div>
+
+             <div className="p-8 bg-teal-50 rounded-[3rem] border border-teal-100 space-y-6">
+                <div className="flex items-center gap-3">
+                   <ShieldCheck className="w-5 h-5 text-brand-primary" />
+                   <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Recommendations</h3>
+                </div>
+                <textarea 
+                  className="w-full bg-white border border-teal-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none min-h-[150px] focus:ring-2 focus:ring-brand-primary/20"
+                  placeholder="Detailed recommendations for prevention and control..."
+                  value={formData.recommendations || ''}
+                  onChange={e => setFormData({...formData, recommendations: e.target.value})}
+                />
+             </div>
 
             {/* Footer Buttons */}
             <div className="flex items-center justify-end gap-4 p-8 bg-white border-t border-slate-100 rounded-b-[3rem]">
@@ -726,6 +1043,264 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
           </motion.form>
         </AnimatePresence>
       )}
+      
+      {/* Detailed Case Investigation Drawer */}
+      <AnimatePresence>
+        {selectedCaseIndex !== null && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedCaseIndex(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-4xl max-h-[90vh] bg-white rounded-[3rem] shadow-2xl overflow-hidden flex flex-col"
+            >
+              {/* Header */}
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-brand-primary text-white rounded-2xl shadow-lg shadow-brand-primary/20">
+                    <ClipboardList className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Case Investigation Form</h3>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Infection Prevention and Control Case Registry • MHARSMC</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedCaseIndex(null)}
+                  className="p-3 hover:bg-slate-200 rounded-2xl transition-colors"
+                >
+                  <XCircle className="w-6 h-6 text-slate-400" />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-8 space-y-12">
+                {(() => {
+                  const caseData = formData.lineList![selectedCaseIndex];
+                  return (
+                    <>
+                      {/* Section 1: Patient Identity */}
+                      <section className="space-y-6">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-black">01</div>
+                          <h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Patient Details</h4>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Patient Name</label>
+                            <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.patientName} readOnly />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Date of Birth</label>
+                            <input type="date" className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-brand-primary/20" value={caseData.dob || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { dob: e.target.value })} />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">UR (Hosp No)</label>
+                            <input className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.hospNo} readOnly />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ward / Unit / Bed</label>
+                            <input className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.wardUnitBed || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { wardUnitBed: e.target.value })} />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Admission Date</label>
+                            <input type="date" className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.admissionDate || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { admissionDate: e.target.value })} />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                          <div className="p-4 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-4">
+                            <label className="flex items-center gap-3 cursor-pointer">
+                              <input type="checkbox" className="w-4 h-4 rounded border-slate-300" checked={caseData.recentHospitalization?.within3Months || false} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { recentHospitalization: { date: caseData.recentHospitalization?.date, within3Months: e.target.checked }})} />
+                              <span className="text-[11px] font-black uppercase tracking-widest text-slate-700">Hospitalized within last 3 months?</span>
+                            </label>
+                            {caseData.recentHospitalization?.within3Months && (
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Date of admission</label>
+                                <input type="date" className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold" value={caseData.recentHospitalization?.date || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { recentHospitalization: { within3Months: true, date: e.target.value }})} />
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-4 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-4">
+                            <label className="flex items-center gap-3 cursor-pointer">
+                              <input type="checkbox" className="w-4 h-4 rounded border-slate-300" checked={caseData.longTermCare?.fromFacility || false} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { longTermCare: { facilityName: caseData.longTermCare?.facilityName, fromFacility: e.target.checked }})} />
+                              <span className="text-[11px] font-black uppercase tracking-widest text-slate-700">From long-term care facility?</span>
+                            </label>
+                            {caseData.longTermCare?.fromFacility && (
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Name of facility</label>
+                                <input className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold" value={caseData.longTermCare?.facilityName || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { longTermCare: { fromFacility: true, facilityName: e.target.value }})} />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </section>
+
+                      {/* Section 2: Onset & Isolation */}
+                      <section className="space-y-6">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-black">02</div>
+                          <h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Symptom & Onset Timeline</h4>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Symptom Onset (Date/Time)</label>
+                            <input type="datetime-local" className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.detailsOfOnset?.onsetDateTime || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { detailsOfOnset: { ...(caseData.detailsOfOnset || { isolationDateTime: '', resolutionDate: '' }), onsetDateTime: e.target.value }})} />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Isolation (Date/Time)</label>
+                            <input type="datetime-local" className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.detailsOfOnset?.isolationDateTime || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { detailsOfOnset: { ...(caseData.detailsOfOnset || { onsetDateTime: '', resolutionDate: '' }), isolationDateTime: e.target.value }})} />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Symptoms Resolved (Date)</label>
+                            <input type="date" className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.detailsOfOnset?.resolutionDate || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { detailsOfOnset: { ...(caseData.detailsOfOnset || { onsetDateTime: '', isolationDateTime: '' }), resolutionDate: e.target.value }})} />
+                          </div>
+                        </div>
+                      </section>
+
+                      {/* Section 3: Antimicrobial Treatment */}
+                      <section className="space-y-6">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-black">03</div>
+                          <h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Antimicrobial History</h4>
+                        </div>
+                        <div className="space-y-6">
+                          <div className="space-y-2">
+                             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Treatment at time of onset (if relevant)</label>
+                             <textarea className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.antimicrobials?.atTimeOfOnset || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { antimicrobials: { ...(caseData.antimicrobials || {}), atTimeOfOnset: e.target.value }})} />
+                          </div>
+                          <div className="space-y-2">
+                             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Details of current treatment</label>
+                             <textarea className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.antimicrobials?.currentTreatment || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { antimicrobials: { ...(caseData.antimicrobials || {}), currentTreatment: e.target.value }})} />
+                          </div>
+                          <div className="space-y-2">
+                             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Treatment in month prior to onset</label>
+                             <textarea className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.antimicrobials?.monthPriorToOnset || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { antimicrobials: { ...(caseData.antimicrobials || {}), monthPriorToOnset: e.target.value }})} />
+                          </div>
+                        </div>
+                      </section>
+
+                      {/* Section 4: Pathology Details */}
+                      <section className="p-8 bg-blue-50/50 rounded-[3rem] border border-blue-100 space-y-6">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-black">04</div>
+                          <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 font-sans">Lab & Pathology Details</h4>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                           <div className="space-y-1.5">
+                             <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Date of Positive Specimen</label>
+                             <input type="date" className="w-full bg-white border border-blue-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20" value={caseData.pathologyDetails?.dateOfPositiveSpecimen || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { pathologyDetails: { ...(caseData.pathologyDetails || { labNumber: '', organismsIsolated: '' }), dateOfPositiveSpecimen: e.target.value }})} />
+                           </div>
+                           <div className="space-y-1.5">
+                             <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Lab Number</label>
+                             <input className="w-full bg-white border border-blue-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.pathologyDetails?.labNumber || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { pathologyDetails: { ...(caseData.pathologyDetails || { dateOfPositiveSpecimen: '', organismsIsolated: '' }), labNumber: e.target.value }})} />
+                           </div>
+                           <div className="space-y-1.5 md:col-span-2">
+                             <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Organisms Isolated</label>
+                             <textarea className="w-full bg-white border border-blue-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.pathologyDetails?.organismsIsolated || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { pathologyDetails: { ...(caseData.pathologyDetails || { dateOfPositiveSpecimen: '', labNumber: '' }), organismsIsolated: e.target.value }})} />
+                           </div>
+                           <div className="space-y-1.5">
+                             <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Ribotyping (if available)</label>
+                             <input className="w-full bg-white border border-blue-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none" value={caseData.pathologyDetails?.ribotyping || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { pathologyDetails: { ...(caseData.pathologyDetails || { dateOfPositiveSpecimen: '', labNumber: '', organismsIsolated: '' }), ribotyping: e.target.value }})} />
+                           </div>
+                           <div className="p-4 bg-white rounded-2xl border border-blue-100 flex items-center justify-between">
+                              <label className="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" className="w-4 h-4 rounded border-blue-300" checked={caseData.pathologyDetails?.sentForWGS?.done || false} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { pathologyDetails: { ...(caseData.pathologyDetails || { dateOfPositiveSpecimen: '', labNumber: '', organismsIsolated: '' }), sentForWGS: { done: e.target.checked, date: caseData.pathologyDetails?.sentForWGS?.date }}})} />
+                                <span className="text-[11px] font-black uppercase tracking-widest text-slate-700">Sent for Whole Genome Sequencing?</span>
+                              </label>
+                              {caseData.pathologyDetails?.sentForWGS?.done && (
+                                <input type="date" className="bg-blue-50 border-none rounded-lg px-3 py-1 text-xs font-bold" value={caseData.pathologyDetails?.sentForWGS?.date || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { pathologyDetails: { ...(caseData.pathologyDetails || { dateOfPositiveSpecimen: '', labNumber: '', organismsIsolated: '' }), sentForWGS: { done: true, date: e.target.value }}})} />
+                              )}
+                           </div>
+                        </div>
+                      </section>
+
+                      {/* Section 5: Exposure & Outcome */}
+                      <section className="space-y-8">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-black">05</div>
+                          <h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Exposure & Results</h4>
+                        </div>
+                        <div className="space-y-6">
+                           <div className="p-6 bg-slate-50 rounded-[2.5rem] space-y-4">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Exposure Classification</p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <input className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" placeholder="Healthcare-associated (facility onset)" value={caseData.exposureClassification?.healthcareAssociatedFacility || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { exposureClassification: { ...(caseData.exposureClassification || {}), healthcareAssociatedFacility: e.target.value }})} />
+                                <input className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" placeholder="Healthcare-associated (community onset)" value={caseData.exposureClassification?.healthcareAssociatedCommunity || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { exposureClassification: { ...(caseData.exposureClassification || {}), healthcareAssociatedCommunity: e.target.value }})} />
+                                <input className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" placeholder="Community-associated" value={caseData.exposureClassification?.communityAssociated || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { exposureClassification: { ...(caseData.exposureClassification || {}), communityAssociated: e.target.value }})} />
+                                <div className="p-3 bg-white border border-slate-200 rounded-2xl flex items-center justify-between">
+                                  <label className="flex items-center gap-3 cursor-pointer">
+                                    <input type="checkbox" className="w-4 h-4 rounded" checked={caseData.exposureClassification?.otherFacilityNotified?.done || false} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { exposureClassification: { ...(caseData.exposureClassification || {}), otherFacilityNotified: { done: e.target.checked, date: caseData.exposureClassification?.otherFacilityNotified?.date }}})} />
+                                    <span className="text-[11px] font-black uppercase tracking-widest text-slate-700">Other facility notified?</span>
+                                  </label>
+                                  {caseData.exposureClassification?.otherFacilityNotified?.done && (
+                                    <input type="date" className="bg-slate-50 border-none rounded-lg px-3 py-1 text-xs font-bold" value={caseData.exposureClassification?.otherFacilityNotified?.date || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { exposureClassification: { ...(caseData.exposureClassification || {}), otherFacilityNotified: { done: true, date: e.target.value }}})} />
+                                  )}
+                                </div>
+                              </div>
+                           </div>
+
+                           <div className="p-8 bg-emerald-50 rounded-[3rem] border border-emerald-100 space-y-6">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Case Outcome</p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                 <label className="flex items-center gap-3 p-4 bg-white rounded-2xl cursor-pointer">
+                                    <input type="checkbox" className="w-5 h-5 rounded text-emerald-500" checked={caseData.detailedOutcome?.recoveredNoAdverse || false} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { detailedOutcome: { ...(caseData.detailedOutcome || {}), recoveredNoAdverse: e.target.checked }})} />
+                                    <span className="text-[11px] font-black uppercase tracking-widest text-slate-700">Recovered without adverse event</span>
+                                 </label>
+                                 <div className="flex flex-col gap-2">
+                                  <label className="flex items-center gap-3 p-4 bg-white rounded-2xl cursor-pointer">
+                                      <input type="checkbox" className="w-5 h-5 rounded text-rose-500" checked={caseData.detailedOutcome?.admittedToICU?.done || false} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { detailedOutcome: { ...(caseData.detailedOutcome || {}), admittedToICU: { done: e.target.checked, date: caseData.detailedOutcome?.admittedToICU?.date }}})} />
+                                      <span className="text-[11px] font-black uppercase tracking-widest text-slate-700">Admitted to ICU?</span>
+                                  </label>
+                                  {caseData.detailedOutcome?.admittedToICU?.done && (
+                                    <div className="flex items-center gap-2 pl-8">
+                                      <span className="text-[9px] font-black uppercase text-slate-400">Date:</span>
+                                      <input type="date" className="bg-emerald-100/50 border-none rounded-lg px-3 py-1 text-xs font-bold" value={caseData.detailedOutcome?.admittedToICU?.date || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { detailedOutcome: { ...(caseData.detailedOutcome || {}), admittedToICU: { done: true, date: e.target.value }}})} />
+                                    </div>
+                                  )}
+                                 </div>
+                                 <div className="flex flex-col gap-2">
+                                  <label className="flex items-center gap-3 p-4 bg-white rounded-2xl cursor-pointer">
+                                      <input type="checkbox" className="w-5 h-5 rounded text-rose-500" checked={caseData.detailedOutcome?.deathRelated?.done || false} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { detailedOutcome: { ...(caseData.detailedOutcome || {}), deathRelated: { done: e.target.checked, date: caseData.detailedOutcome?.deathRelated?.date }}})} />
+                                      <span className="text-[11px] font-black uppercase tracking-widest text-slate-700 font-sans">Death related to organism?</span>
+                                  </label>
+                                  {caseData.detailedOutcome?.deathRelated?.done && (
+                                    <div className="flex items-center gap-2 pl-8">
+                                      <span className="text-[9px] font-black uppercase text-slate-400">Date:</span>
+                                      <input type="date" className="bg-emerald-100/50 border-none rounded-lg px-3 py-1 text-xs font-bold" value={caseData.detailedOutcome?.deathRelated?.date || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { detailedOutcome: { ...(caseData.detailedOutcome || {}), deathRelated: { done: true, date: e.target.value }}})} />
+                                    </div>
+                                  )}
+                                 </div>
+                                 <textarea className="w-full bg-white border border-emerald-100 rounded-2xl px-4 py-3 text-xs font-bold outline-none md:col-span-2 min-h-[100px]" placeholder="Additional comments on outcome..." value={caseData.detailedOutcome?.additionalComments || ''} onChange={e => handleDetailedCaseUpdate(selectedCaseIndex, { detailedOutcome: { ...(caseData.detailedOutcome || {}), additionalComments: e.target.value }})} />
+                              </div>
+                           </div>
+                        </div>
+                      </section>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Footer */}
+              <div className="p-8 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
+                  <button 
+                    onClick={() => setSelectedCaseIndex(null)}
+                    className="px-10 py-4 bg-slate-900 text-white rounded-[1.5rem] font-black uppercase tracking-widest text-[11px] shadow-xl shadow-slate-900/20 active:scale-95 transition-all"
+                  >
+                    Done & Save Case Details
+                  </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

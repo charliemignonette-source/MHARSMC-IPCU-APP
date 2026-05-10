@@ -327,11 +327,20 @@ export default function AMS({ user }: { user: UserProfile | null }) {
   };
 
   const handleDelete = async (requestId: string) => {
-    if (!window.confirm('Are you sure you want to delete this drug request? This action cannot be undone.')) return;
+    // Sample/Demo Item Detection
+    const isSample = requestId.startsWith("SAMPLE_") || requestId.includes("demo");
+    if (isSample) {
+      alert("This is sample data and cannot be deleted.");
+      return;
+    }
+
     try {
       await deleteDoc(doc(db, 'ams_requests', requestId));
+      alert("Log deleted.");
     } catch (error) {
+      console.error("Delete error:", error);
       handleFirestoreError(error, OperationType.DELETE, `ams_requests/${requestId}`);
+      alert("Delete failed. Try again.");
     }
   };
 

@@ -205,13 +205,30 @@ export default function NSI({ user }: NSIProps) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!user || (user.role !== 'ADMIN' && user.role !== 'IPCN')) return;
-    if (!confirm('Are you sure you want to delete this exposure record? This action is permanent.')) return;
+    if (!user) {
+      alert("Please log in to perform this action.");
+      return;
+    }
+    if (user.role !== 'ADMIN' && user.role !== 'IPCN') {
+      alert("Insufficient permissions: Only IPCN/Admin can delete records.");
+      return;
+    }
+
+    // Sample/Demo Item Detection
+    const isSample = id.startsWith("SAMPLE_") || id.includes("demo");
+    if (isSample) {
+      alert("This is sample data and cannot be deleted.");
+      return;
+    }
+
     try {
       await deleteDoc(doc(db, 'nsi_reports', id));
       if (selectedReport?.id === id) setSelectedReport(null);
+      alert("Log deleted.");
     } catch (error) {
+      console.error("Delete error:", error);
       handleFirestoreError(error, OperationType.DELETE, `nsi_reports/${id}`);
+      alert("Delete failed. Try again.");
     }
   };
 

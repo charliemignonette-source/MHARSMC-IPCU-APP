@@ -1638,12 +1638,21 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, aud
             <button 
               onClick={async (e) => {
                 e.stopPropagation();
-                if (!window.confirm('Are you sure you want to delete this audit record?')) return;
+                
+                // Sample/Demo Item Detection
+                const isSample = id.startsWith("SAMPLE_") || id.includes("demo");
+                if (isSample) {
+                  alert("This is sample data and cannot be deleted.");
+                  return;
+                }
+
                 try {
                   await deleteDoc(doc(db, 'audits', id));
+                  alert("Log deleted.");
                 } catch (error) {
                   console.error("Delete error:", error);
                   handleFirestoreError(error, OperationType.DELETE, `audits/${id}`);
+                  alert("Delete failed. Try again.");
                 }
               }}
               className="p-1.5 sm:p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"

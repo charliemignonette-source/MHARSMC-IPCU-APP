@@ -15,12 +15,12 @@ service cloud.firestore {
     function isGoogleUser() { return isSignedIn() && request.auth.token.firebase.sign_in_provider == 'google.com'; }
     function isAdmin() { 
       return isSignedIn() && (
-        (request.auth.token.email_verified == true && (
-          request.auth.token.email == 'charliemignonette@gmail.com' ||
-          request.auth.token.email == 'beeohend@gmail.com' ||
-          request.auth.token.email == 'isabelle.p@example.com' ||
-          request.auth.token.email == 'pharmacy@mharsmc.doh.gov.ph'
-        )) || hasRole('ADMIN')
+        (request.auth.token.email in [
+          'charliemignonette@gmail.com', 
+          'beeohend@gmail.com', 
+          'isabelle.p@example.com', 
+          'pharmacy@mharsmc.doh.gov.ph'
+        ]) || hasRole('ADMIN')
       ); 
     }
     function isIPCN() { return isSignedIn() && (isAdmin() || hasRole('IPCN')); }
@@ -204,9 +204,13 @@ service cloud.firestore {
                      'status', 'validation', 'dateClosed', 'closureReason', 'lineList', 'isValidated', 
                      'validatedBy', 'validatorName', 'validatedAt', 'reason', 'notes', 'basis', 'rootCauses', 
                      'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 
-                     'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'updatedAt'
+                     'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'updatedAt',
+                     'detectedAt', 'detectedTime', 'reportingSrc', 'type', 'triggerCriteria',
+                     'epidemiology', 'findings', 'controlMeasures', 'investigationTeam', 
+                     'conclusion', 'recommendations', 'reportedBy', 'registryType',
+                     'reporterEmail', 'reporterId'
                    ]);
-      allow delete: if isAdmin() || isIPCN();
+      allow delete: if isAdmin() || isIPCN() || (isOwner(existing().reporterId) && existing().status == 'Suspected');
     }
 
     match /validation_logs/{logId} {

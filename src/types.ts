@@ -381,6 +381,72 @@ export interface OutbreakCase {
   labResults: string;
   deviceProcedure: string;
   outcome: string;
+  
+  // Detailed Case Investigation (integrated for MHARSMC)
+  dob?: string;
+  admissionDate?: string;
+  wardUnitBed?: string;
+  recentHospitalization?: {
+    within3Months: boolean;
+    date?: string;
+  };
+  longTermCare?: {
+    fromFacility: boolean;
+    facilityName?: string;
+  };
+  detailsOfOnset?: {
+    onsetDateTime: string;
+    isolationDateTime: string;
+    resolutionDate: string;
+  };
+  antimicrobials?: {
+    atTimeOfOnset?: string;
+    currentTreatment?: string;
+    monthPriorToOnset?: string;
+  };
+  pathologyDetails?: {
+    dateOfPositiveSpecimen: string;
+    labNumber: string;
+    organismsIsolated: string;
+    ribotyping?: string;
+    sentForWGS?: {
+      done: boolean;
+      date?: string;
+    };
+  };
+  exposureClassification?: {
+    healthcareAssociatedFacility?: string;
+    healthcareAssociatedCommunity?: string;
+    communityAssociated?: string;
+    otherFacilityNotified?: {
+      done: boolean;
+      date?: string;
+    };
+  };
+  detailedOutcome?: {
+    recoveredNoAdverse: boolean;
+    admittedToICU?: {
+      done: boolean;
+      date?: string;
+    };
+    surgeryRelated?: {
+      done: boolean;
+      type?: string;
+    };
+    deathRelated?: {
+      done: boolean;
+      date?: string;
+    };
+    otherOutcome?: string;
+    additionalComments?: string;
+  };
+  contacts?: Array<{
+    name: string;
+    hospNo: string;
+    currentLocation: string;
+    pathology: string;
+    symptoms: string;
+  }>;
 }
 
 export interface OutbreakReport {
@@ -418,6 +484,10 @@ export interface OutbreakReport {
     dateImplemented: string;
     responsibleUnit: string;
   };
+  
+  investigationTeam?: string[];
+  conclusion?: string;
+  recommendations?: string;
   
   status: OutbreakStatus;
   dateClosed?: string;

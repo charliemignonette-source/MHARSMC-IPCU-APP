@@ -111,8 +111,9 @@ export default function App() {
           
           if (docSnap.exists()) {
             const data = docSnap.data() as UserProfile;
-            if (authStateUser.email && ADMIN_EMAILS.includes(authStateUser.email)) {
+            if (authStateUser.email && ADMIN_EMAILS.includes(authStateUser.email) && data.role !== 'ADMIN') {
               data.role = 'ADMIN';
+              await setDoc(docRef, { role: 'ADMIN' }, { merge: true });
             }
             setProfile(data);
           } else {
