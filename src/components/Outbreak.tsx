@@ -95,6 +95,8 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     const q = query(collection(db, 'outbreaks'), orderBy('createdAt', 'desc'));
     const unsub = onSnapshot(q, (snap) => {
       setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as OutbreakReport)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'outbreaks');
     });
     return unsub;
   }, []);
@@ -133,8 +135,24 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     if (!user) return;
     setIsSubmitting(true);
 
+    const deepStripUndefined = (obj: any): any => {
+      if (Array.isArray(obj)) return obj.map(deepStripUndefined);
+      if (obj !== null && typeof obj === 'object') {
+        const newObj: any = {};
+        for (const key in obj) {
+          if (obj[key] !== undefined) {
+            newObj[key] = deepStripUndefined(obj[key]);
+          }
+        }
+        return newObj;
+      }
+      return obj;
+    };
+
     try {
-      const { id, ...cleanData } = formData;
+      const { id, ...rawCleanData } = formData;
+      const cleanData = deepStripUndefined(rawCleanData);
+
       if (activeReport?.id) {
         // Update existing
         await updateDoc(doc(db, 'outbreaks', activeReport.id), {
@@ -145,17 +163,20 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
         // New report
         await addDoc(collection(db, 'outbreaks'), {
           ...cleanData,
-          reportedBy: user.name,
+          reportedBy: user.name || 'Unknown',
           reporterId: user.uid,
-          reporterEmail: user.email,
+          reporterEmail: user.email || '',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
       }
       setView('LIST');
       resetForm();
-    } catch (err) {
-      console.error('Submit error:', err);
+    } catch (error) {
+      console.error('Submit error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      alert("Failed to save report: " + errorMessage);
+      handleFirestoreError(error, activeReport?.id ? OperationType.UPDATE : OperationType.CREATE, 'outbreaks');
     } finally {
       setIsSubmitting(false);
     }
@@ -397,8 +418,9 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
       alert("Log deleted.");
     } catch (err) {
       console.error("Delete error:", err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      alert("Delete failed: " + errorMessage);
       handleFirestoreError(err, OperationType.DELETE, `outbreaks/${id}`);
-      alert("Delete failed. Try again.");
     }
   };
 

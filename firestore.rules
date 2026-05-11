@@ -198,14 +198,13 @@ service cloud.firestore {
     match /outbreaks/{outbreakId} {
       allow get, list: if isSignedIn();
       allow create: if isSignedIn() && isValidOutbreak(incoming()) && incoming().reporterId == request.auth.uid && incoming().status == 'Suspected' && isValidId(outbreakId);
-      allow update: if (isIPCN() || isAdmin()) && 
-                   incoming().reporterId == existing().reporterId &&
+      allow update: if (isIPCN() || isAdmin() || isOwner(existing().reporterId) || !('reporterId' in existing())) && 
                    incoming().diff(existing()).affectedKeys().hasOnly([
                      'status', 'validation', 'dateClosed', 'closureReason', 'lineList', 'isValidated', 
                      'validatedBy', 'validatorName', 'validatedAt', 'reason', 'notes', 'basis', 'rootCauses', 
                      'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 
-                     'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'updatedAt',
-                     'detectedAt', 'detectedTime', 'reportingSrc', 'type', 'triggerCriteria',
+                     'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'updatedAt', 'createdAt',
+                     'detectedAt', 'detectedTime', 'reportingSrc', 'reportingSrcOther', 'type', 'typeOther', 'triggerCriteria', 'triggerCriteriaOther',
                      'epidemiology', 'findings', 'controlMeasures', 'investigationTeam', 
                      'conclusion', 'recommendations', 'reportedBy', 'registryType',
                      'reporterEmail', 'reporterId'

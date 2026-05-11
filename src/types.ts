@@ -102,7 +102,7 @@ export interface NSIReport {
 }
 
 export type AMSRequestType = 'RESTRICTED_USE' | 'EXTENSION_7D';
-export type AMSStatus = 'PENDING' | 'APPROVED' | 'DENIED' | 'OVERRIDDEN' | 'DISPENSED';
+export type AMSStatus = 'PENDING' | 'APPROVED' | 'DENIED' | 'OVERRIDDEN' | 'DISPENSED' | 'MODIFY';
 
 export interface PreviousAntibiotic {
   name: string;

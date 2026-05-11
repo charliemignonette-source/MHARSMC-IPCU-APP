@@ -274,7 +274,7 @@ export default function IPCUValidationConsole({
 
     const qValidatedAMS = query(
       collection(db, "ams_requests"),
-      where("status", "in", ["APPROVED", "DENIED", "OVERRIDDEN"]),
+      where("status", "in", ["APPROVED", "DENIED", "OVERRIDDEN", "MODIFY"]),
     );
     const unsubValidatedAMS = onSnapshot(qValidatedAMS, (snap) => {
       setValidatedAMS(
@@ -1088,7 +1088,9 @@ export default function IPCUValidationConsole({
                     "px-2 py-0.5 rounded-full text-[9px] font-black uppercase",
                     a.status === "APPROVED"
                       ? "bg-emerald-50 text-emerald-600"
-                      : "bg-rose-50 text-rose-600",
+                      : a.status === "MODIFY"
+                        ? "bg-orange-50 text-orange-600"
+                        : "bg-rose-50 text-rose-600",
                   )}
                 >
                   {a.status}
@@ -2237,9 +2239,14 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                           : item.type === "ANTIMICROBIAL_STEWARDSHIP"
                             ? [
                                 {
-                                  id: "ANTIMICROBIAL_STEWARDSHIP",
+                                  id: "APPROVED",
                                   label: "Clinical Approval",
                                   color: "text-emerald-400",
+                                },
+                                {
+                                  id: "MODIFY",
+                                  label: "Request Modification",
+                                  color: "text-orange-400",
                                 },
                                 {
                                   id: "DENIED",

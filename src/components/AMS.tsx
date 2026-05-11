@@ -240,6 +240,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       if (editingId) {
         await updateDoc(doc(db, 'ams_requests', editingId), {
           ...formData,
+          status: 'PENDING',
           patientName,
           updatedAt: serverTimestamp()
         });
@@ -468,7 +469,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     // Check if any of the selected antibiotics have been requested by this patient before
     return requests.some(req => 
       req.hospNo === hospNo && 
-      (req.status === 'APPROVED' || req.status === 'PENDING' || req.status === 'DISPENSED') &&
+      (req.status === 'APPROVED' || req.status === 'PENDING' || req.status === 'MODIFY' || req.status === 'DISPENSED') &&
       selectedAntibiotics.some(ab => req.antimicrobialsRequested?.includes(ab))
     );
   };
@@ -503,6 +504,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         'APPROVED': [16, 185, 129], // Emerald-500
         'DENIED': [244, 63, 94], // Rose-500
         'DISPENSED': [14, 165, 233], // Sky-500
+        'MODIFY': [249, 115, 22], // Orange-500
         'OVERRIDDEN': [99, 102, 241], // Indigo-500
       };
       
@@ -745,7 +747,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
             </div>
             {viewMode === 'LIST' && (
               <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto no-scrollbar ml-auto">
-                {['ALL', 'PENDING', 'APPROVED', 'DENIED', 'DISPENSED'].map((f) => (
+                {['ALL', 'PENDING', 'APPROVED', 'MODIFY', 'DENIED', 'DISPENSED'].map((f) => (
                   <button
                     key={f}
                     onClick={() => setActiveFilter(f as any)}
@@ -787,7 +789,9 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                   <div className="flex items-start sm:items-center gap-3 sm:gap-4">
                     <div className={cn(
                       "w-10 h-10 sm:w-12 sm:h-12 shrink-0 flex items-center justify-center rounded-xl sm:rounded-2xl",
-                      req.status === 'PENDING' ? "bg-amber-100/50 text-amber-600" : req.status === 'APPROVED' ? "bg-emerald-100/50 text-emerald-600" : "bg-rose-100/50 text-rose-600"
+                      req.status === 'PENDING' ? "bg-amber-100/50 text-amber-600" :
+                      req.status === 'MODIFY' ? "bg-orange-100/50 text-orange-600" :
+                      req.status === 'APPROVED' ? "bg-emerald-100/50 text-emerald-600" : "bg-rose-100/50 text-rose-600"
                     )}>
                       <FlaskConical className="w-5 h-5 sm:w-6 sm:h-6" />
                     </div>
@@ -820,7 +824,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                       <FileDown className="w-5 h-5" />
                     </button>
                     <div className="flex items-center gap-3">
-                      {req.prescriberId === user?.uid && req.status === 'PENDING' && (
+                      {req.prescriberId === user?.uid && (req.status === 'PENDING' || req.status === 'MODIFY') && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleEdit(req); }}
                           className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
@@ -843,6 +847,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                             "px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[8px] sm:text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5",
                             req.status === 'APPROVED' ? "bg-emerald-100 text-emerald-700" : 
                             req.status === 'DISPENSED' ? "bg-sky-500 text-white shadow-lg shadow-sky-500/20" :
+                            req.status === 'MODIFY' ? "bg-orange-100 text-orange-700" : 
                             req.status === 'DENIED' ? "bg-rose-100 text-rose-700" : 
                             "bg-amber-100 text-amber-700"
                           )}>
@@ -863,6 +868,15 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                             <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                             <span className="text-[8px] sm:text-[9px] font-bold uppercase">Approve</span>
                           </button>
+
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleAction(req.id!, 'MODIFY'); }}
+                            className="p-1.5 sm:p-2 bg-white rounded-lg text-orange-600 hover:text-orange-700 shadow-sm transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                            <span className="text-[8px] sm:text-[9px] font-bold uppercase">Modify</span>
+                          </button>
+
                           <button 
                             onClick={(e) => { e.stopPropagation(); handleAction(req.id!, 'DENIED'); }}
                             className="p-1.5 sm:p-2 bg-white rounded-lg text-rose-600 hover:text-rose-700 shadow-sm transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
