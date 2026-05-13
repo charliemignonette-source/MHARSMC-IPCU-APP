@@ -231,9 +231,11 @@ export default function Reports({ user }: { user: UserProfile | null }) {
     try {
       let rawData: any[] = [];
       
+      const isIPCU = user?.role === 'ADMIN' || user?.role === 'IPCN' || user?.role === 'APPROVER';
+
       const fetchCollectionData = async (collName: string, dateFld: string) => {
         const collRef = collection(db, collName);
-        let q;
+        let constraints: any[] = [];
 
         const start = timeFrame === 'DAILY' ? new Date(selectedDate) : (timeFrame === 'MONTHLY' ? new Date(selectedMonth.split('-')[0], parseInt(selectedMonth.split('-')[1]) - 1, 1) : null);
         const end = timeFrame === 'DAILY' ? new Date(selectedDate) : (timeFrame === 'MONTHLY' ? new Date(selectedMonth.split('-')[0], parseInt(selectedMonth.split('-')[1]), 0) : null);
@@ -241,32 +243,47 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         if (start) start.setHours(0, 0, 0, 0);
         if (end) end.setHours(23, 59, 59, 999);
 
+        // Date Constraints
         if (timeFrame === 'DAILY') {
           if (dateFld === 'date') {
-            q = query(collRef, where(dateFld, '==', selectedDate));
+            constraints.push(where(dateFld, '==', selectedDate));
           } else if (dateFld === 'timestamp' || dateFld === 'dateTimeRequested' || dateFld === 'reportedAt') {
             const startStr = start?.toISOString() || '';
             const endStr = end?.toISOString() || '';
-            q = query(collRef, where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
+            constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
           } else {
-            q = query(collRef, where(dateFld, '>=', start), where(dateFld, '<=', end));
+            constraints.push(where(dateFld, '>=', start), where(dateFld, '<=', end));
           }
         } else if (timeFrame === 'MONTHLY') {
           if (dateFld === 'date') {
             const startStr = start?.toISOString().split('T')[0] || '';
             const endStr = end?.toISOString().split('T')[0] || '';
-            q = query(collRef, where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
+            constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
           } else if (dateFld === 'timestamp' || dateFld === 'dateTimeRequested' || dateFld === 'reportedAt') {
             const startStr = start?.toISOString() || '';
             const endStr = end?.toISOString() || '';
-            q = query(collRef, where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
+            constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
           } else {
-            q = query(collRef, where(dateFld, '>=', start), where(dateFld, '<=', end));
+            constraints.push(where(dateFld, '>=', start), where(dateFld, '<=', end));
           }
         } else {
-          q = query(collRef, orderBy(dateFld, 'desc'));
+          constraints.push(orderBy(dateFld, 'desc'));
         }
 
+        // User Constraints
+        if (!isIPCU && user) {
+          if (collName === 'audits' || collName === 'hai_cases') {
+            constraints.push(where('auditorId', '==', user.uid));
+          } else if (collName === 'boc_logs') {
+            constraints.push(where('staffId', '==', user.uid));
+          } else if (collName === 'ams_requests') {
+            constraints.push(where('prescriberId', '==', user.uid));
+          } else if (collName === 'nsi_reports' || collName === 'outbreaks') {
+            constraints.push(where('reporterId', '==', user.uid));
+          }
+        }
+
+        const q = query(collRef, ...constraints);
         const querySnapshot = await getDocs(q);
         return querySnapshot.docs.map(doc => ({ id: doc.id, __source: collName, ...doc.data() as any }));
       };
@@ -530,7 +547,22 @@ export default function Reports({ user }: { user: UserProfile | null }) {
 
                  for (const coll of collectionsList) {
                    masterContent += `--- ${coll.label.toUpperCase()} ---\n`;
-                   const snap = await getDocs(collection(db, coll.id));
+                   const collRef = collection(db, coll.id);
+                   const isIPCU = user?.role === 'ADMIN' || user?.role === 'IPCN' || user?.role === 'APPROVER';
+                   let constraints: any[] = [];
+                   if (!isIPCU && user) {
+                      if (coll.id === 'audits' || coll.id === 'hai_cases') {
+                        constraints.push(where('auditorId', '==', user.uid));
+                      } else if (coll.id === 'boc_logs') {
+                        constraints.push(where('staffId', '==', user.uid));
+                      } else if (coll.id === 'ams_requests') {
+                        constraints.push(where('prescriberId', '==', user.uid));
+                      } else if (coll.id === 'nsi_reports' || coll.id === 'outbreaks') {
+                        constraints.push(where('reporterId', '==', user.uid));
+                      }
+                   }
+                   const q = query(collRef, ...constraints);
+                   const snap = await getDocs(q);
                    if (snap.empty) {
                      masterContent += "No records found.\n\n";
                      continue;

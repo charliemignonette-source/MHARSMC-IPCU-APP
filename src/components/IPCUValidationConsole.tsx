@@ -122,7 +122,7 @@ export default function IPCUValidationConsole({
           originalData: data,
         };
       });
-      updatePendingList("HAI", items);
+      updatePendingList("HAI", items, "hai_cases");
     });
 
     // 2. Fetch Pending AMS Requests

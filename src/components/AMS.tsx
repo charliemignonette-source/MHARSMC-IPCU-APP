@@ -21,7 +21,10 @@ import {
   FileDown,
   Activity,
   Fingerprint,
-  Target
+  Target,
+  Edit3,
+  MessageSquare,
+  AlertOctagon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
@@ -827,10 +830,16 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                       {req.prescriberId === user?.uid && (req.status === 'PENDING' || req.status === 'MODIFY') && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleEdit(req); }}
-                          className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all active:scale-95 shadow-sm",
+                            req.status === 'MODIFY' 
+                              ? "bg-orange-600 text-white hover:bg-orange-700" 
+                              : "bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
+                          )}
                           title="Edit Request"
                         >
-                          <FileText className="w-4 h-4" />
+                          <Edit3 className="w-4 h-4" />
+                          {req.status === 'MODIFY' && <span className="text-[10px] font-black uppercase tracking-widest hidden xs:inline">Modify Now</span>}
                         </button>
                       )}
                       {(user?.role === 'ADMIN' || user?.role === 'IPCN') && (
@@ -934,7 +943,50 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                       exit={{ height: 0, opacity: 0 }}
                       className="overflow-hidden bg-slate-50 border-t border-slate-100"
                     >
-                      <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                      <div className="p-8 space-y-8">
+                        {/* Reviewer Feedback Section */}
+                        {req.remarks && (
+                          <div className={cn(
+                            "p-5 rounded-2xl border-2 flex flex-col gap-3",
+                            req.status === 'MODIFY' 
+                              ? "bg-orange-50 border-orange-200 text-orange-900 shadow-sm" 
+                              : req.status === 'DENIED'
+                                ? "bg-rose-50 border-rose-200 text-rose-900 shadow-sm"
+                                : "bg-slate-50 border-slate-200 text-slate-900"
+                          )}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                {req.status === 'MODIFY' ? (
+                                  <AlertOctagon className="w-5 h-5 text-orange-600" />
+                                ) : req.status === 'DENIED' ? (
+                                  <XCircle className="w-5 h-5 text-rose-600" />
+                                ) : (
+                                  <MessageSquare className="w-5 h-5 text-slate-400" />
+                                )}
+                                <h5 className="text-xs font-black uppercase tracking-widest">
+                                  {req.status === 'MODIFY' ? 'Modification Required' : req.status === 'DENIED' ? 'Request Denied' : 'Reviewer Feedback'}
+                                </h5>
+                              </div>
+                              <div className="text-[10px] font-bold opacity-60 uppercase">
+                                {req.reviewerName || req.reviewerEmail} • {req.reviewedAt ? formatDate(req.reviewedAt) : 'N/A'}
+                              </div>
+                            </div>
+                            <div className="bg-white/60 p-4 rounded-xl border border-white/40 shadow-inner">
+                              <p className="text-sm font-medium leading-relaxed italic">"{req.remarks}"</p>
+                            </div>
+                            {req.status === 'MODIFY' && req.prescriberId === user?.uid && (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleEdit(req); }}
+                                className="w-fit flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-orange-600/20 active:scale-95 transition-transform"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                Proceed with modification
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                          <div className="space-y-4">
                             <div>
                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Patient Details</p>
@@ -1093,7 +1145,8 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                   )}
                                </div>
                             )}
-                         </div>
+                          </div>
+                        </div>
                       </div>
                     </motion.div>
                   )}

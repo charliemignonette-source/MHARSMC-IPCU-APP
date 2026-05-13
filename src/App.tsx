@@ -84,7 +84,7 @@ export default function App() {
     { id: 'hai', label: 'HAI & Bundles', icon: Activity, roles: ['ADMIN', 'IPCN', 'USER'] },
     { id: 'nsi', label: 'NSI Reporting', icon: AlertTriangle, roles: ['ADMIN', 'IPCN', 'USER'] },
     { id: 'outbreak', label: 'Outbreak Mgmt', icon: ShieldAlert, roles: ['ADMIN', 'IPCN', 'USER'] },
-    { id: 'reports', label: 'System Reports', icon: FileBarChart, roles: ['ADMIN', 'IPCN'] },
+    { id: 'reports', label: 'System Reports', icon: FileBarChart, roles: ['ADMIN', 'IPCN', 'USER', 'PHYSICIAN', 'PHARMACY', 'APPROVER'] },
     { id: 'maintenance', label: 'System Maintenance', icon: Settings2, roles: ['ADMIN', 'IPCN'] },
   ];
 
@@ -95,7 +95,9 @@ export default function App() {
     if (profile) {
       const isTabAllowed = allowedTabs.find(t => t.id === activeTab);
       if (!isTabAllowed) {
-        setActiveTab(allowedTabs[0]?.id || 'audits');
+        // Guest users default to AMS to check their requests
+        const defaultTab = profile.role === 'USER' ? 'ams' : (allowedTabs[0]?.id || 'audits');
+        setActiveTab(defaultTab);
       }
     }
   }, [profile, allowedTabs, activeTab]);
@@ -152,6 +154,7 @@ export default function App() {
             role: 'USER',
             unit: 'General',
             isVerified: false,
+            isAnonymous: true,
             createdAt: new Date().toISOString()
           };
           setProfile(anonymousProfile);
@@ -483,10 +486,18 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
             </button>
             
             <div className="flex items-center gap-3">
-               <div className="flex items-center gap-2 px-2 py-1 bg-green-50 text-green-700 rounded-full border border-green-100 text-[10px] font-bold">
-                 <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                 <span className="hidden xs:inline">PROTECTION ACTIVE</span>
-                 <span className="xs:hidden font-black">ACTIVE</span>
+               <div className={cn(
+                 "flex items-center gap-2 px-2 py-1 rounded-full border text-[10px] font-bold",
+                 profile?.role === 'USER' 
+                   ? "bg-slate-50 text-slate-500 border-slate-200" 
+                   : "bg-green-50 text-green-700 border-green-100"
+               )}>
+                 <div className={cn(
+                   "w-1.5 h-1.5 rounded-full animate-pulse",
+                   profile?.role === 'USER' ? "bg-slate-400" : "bg-green-500"
+                 )}></div>
+                 <span className="hidden xs:inline">{profile?.role === 'USER' ? 'GUEST ACCESS ACTIVE' : 'PROTECTION ACTIVE'}</span>
+                 <span className="xs:hidden font-black">{profile?.role === 'USER' ? 'GUEST' : 'ACTIVE'}</span>
                </div>
             </div>
           </div>

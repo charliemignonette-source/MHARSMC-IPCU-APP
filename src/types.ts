@@ -187,6 +187,7 @@ export interface AMSRequest {
   status: AMSStatus;
   reviewerId?: string;
   reviewerEmail?: string;
+  reviewerName?: string;
   reviewedAt?: string;
   dateTimeApproved?: string;
   remarks?: string;

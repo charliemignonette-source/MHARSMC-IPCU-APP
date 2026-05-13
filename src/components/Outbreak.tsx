@@ -92,14 +92,22 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
   });
 
   useEffect(() => {
-    const q = query(collection(db, 'outbreaks'), orderBy('createdAt', 'desc'));
+    if (!user) return;
+    const baseQuery = collection(db, 'outbreaks');
+    let q;
+    const isIPCU = user.role === 'ADMIN' || user.role === 'IPCN';
+    if (isIPCU) {
+      q = query(baseQuery, orderBy('createdAt', 'desc'));
+    } else {
+      q = query(baseQuery, where('reporterId', '==', user.uid), orderBy('createdAt', 'desc'));
+    }
     const unsub = onSnapshot(q, (snap) => {
       setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as OutbreakReport)));
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, 'outbreaks');
     });
     return unsub;
-  }, []);
+  }, [user]);
 
   const handleAddCase = () => {
     const newCase: OutbreakCase = {
