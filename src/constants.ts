@@ -17,21 +17,21 @@ export const ANTIBIOTICS = {
   WATCH: [
     'Amikacin', 'Azithromycin', 'Cefixime', 'Cefotaxime', 'Ceftriaxone', 
     'Cefuroxime', 'Ciprofloxacin', 'Clindamycin', 'Ertapenem', 'Fluconazole', 
-    'Levofloxacin', 'Piperacillin-Tazobactam'
+    'Levofloxacin'
   ],
   RESERVE: [
-    'Amphotericin B', 'Aztreonam', 'Cefepime + Tazobactam', 'Ceftazidime–Avibactam', 
+    'Amphotericin B', 'Aztreonam', 'Cefepime', 'Ceftazidime–Avibactam', 
     'Colistin / Polymyxin', 'Imipenem–Cilastatin', 'Linezolid', 'Meropenem', 
     'Micafungin', 'Tigecycline', 'Vancomycin', 'Voriconazole'
   ],
   FULL: [
     'Amikacin', 'Amoxicillin-Clavulanate', 'Amphotericin B', 'Azithromycin', 'Aztreonam',
-    'Cefazolin', 'Cefepime', 'Cefepime + Tazobactam', 'Cefixime', 'Cefotaxime', 
+    'Cefazolin', 'Cefepime', 'Cefixime', 'Cefotaxime', 
     'Ceftazidime', 'Ceftazidime–Avibactam', 'Ceftriaxone', 'Ceftriaxone (Special Use)', 
     'Cefuroxime', 'Ciprofloxacin', 'Clindamycin', 'Cloxacillin', 'Colistin / Polymyxin', 
     'Ertapenem', 'Fluconazole', 'Gentamicin', 'Imipenem–Cilastatin', 'Levofloxacin', 
     'Linezolid', 'Meropenem', 'Metronidazole', 'Micafungin', 'Oxacillin', 
-    'Piperacillin-Tazobactam', 'Tigecycline', 'Vancomycin', 'Voriconazole'
+    'Tigecycline', 'Vancomycin', 'Voriconazole'
   ]
 };
 
@@ -289,6 +289,24 @@ export const MONITORING_METHODS = [
   'ATP System',
   'Agar Slide Cultures',
   'Other'
+];
+
+export const CULTURE_SPECIMENS = [
+  'Blood',
+  'Urine',
+  'Sputum',
+  'CSF',
+  'Wound',
+  'Tissue',
+  'Pleural Fluid',
+  'Peritoneal Fluid',
+  'Synovial Fluid',
+  'Bone Marrow',
+  'Catheter Tip',
+  'Stool',
+  'Bile',
+  'Aspirate',
+  'Others'
 ];
 
 export const IPCU_REASONING_GROUPS = [

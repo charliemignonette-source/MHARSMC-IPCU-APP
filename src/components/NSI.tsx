@@ -48,6 +48,7 @@ interface NSIProps {
 
 export default function NSI({ user }: NSIProps) {
   const [reports, setReports] = useState<NSIReport[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [selectedReport, setSelectedReport] = useState<NSIReport | null>(null);
   const [activeTab, setActiveTab] = useState<'form' | 'dashboard' | 'list'>(
@@ -700,7 +701,9 @@ export default function NSI({ user }: NSIProps) {
               <Search className="w-4 h-4 text-slate-400" />
               <input 
                 placeholder="Search staff, device, or unit..." 
-                className="bg-transparent border-none text-xs font-bold w-full outline-none"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="bg-transparent border-none text-xs font-bold w-full outline-none placeholder:text-slate-300"
               />
             </div>
             <div className="flex items-center gap-2">
@@ -726,53 +729,77 @@ export default function NSI({ user }: NSIProps) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {reports.map((report) => (
-                    <tr key={report.id} className="hover:bg-slate-50/50 transition-colors group">
-                      <td className="px-6 py-5">
-                        <div className="text-[11px] font-black text-slate-800">{report.incident.date}</div>
-                        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">{report.incident.unit}</div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="text-[11px] font-bold text-slate-700">{report.staff.name}</div>
-                        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">{report.staff.position}</div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="text-[11px] font-bold text-slate-800 truncate max-w-[150px]">{report.incident.exposureType}</div>
-                        <div className="text-[9px] font-bold text-rose-500 uppercase tracking-tight">{report.incident.deviceInvolved}</div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className={cn(
-                          "inline-flex px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest mb-1",
-                          report.status === 'VALIDATED' ? "bg-emerald-100 text-emerald-700" : 
-                          report.status === 'NOT_NSI' ? "bg-slate-100 text-slate-600" : "bg-amber-100 text-amber-700"
-                        )}>
-                          {report.status}
-                        </div>
-                        {report.validation && (
-                          <div className="text-[8px] font-bold text-slate-400 uppercase">Valid: {report.validation.classification}</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => setSelectedReport(report)}
-                            className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
-                          >
-                            <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-rose-600" />
-                          </button>
-                          {user?.role === 'ADMIN' && (
-                            <button 
-                              onClick={() => handleDelete(report.id!)}
-                              className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                              title="Delete Record"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                  {(() => {
+                    const filtered = reports.filter(r => {
+                      const s = searchTerm.toLowerCase();
+                      return (
+                        (r.staff?.name?.toLowerCase().includes(s)) ||
+                        (r.staff?.department?.toLowerCase().includes(s)) ||
+                        (r.incident?.unit?.toLowerCase().includes(s)) ||
+                        (r.incident?.deviceInvolved?.toLowerCase().includes(s)) ||
+                        (r.incident?.activity?.toLowerCase().includes(s)) ||
+                        (r.incident?.exposureType?.toLowerCase().includes(s))
+                      );
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">
+                            {searchTerm ? `No matches for "${searchTerm}"` : "No incident data found"}
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return filtered.map((report) => (
+                      <tr key={report.id} className="hover:bg-slate-50/50 transition-colors group">
+                        <td className="px-6 py-5">
+                          <div className="text-[11px] font-black text-slate-800">{report.incident.date}</div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">{report.incident.unit}</div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="text-[11px] font-bold text-slate-700">{report.staff.name}</div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">{report.staff.position}</div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="text-[11px] font-bold text-slate-800 truncate max-w-[150px]">{report.incident.exposureType}</div>
+                          <div className="text-[9px] font-bold text-rose-500 uppercase tracking-tight">{report.incident.deviceInvolved}</div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className={cn(
+                            "inline-flex px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest mb-1",
+                            report.status === 'VALIDATED' ? "bg-emerald-100 text-emerald-700" : 
+                            report.status === 'NOT_NSI' ? "bg-slate-100 text-slate-600" : "bg-amber-100 text-amber-700"
+                          )}>
+                            {report.status}
+                          </div>
+                          {report.validation && (
+                            <div className="text-[8px] font-bold text-slate-400 uppercase">Valid: {report.validation.classification}</div>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="flex items-center gap-2">
+                             <button 
+                               onClick={() => setSelectedReport(report)}
+                               className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
+                             >
+                               <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-rose-600" />
+                             </button>
+                             {user?.role === 'ADMIN' && (
+                               <button 
+                                 onClick={() => handleDelete(report.id!)}
+                                 className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                 title="Delete Record"
+                               >
+                                 <Trash2 className="w-4 h-4" />
+                               </button>
+                             )}
+                          </div>
+                        </td>
+                      </tr>
+                    ));
+                  })()}
                 </tbody>
               </table>
             </div>

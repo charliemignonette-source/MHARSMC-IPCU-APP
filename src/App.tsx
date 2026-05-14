@@ -29,7 +29,8 @@ import {
   FileBarChart,
   Microscope,
   Settings2,
-  Download
+  Download,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './lib/firebase';
@@ -49,7 +50,9 @@ import Reports from './components/Reports';
 import Antibiogram from './components/Antibiogram';
 import Maintenance from './components/Maintenance';
 
-const ADMIN_EMAILS = ['charliemignonette@gmail.com', 'beeohend@gmail.com'];
+const ADMIN_EMAILS = ['charliemignonette@gmail.com', 'beeohend@gmail.com', 'doc.julierose@gmail.com', 'ardeleon.mharsmc@gmail.com'];
+const PHARMACY_EMAILS = ['salllydinesiso@gmail.com', 'pharmacy@mharsmc.doh.gov.ph'];
+const IPCN_EMAILS = ['bjponz.22.bp@gmail.com', 'belzarinojrmacamay@gmail.com', 'maryjoy.jokjok13@gmail.com', 'noerensolitana@gmail.com', 'febemaecoronel@gmail.com', 'snmanugas@gmail.com', 'andreamaearcamo@gmail.com'];
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -80,11 +83,11 @@ export default function App() {
     { id: 'validation', label: 'IPCU Validation', icon: ShieldAlert, roles: ['ADMIN', 'IPCN'] },
     { id: 'audits', label: 'IPC Audits', icon: ClipboardCheck, roles: ['ADMIN', 'IPCN', 'USER'] },
     { id: 'ams', label: 'Antimicrobial Stewardship', icon: Stethoscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'PHARMACY', 'USER'] },
-    { id: 'antibiogram', label: 'Cumulative Antibiogram', icon: Microscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'PHARMACY', 'USER'] },
+    { id: 'antibiogram', label: 'Cumulative Antibiogram', icon: Microscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'USER'] },
     { id: 'hai', label: 'HAI & Bundles', icon: Activity, roles: ['ADMIN', 'IPCN', 'USER'] },
     { id: 'nsi', label: 'NSI Reporting', icon: AlertTriangle, roles: ['ADMIN', 'IPCN', 'USER'] },
     { id: 'outbreak', label: 'Outbreak Mgmt', icon: ShieldAlert, roles: ['ADMIN', 'IPCN', 'USER'] },
-    { id: 'reports', label: 'System Reports', icon: FileBarChart, roles: ['ADMIN', 'IPCN', 'USER', 'PHYSICIAN', 'PHARMACY', 'APPROVER'] },
+    { id: 'reports', label: 'System Reports', icon: FileBarChart, roles: ['ADMIN', 'IPCN', 'USER', 'PHYSICIAN', 'APPROVER'] },
     { id: 'maintenance', label: 'System Maintenance', icon: Settings2, roles: ['ADMIN', 'IPCN'] },
   ];
 
@@ -113,9 +116,19 @@ export default function App() {
           
           if (docSnap.exists()) {
             const data = docSnap.data() as UserProfile;
+            let updatedRole: typeof data.role | null = null;
+
             if (authStateUser.email && ADMIN_EMAILS.includes(authStateUser.email) && data.role !== 'ADMIN') {
-              data.role = 'ADMIN';
-              await setDoc(docRef, { role: 'ADMIN' }, { merge: true });
+              updatedRole = 'ADMIN';
+            } else if (authStateUser.email && PHARMACY_EMAILS.includes(authStateUser.email) && data.role !== 'PHARMACY') {
+              updatedRole = 'PHARMACY';
+            } else if (authStateUser.email && IPCN_EMAILS.includes(authStateUser.email) && data.role !== 'IPCN') {
+              updatedRole = 'IPCN';
+            }
+
+            if (updatedRole) {
+              data.role = updatedRole;
+              await setDoc(docRef, { role: updatedRole }, { merge: true });
             }
             setProfile(data);
           } else {
@@ -127,6 +140,10 @@ export default function App() {
             
             if (authStateUser.email && ADMIN_EMAILS.includes(authStateUser.email)) {
               role = 'ADMIN';
+            } else if (authStateUser.email && PHARMACY_EMAILS.includes(authStateUser.email)) {
+              role = 'PHARMACY';
+            } else if (authStateUser.email && IPCN_EMAILS.includes(authStateUser.email)) {
+              role = 'IPCN';
             } else if (!rolesSnap.empty) {
               const roleData = rolesSnap.docs[0].data();
               role = roleData.role;
@@ -152,12 +169,23 @@ export default function App() {
             uid: authStateUser.uid,
             name: 'Ward Staff',
             role: 'USER',
-            unit: 'General',
+            unit: 'Medical Ward',
             isVerified: false,
             isAnonymous: true,
             createdAt: new Date().toISOString()
           };
-          setProfile(anonymousProfile);
+          
+          // Save anonymous profile to Firestore for persistence and rule evaluation
+          const docRef = doc(db, 'users', authStateUser.uid);
+          const docSnap = await getDoc(docRef);
+          if (!docSnap.exists()) {
+            await setDoc(docRef, anonymousProfile);
+            setProfile(anonymousProfile);
+          } else {
+            // Update existing if needed or just sync
+            const existingData = docSnap.data() as UserProfile;
+            setProfile(existingData);
+          }
         }
       } else {
         // No user, sign in anonymously
@@ -320,6 +348,8 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
     setActiveTab('dashboard');
   };
 
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
@@ -335,6 +365,101 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
 
   return (
     <div className="min-h-[100dvh] h-[100dvh] flex flex-col sm:flex-row bg-bg-main text-slate-800 overflow-hidden relative">
+      {/* Login Modal */}
+      <AnimatePresence>
+        {isLoginModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsLoginModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden p-8"
+            >
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 bg-brand-primary/10 text-brand-primary rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <ShieldAlert className="w-8 h-8" />
+                </div>
+                <h3 className="text-lg font-black uppercase tracking-tight text-slate-900">Staff Authentication</h3>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Access higher privilege protocols</p>
+              </div>
+
+              {loginError && (
+                <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                  <p className="text-xs font-bold text-rose-700 leading-relaxed">{loginError}</p>
+                </div>
+              )}
+
+              <div className="space-y-6">
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block">Enterprise Sign-In</label>
+                  <button 
+                    onClick={() => {
+                        loginWithGoogle();
+                        setIsLoginModalOpen(false);
+                    }}
+                    className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 active:scale-95"
+                  >
+                    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
+                    Login with Google
+                  </button>
+                </div>
+
+                <div className="relative py-4 flex items-center gap-4">
+                  <div className="flex-1 h-px bg-slate-100"></div>
+                  <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">OR USE STAFF ID</span>
+                  <div className="flex-1 h-px bg-slate-100"></div>
+                </div>
+
+                <form onSubmit={loginWithPIN} className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Staff Code</label>
+                    <input 
+                      required
+                      className="text-input" 
+                      placeholder="e.g. S-1001"
+                      value={staffCode}
+                      onChange={e => setStaffCode(e.target.value.toUpperCase())}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Personal PIN</label>
+                    <input 
+                      required
+                      type="password"
+                      className="text-input" 
+                      placeholder="••••"
+                      maxLength={4}
+                      value={pin}
+                      onChange={e => setPin(e.target.value)}
+                    />
+                  </div>
+                  <button 
+                    disabled={isLoggingIn}
+                    className="w-full py-4 bg-brand-primary text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-brand-secondary transition-all shadow-xl shadow-brand-primary/20 active:scale-95 disabled:opacity-50"
+                  >
+                    {isLoggingIn ? 'Authenticating...' : 'Sign In via ID'}
+                  </button>
+                </form>
+              </div>
+
+              <button 
+                onClick={() => setIsLoginModalOpen(false)}
+                className="w-full mt-6 py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
+              >
+                Continue as Guest (Ward Staff)
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       {/* Sidebar - Mobile Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -515,12 +640,12 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
              )}
              {profile?.role === 'USER' ? (
                 <button 
-                   onClick={loginWithGoogle}
+                   onClick={() => setIsLoginModalOpen(true)}
                    className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 active:scale-95 transition-all shadow-md"
                 >
                    <KeyRound className="w-3.5 h-3.5" />
-                   <span className="hidden sm:inline">Admin Access</span>
-                   <span className="sm:hidden">Admin</span>
+                   <span className="hidden sm:inline">Staff Authentication</span>
+                   <span className="sm:hidden">Login</span>
                 </button>
              ) : (
                 <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-brand-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm">

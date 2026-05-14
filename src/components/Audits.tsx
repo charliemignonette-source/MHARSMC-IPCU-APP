@@ -46,6 +46,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
 
   const [audits, setAudits] = useState<Audit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -550,11 +551,16 @@ export default function Audits({ user }: { user: UserProfile | null }) {
 
           {/* Large Feed Section */}
           <div className="col-span-full bento-card bg-white min-h-[400px] flex flex-col">
-            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-[10px] sm:text-xs font-bold uppercase tracking-tight text-slate-400 flex items-center gap-2">
-                <Search className="w-3.5 h-3.5" />
-                Audit Registry
-              </h3>
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Search className="w-4 h-4 text-slate-400" />
+                <input 
+                  placeholder="Search unit, auditor, or type..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  className="bg-transparent border-none text-[11px] font-black uppercase tracking-widest text-slate-600 w-full sm:w-64 outline-none placeholder:text-slate-300"
+                />
+              </div>
               <div className="flex gap-2">
                 <button className="p-1.5 sm:p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors">
                   <Filter className="w-3.5 h-3.5" />
@@ -568,10 +574,27 @@ export default function Audits({ user }: { user: UserProfile | null }) {
             <div className="flex-1 overflow-y-auto p-2 divide-y divide-slate-50">
               {loading ? (
                 <div className="p-10 text-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">Synchronizing...</div>
-              ) : audits.length === 0 ? (
-                <div className="p-10 text-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">No field data detected</div>
-              ) : (
-                audits.map(audit => (
+              ) : (() => {
+                const filteredAudits = audits.filter(a => {
+                  const s = searchTerm.toLowerCase();
+                  return (
+                    (a.unit?.toLowerCase().includes(s)) ||
+                    (a.auditorName?.toLowerCase().includes(s)) ||
+                    (a.type?.toLowerCase().includes(s)) ||
+                    (a.staffIdentifier?.toLowerCase().includes(s)) ||
+                    (a.profession?.toLowerCase().includes(s))
+                  );
+                });
+
+                if (filteredAudits.length === 0) {
+                  return (
+                    <div className="p-10 text-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">
+                      {searchTerm ? `No results for "${searchTerm}"` : "No field data detected"}
+                    </div>
+                  );
+                }
+
+                return filteredAudits.map(audit => (
                   <AuditEntry 
                     key={audit.id} 
                     {...audit} 
@@ -584,8 +607,8 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                     }}
                     isAdmin={user?.role === 'IPCN' || user?.role === 'ADMIN'}
                   />
-                ))
-              )}
+                ));
+              })()}
             </div>
           </div>
         </div>

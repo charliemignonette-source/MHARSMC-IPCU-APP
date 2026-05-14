@@ -9,6 +9,7 @@ export interface UserProfile {
   staffCode?: string;
   pin?: string;
   isVerified: boolean;
+  isAnonymous?: boolean;
   createdAt: string;
 }
 
@@ -112,6 +113,16 @@ export interface PreviousAntibiotic {
   indication: string;
 }
 
+export interface MicrobiologyResult {
+  date: string;
+  specimen: string;
+  organism: string;
+  resistancePattern: string;
+  otherSpecimen?: string;
+  otherOrganism?: string;
+  otherResistance?: string;
+}
+
 export interface AMSRequest {
   id?: string;
   type: AMSRequestType;
@@ -153,16 +164,11 @@ export interface AMSRequest {
   cultureOthers?: string;
   immunocompromisingCondition: string[];
   immunocompromisingOthers?: string;
+  otherAntibiotic?: string;
 
   // Microbiological Results (for Definitive Use)
-  microbiology?: {
-    date: string;
-    specimen: string;
-    organism: string;
-    resistancePattern: string;
-    otherOrganism?: string;
-    otherResistance?: string;
-  };
+  microbiology?: MicrobiologyResult;
+  microbiologyResults?: MicrobiologyResult[];
 
   // Critical Illness Criteria
   criticallyIll?: {

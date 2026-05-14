@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getAntibioticRecommendation } from '../services/amsAlertService';
+import { getGeminiStewardshipAnalysis } from '../services/geminiStewardshipService';
 import { 
   Stethoscope, 
   FlaskConical, 
@@ -24,13 +25,20 @@ import {
   Target,
   Edit3,
   MessageSquare,
-  AlertOctagon
+  AlertOctagon,
+  User,
+  LayoutDashboard,
+  BarChart,
+  BrainCircuit,
+  Sparkles,
+  RefreshCw,
+  ClipboardList
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy, or } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, AMSRequest, AMSStatus } from '../types';
-import { UNITS, ANTIBIOTICS } from '../constants';
+import { UNITS, ANTIBIOTICS, CULTURE_SPECIMENS } from '../constants';
 import { cn, formatDate } from '../lib/utils';
 
 const getAwareStyles = (drugName: string) => {
@@ -50,6 +58,9 @@ export default function AMS({ user }: { user: UserProfile | null }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [requests, setRequests] = useState<AMSRequest[]>([]);
   const [viewMode, setViewMode] = useState<'LIST' | 'DASHBOARD'>('LIST');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSwitchingWard, setIsSwitchingWard] = useState(false);
 
   const getDepartment = (unit: string) => {
     if (['ICU', 'NICU', 'PICU', 'HDU'].includes(unit)) return 'Critical Care';
@@ -179,13 +190,14 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       organism: '',
       resistancePattern: ''
     },
+    microbiologyResults: [],
     criticallyIll: {
       sepsisCriteria: [],
       sepsisOther: '',
       organDysfunctionCriteria: [],
       organOther: ''
     },
-    unit: UNITS[0],
+    unit: user?.unit || '',
     antibiotic: '',
     dose: '',
     diagnosis: '',
@@ -205,17 +217,28 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     const baseQuery = collection(db, 'ams_requests');
     let q;
 
-    if (user.role === 'ADMIN' || user.role === 'IPCN' || user.role === 'APPROVER') {
+    if (user.role === 'ADMIN' || user.role === 'IPCN' || user.role === 'APPROVER' || user.role === 'PHARMACY') {
       q = query(baseQuery, orderBy('createdAt', 'desc'));
     } else {
-      q = query(baseQuery, where('prescriberId', '==', user.uid), orderBy('createdAt', 'desc'));
+      // Regular users see their own requests OR requests from their unit
+      // This helps ward staff see requests for their ward even if they use different anonymous accounts
+      q = query(baseQuery, 
+        or(
+          where('prescriberId', '==', user.uid),
+          where('unit', '==', user.unit || 'General')
+        ),
+        orderBy('createdAt', 'desc')
+      );
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AMSRequest));
       setRequests(data);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'ams_requests');
+      setError(null);
+    }, (err) => {
+      console.error("AMS Snapshot Error:", err);
+      setError("Database connection error or missing permissions.");
+      handleFirestoreError(err, OperationType.LIST, 'ams_requests');
     });
     return () => unsubscribe();
   }, [user]);
@@ -240,17 +263,46 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       const patientName = `${formData.firstName} ${formData.middleName ? formData.middleName + ' ' : ''}${formData.lastName}`;
       const dateTimeRequested = new Date().toISOString();
       
+      // Consolidate antibiotic string for better display/search
+      const antibioticList = formData.antimicrobialsRequested?.map(d => 
+        d === 'Others' && formData.otherAntibiotic ? `Others (${formData.otherAntibiotic})` : d
+      ) || [];
+      const consolidatedAntibiotic = antibioticList.join(', ');
+      
       if (editingId) {
-        await updateDoc(doc(db, 'ams_requests', editingId), {
-          ...formData,
+        // Sanitize formData to only include editable fields for updates
+        const editableFields = [
+          'type', 'hospNo', 'location', 'firstName', 'middleName', 'lastName', 
+          'date', 'drugAllergy', 'sex', 'dob', 'age', 'ageUnit', 'weight', 'height', 
+          'serumCreatinine', 'creatinineClearance', 'sgpt', 'sgot', 
+          'previousAntibiotics',
+          'antimicrobialsRequested', 'drugDoses', 'dosingRegimen', 
+          'indicationForUse', 'focusOfInfection', 'focusOther', 'infectiousDiagnosis', 
+          'cultureSent', 'cultureDateSent', 'cultureOthers', 'immunocompromisingCondition', 
+          'immunocompromisingOthers', 'otherAntibiotic', 'microbiology', 'microbiologyResults', 'criticallyIll', 'unit', 
+          'antibiotic', 'dose', 'diagnosis', 'justification', 'prescriberContact', 
+          'requestingPhysician', 'durationRequested', 'prescriberId'
+        ];
+
+        const updatePayload: any = {
           status: 'PENDING',
           patientName,
+          antibiotic: consolidatedAntibiotic,
           updatedAt: serverTimestamp()
+        };
+
+        editableFields.forEach(field => {
+          if (formData[field as keyof AMSRequest] !== undefined) {
+            updatePayload[field] = formData[field as keyof AMSRequest];
+          }
         });
+
+        await updateDoc(doc(db, 'ams_requests', editingId), updatePayload);
         setEditingId(null);
       } else {
         await addDoc(collection(db, 'ams_requests'), {
           ...formData,
+          antibiotic: consolidatedAntibiotic,
           patientName,
           dateTimeRequested,
           prescriberId: user.uid,
@@ -269,6 +321,8 @@ export default function AMS({ user }: { user: UserProfile | null }) {
   };
 
   const resetForm = () => {
+    setAiAnalysis('');
+    setRecommendation('');
     setFormData({
       type: 'RESTRICTED_USE',
       hospNo: '',
@@ -299,17 +353,20 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       cultureDateSent: new Date().toISOString().split('T')[0],
       previousAntibiotics: [],
       immunocompromisingCondition: [],
+      immunocompromisingOthers: '',
+      otherAntibiotic: '',
       microbiology: {
         date: new Date().toISOString().split('T')[0],
         specimen: '',
         organism: '',
         resistancePattern: ''
       },
+      microbiologyResults: [],
       criticallyIll: {
         sepsisCriteria: [],
         organDysfunctionCriteria: []
       },
-      unit: UNITS[0],
+      unit: user?.unit || '',
       antibiotic: '',
       dose: '',
       diagnosis: '',
@@ -388,7 +445,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
             body: JSON.stringify({
               drugName: req.antibiotic,
               patientName: req.patientName,
-              patientHrn: req.patientHrn,
+              patientHrn: req.hospNo || '',
               ward: req.unit,
               justification: req.justification || remarks,
               prescriberName: req.prescriberName || 'Physician',
@@ -452,6 +509,33 @@ export default function AMS({ user }: { user: UserProfile | null }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [recommendation, setRecommendation] = useState<string>('');
+  const [aiAnalysis, setAiAnalysis] = useState<string>('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const handleGetAIAnalysis = async () => {
+    setIsAnalyzing(true);
+    try {
+      const analysis = await getGeminiStewardshipAnalysis(formData, user?.unit || '');
+      setAiAnalysis(analysis);
+    } catch (err) {
+      console.error(err);
+      setAiAnalysis("Failed to connect to Gemini AI. Please check your internet connection.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleWardSwitch = async (newWard: string) => {
+    if (!user || !user.isAnonymous) return;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { unit: newWard });
+      setIsSwitchingWard(false);
+      // Force local refresh since props might take time
+      if (user) user.unit = newWard;
+    } catch (err) {
+      console.error("Failed to switch ward:", err);
+    }
+  };
 
   useEffect(() => {
     if (formData.antimicrobialsRequested && formData.antimicrobialsRequested.length > 0) {
@@ -483,6 +567,30 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       setFormData(prev => ({ ...prev, type: 'EXTENSION_7D' }));
     }
   }, [formData.hospNo, formData.antimicrobialsRequested]);
+
+  // Automatic Creatinine Clearance Calculation (Cockcroft-Gault)
+  useEffect(() => {
+    if (formData.age && formData.weight && formData.serumCreatinine && formData.sex) {
+      const age = parseFloat(formData.age);
+      const weight = parseFloat(formData.weight);
+      const creatinine = parseFloat(formData.serumCreatinine);
+      
+      if (!isNaN(age) && !isNaN(weight) && !isNaN(creatinine) && creatinine > 0) {
+        let ageInYears = age;
+        if (formData.ageUnit === 'Months') ageInYears = age / 12;
+        else if (formData.ageUnit === 'Days') ageInYears = age / 365;
+
+        // Cockcroft-Gault Equation
+        let crcl = ((140 - ageInYears) * weight) / (72 * creatinine);
+        if (formData.sex === 'Female') crcl *= 0.85;
+
+        const calculated = crcl.toFixed(2);
+        if (formData.creatinineClearance !== calculated) {
+          setFormData(prev => ({ ...prev, creatinineClearance: calculated }));
+        }
+      }
+    }
+  }, [formData.age, formData.ageUnit, formData.weight, formData.serumCreatinine, formData.sex]);
 
   const generatePDF = (req: AMSRequest) => {
     try {
@@ -632,16 +740,20 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       }
 
       // Section: Microbiology
-      if (req.indicationForUse === 'Definitive' && req.microbiology) {
+      if (req.indicationForUse === 'Definitive' && (req.microbiology || (req.microbiologyResults && req.microbiologyResults.length > 0))) {
+        const results = req.microbiologyResults && req.microbiologyResults.length > 0
+          ? req.microbiologyResults
+          : req.microbiology ? [req.microbiology] : [];
+
         autoTable(doc, {
           startY: currentY,
-          head: [['Microbiology Results', 'Details']],
-          body: [
-            ['Collection Date', req.microbiology.date || 'N/A'],
-            ['Specimen Type', req.microbiology.specimen || 'N/A'],
-            ['Organism Isolated', req.microbiology.organism + (req.microbiology.otherOrganism ? ` (${req.microbiology.otherOrganism})` : '')],
-            ['Resistance Pattern', req.microbiology.resistancePattern + (req.microbiology.otherResistance ? ` - ${req.microbiology.otherResistance}` : '')],
-          ],
+          head: [['Microbiology Results', 'Organism', 'Resistance', 'Collection Date']],
+          body: results.map(res => [
+            (res.specimen || 'N/A') + (res.otherSpecimen ? ` (${res.otherSpecimen})` : ''),
+            (res.organism || 'N/A') + (res.otherOrganism ? ` (${res.otherOrganism})` : ''),
+            (res.resistancePattern || 'N/A') + (res.otherResistance ? ` - ${res.otherResistance}` : ''),
+            res.date || 'N/A'
+          ]),
           headStyles: { fillColor: [124, 58, 237], fontSize: 10 },
           margin: { horizontal: 14 }
         });
@@ -709,16 +821,73 @@ export default function AMS({ user }: { user: UserProfile | null }) {
 
   const isApprover = user?.role === 'APPROVER' || user?.role === 'ADMIN' || user?.role === 'IPCN';
 
-  const filteredRequests = (activeFilter === 'ALL' 
-    ? requests 
-    : requests.filter(r => r.status === activeFilter)
-  );
+  const filteredRequests = requests.filter(req => {
+    const matchesFilter = activeFilter === 'ALL' || req.status === activeFilter;
+    const searchLower = searchTerm.toLowerCase();
+    const matchesSearch = searchTerm === '' || 
+      req.patientName?.toLowerCase().includes(searchLower) ||
+      req.hospNo?.toLowerCase().includes(searchLower) ||
+      req.antibiotic?.toLowerCase().includes(searchLower) ||
+      req.unit?.toLowerCase().includes(searchLower) ||
+      req.diagnosis?.toLowerCase().includes(searchLower) ||
+      req.prescriberName?.toLowerCase().includes(searchLower) ||
+      req.requestingPhysician?.toLowerCase().includes(searchLower) ||
+      (req.antimicrobialsRequested || []).some(a => a.toLowerCase().includes(searchLower));
+    
+    return matchesFilter && matchesSearch;
+  });
 
   return (
     <div className="space-y-6">
+      {user?.isAnonymous && isSwitchingWard && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl"
+          >
+            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight mb-6">Switch Active ward</h3>
+            <p className="text-xs text-slate-500 mb-6 font-medium">Select your current ward to see all relevant antimicrobial requests. This is useful for ward staff to track approvals collectively.</p>
+            <div className="grid grid-cols-2 gap-3 mb-8 max-h-[300px] overflow-y-auto pr-2 no-scrollbar">
+              {UNITS.map(u => (
+                <button
+                  key={u}
+                  onClick={() => handleWardSwitch(u)}
+                  className={cn(
+                    "px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all text-center",
+                    user.unit === u 
+                      ? "bg-brand-primary text-white shadow-lg shadow-brand-primary/20"
+                      : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                  )}
+                >
+                  {u}
+                </button>
+              ))}
+            </div>
+            <button 
+              onClick={() => setIsSwitchingWard(false)}
+              className="w-full py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              Close
+            </button>
+          </motion.div>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row shadow-sm sm:shadow-none items-start sm:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 uppercase">Antimicrobial Stewardship</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 uppercase">Antimicrobial Stewardship</h2>
+            {user?.isAnonymous && (
+              <button 
+                onClick={() => setIsSwitchingWard(true)}
+                className="px-2 py-0.5 bg-brand-primary/10 hover:bg-brand-primary/20 text-brand-primary rounded-full text-[8px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5"
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse" />
+                Ward: {user.unit || 'General'}
+              </button>
+            )}
+          </div>
           <p className="text-[10px] sm:text-xs text-slate-500 font-medium tracking-tight">Antimicrobial stewardship and restriction protocols</p>
         </div>
         <button 
@@ -747,6 +916,9 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                   {mode}
                 </button>
               ))}
+              <div className="flex items-center px-3 py-1.5 text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-400 border-l border-slate-200 ml-2">
+                Items: {filteredRequests.length}
+              </div>
             </div>
             {viewMode === 'LIST' && (
               <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto no-scrollbar ml-auto">
@@ -774,16 +946,52 @@ export default function AMS({ user }: { user: UserProfile | null }) {
               </button>
               <div className="flex-1 sm:flex-none flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl bg-white focus-within:ring-1 focus-within:ring-brand-primary">
                 <Search className="w-3.5 h-3.5 text-slate-400" />
-                <input type="text" placeholder="Search..." className="text-[10px] font-bold focus:outline-none w-full sm:w-24 uppercase" />
+                <input 
+                  type="text" 
+                  placeholder="Search..." 
+                  className="text-[10px] font-bold focus:outline-none w-full sm:w-24 uppercase"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
               </div>
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {error && (
+              <div className="m-4 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-3 text-rose-600">
+                <AlertTriangle className="w-5 h-5 shrink-0" />
+                <p className="text-[10px] font-black uppercase tracking-widest">{error}</p>
+                <button onClick={() => location.reload()} className="ml-auto underline text-[9px] font-black">Retry</button>
+              </div>
+            )}
             {viewMode === 'DASHBOARD' ? (
               <AMSDashboard stats={getStats()} />
             ) : (
-              filteredRequests.map((req) => (
+              filteredRequests.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                  <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
+                    <Search className="w-8 h-8 opacity-20" />
+                  </div>
+                  <p className="text-xs font-bold uppercase tracking-widest">No requests found</p>
+                  <p className="text-[10px] mt-1 font-medium italic">
+                    {searchTerm 
+                      ? `No matches for "${searchTerm}"` 
+                      : user?.role === 'USER' 
+                        ? "You haven't submitted any requests yet." 
+                        : "No requests available in this view."}
+                  </p>
+                  {user?.role === 'USER' && !searchTerm && (
+                    <button 
+                      onClick={() => setIsAdding(true)}
+                      className="mt-6 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-colors"
+                    >
+                      Create First Request
+                    </button>
+                  )}
+                </div>
+              ) : (
+                filteredRequests.map((req) => (
               <div key={req.id} className="group border border-transparent hover:border-slate-100 rounded-2xl transition-all">
                 <div 
                   className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 cursor-pointer"
@@ -827,7 +1035,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                       <FileDown className="w-5 h-5" />
                     </button>
                     <div className="flex items-center gap-3">
-                      {req.prescriberId === user?.uid && (req.status === 'PENDING' || req.status === 'MODIFY') && (
+                      {(req.prescriberId === user?.uid || (user?.isAnonymous && req.unit === user?.unit)) && (req.status === 'PENDING' || req.status === 'MODIFY') && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleEdit(req); }}
                           className={cn(
@@ -868,7 +1076,27 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                     </div>
                     
                     {req.status === 'PENDING' && isApprover ? (
-                      <div className="flex flex-col sm:flex-row gap-2 items-end sm:items-center" onClick={e => e.stopPropagation()}>
+                      <div className="flex flex-col gap-3 items-end" onClick={e => e.stopPropagation()}>
+                        <div className="flex flex-col gap-2 w-full max-w-[240px] sm:max-w-xs">
+                          <div className="relative group">
+                            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                            <input 
+                              placeholder="Reviewing Physician Name..."
+                              value={reviewPhysicians[req.id!] || ''}
+                              onChange={(e) => setReviewPhysicians(prev => ({ ...prev, [req.id!]: e.target.value }))}
+                              className="w-full text-[9px] font-bold uppercase tracking-widest pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-brand-primary/20 placeholder:text-slate-400"
+                            />
+                          </div>
+                          <div className="relative">
+                            <MessageSquare className="absolute left-3 top-3 w-3 h-3 text-slate-400" />
+                            <textarea 
+                              placeholder="Reviewer remarks (reason for approval, denial, or required modifications)..."
+                              value={reviewRemarks[req.id!] || ''}
+                              onChange={(e) => setReviewRemarks(prev => ({ ...prev, [req.id!]: e.target.value }))}
+                              className="w-full text-[10px] font-medium pl-8 pr-3 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-brand-primary/10 min-h-[80px] resize-none placeholder:text-slate-400 placeholder:italic"
+                            />
+                          </div>
+                        </div>
                         <div className="flex gap-2 bg-slate-100 p-1 rounded-xl">
                           <button 
                             onClick={(e) => { e.stopPropagation(); handleAction(req.id!, 'APPROVED'); }}
@@ -974,7 +1202,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                             <div className="bg-white/60 p-4 rounded-xl border border-white/40 shadow-inner">
                               <p className="text-sm font-medium leading-relaxed italic">"{req.remarks}"</p>
                             </div>
-                            {req.status === 'MODIFY' && req.prescriberId === user?.uid && (
+                            {(req.status === 'MODIFY' && (req.prescriberId === user?.uid || (user?.isAnonymous && req.unit === user?.unit))) && (
                               <button 
                                 onClick={(e) => { e.stopPropagation(); handleEdit(req); }}
                                 className="w-fit flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-orange-600/20 active:scale-95 transition-transform"
@@ -1092,19 +1320,25 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                               </div>
                             )}
 
-                            {req.indicationForUse === 'Definitive' && req.microbiology && (
+                            {req.indicationForUse === 'Definitive' && (req.microbiology || (req.microbiologyResults && req.microbiologyResults.length > 0)) && (
                               <div>
-                                <p className="text-[9px] font-black uppercase tracking-widest text-brand-primary mb-2">Microbiology Result (Definitive)</p>
-                                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
-                                   <div className="flex justify-between items-start">
-                                      <div>
-                                         <p className="text-xs font-black text-slate-900">{req.microbiology.organism}</p>
-                                         <p className="text-[10px] text-slate-500 uppercase font-bold">{req.microbiology.specimen} • {req.microbiology.date}</p>
-                                      </div>
-                                      <span className="px-2 py-1 bg-brand-primary/10 text-brand-primary text-[9px] font-black rounded uppercase">
-                                         {req.microbiology.resistancePattern}
-                                      </span>
-                                   </div>
+                                <p className="text-[9px] font-black uppercase tracking-widest text-brand-primary mb-2">Microbiology Results (Definitive)</p>
+                                <div className="space-y-3">
+                                   {(req.microbiologyResults && req.microbiologyResults.length > 0 ? req.microbiologyResults : [req.microbiology]).map((res, i) => res && (
+                                     <div key={i} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+                                        <div className="flex justify-between items-start">
+                                           <div>
+                                              <p className="text-xs font-black text-slate-900">{res.organism} {res.otherOrganism ? `(${res.otherOrganism})` : ''}</p>
+                                              <p className="text-[10px] text-slate-500 uppercase font-bold">
+                                                {res.specimen} {res.otherSpecimen ? `(${res.otherSpecimen})` : ''} • {res.date}
+                                              </p>
+                                           </div>
+                                           <span className="px-2 py-1 bg-brand-primary/10 text-brand-primary text-[9px] font-black rounded uppercase">
+                                              {res.resistancePattern} {res.otherResistance ? `- ${res.otherResistance}` : ''}
+                                           </span>
+                                        </div>
+                                     </div>
+                                   ))}
                                 </div>
                               </div>
                             )}
@@ -1153,7 +1387,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                 </AnimatePresence>
               </div>
             ))
-          )}
+          ))}
         </div>
         </div>
       </div>
@@ -1241,11 +1475,25 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                           />
                        </div>
                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Location / Ward <span className="text-rose-500">*</span></label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ward / Unit <span className="text-rose-500">*</span></label>
+                          <select 
+                            required
+                            className="text-input" 
+                            value={formData.unit}
+                            onChange={e => setFormData({...formData, unit: e.target.value})}
+                          >
+                            <option value="">Select Ward...</option>
+                            {UNITS.map(u => (
+                              <option key={u} value={u}>{u}</option>
+                            ))}
+                          </select>
+                       </div>
+                       <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Bed / Room Location <span className="text-rose-500">*</span></label>
                           <input 
                             required
                             className="text-input" 
-                            placeholder="Unit/Bed"
+                            placeholder="e.g. 1A, Bed 3"
                             value={formData.location}
                             onChange={e => setFormData({...formData, location: e.target.value})}
                           />
@@ -1365,7 +1613,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                      <label className="text-[9px] font-bold uppercase text-slate-400">Antibiotic</label>
                                      <input className="text-input py-1.5" value={ab.name} onChange={e => {
                                        const updated = [...(formData.previousAntibiotics || [])];
-                                       updated[idx].name = e.target.value;
+                                       updated[idx] = { ...updated[idx], name: e.target.value };
                                        setFormData({...formData, previousAntibiotics: updated});
                                      }} />
                                   </div>
@@ -1373,7 +1621,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                      <label className="text-[9px] font-bold uppercase text-slate-400">Dose</label>
                                      <input className="text-input py-1.5" value={ab.dose} onChange={e => {
                                        const updated = [...(formData.previousAntibiotics || [])];
-                                       updated[idx].dose = e.target.value;
+                                       updated[idx] = { ...updated[idx], dose: e.target.value };
                                        setFormData({...formData, previousAntibiotics: updated});
                                      }} />
                                   </div>
@@ -1381,7 +1629,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                      <label className="text-[9px] font-bold uppercase text-slate-400">Start Date</label>
                                      <input type="date" className="text-input py-1.5" value={ab.startDate} onChange={e => {
                                        const updated = [...(formData.previousAntibiotics || [])];
-                                       updated[idx].startDate = e.target.value;
+                                       updated[idx] = { ...updated[idx], startDate: e.target.value };
                                        setFormData({...formData, previousAntibiotics: updated});
                                      }} />
                                   </div>
@@ -1389,7 +1637,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                      <label className="text-[9px] font-bold uppercase text-slate-400">Stop Date</label>
                                      <input type="date" className="text-input py-1.5" value={ab.stopDate} onChange={e => {
                                        const updated = [...(formData.previousAntibiotics || [])];
-                                       updated[idx].stopDate = e.target.value;
+                                       updated[idx] = { ...updated[idx], stopDate: e.target.value };
                                        setFormData({...formData, previousAntibiotics: updated});
                                      }} />
                                   </div>
@@ -1397,7 +1645,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                      <label className="text-[9px] font-bold uppercase text-slate-400">Indication</label>
                                      <input className="text-input py-1.5" value={ab.indication} onChange={e => {
                                        const updated = [...(formData.previousAntibiotics || [])];
-                                       updated[idx].indication = e.target.value;
+                                       updated[idx] = { ...updated[idx], indication: e.target.value };
                                        setFormData({...formData, previousAntibiotics: updated});
                                      }} />
                                   </div>
@@ -1517,7 +1765,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                 {[
                                   { id: 'micafungin', name: 'Micafungin' },
                                   { id: 'aztreonam', name: 'Aztreonam' },
-                                  { id: 'cefepime_tazo', name: 'Cefepime + Tazobactam' },
+                                  { id: 'cefepime', name: 'Cefepime' },
                                   { id: 'ceftaz_avi', name: 'Ceftazidime–Avibactam' },
                                   { id: 'ertapenem', name: 'Ertapenem' },
                                   { id: 'imipenem', name: 'Imipenem–Cilastatin' },
@@ -1597,7 +1845,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                        
                        {/* Antibiotic Recommendation Alert Section */}
                        <AnimatePresence>
-                         {recommendation && (
+                         {(recommendation || aiAnalysis) && (
                            <motion.div
                              initial={{ opacity: 0, y: 10 }}
                              animate={{ opacity: 1, y: 0 }}
@@ -1607,13 +1855,63 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                               <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                                  <AlertTriangle className="w-16 h-16" />
                               </div>
-                              <div className="relative z-10">
-                                 <div className="flex items-center gap-2 mb-4 text-teal-400">
-                                    <ShieldAlert className="w-5 h-5" />
-                                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">Stewardship Intelligence</span>
+                              <div className="relative z-10 space-y-6">
+                                 <div className="flex items-center justify-between">
+                                   <div className="flex items-center gap-2 text-teal-400">
+                                      <ShieldAlert className="w-5 h-5" />
+                                      <span className="text-[10px] font-black uppercase tracking-[0.2em]">Stewardship Intelligence</span>
+                                   </div>
+                                   <button
+                                     type="button"
+                                     onClick={handleGetAIAnalysis}
+                                     disabled={isAnalyzing}
+                                     className={cn(
+                                       "flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest transition-all",
+                                       isAnalyzing 
+                                         ? "bg-slate-800 text-slate-500" 
+                                         : aiAnalysis 
+                                           ? "bg-teal-500/20 text-teal-400 hover:bg-teal-500/30"
+                                           : "bg-brand-primary/20 text-brand-primary hover:bg-brand-primary/30"
+                                     )}
+                                   >
+                                     {isAnalyzing ? (
+                                       <>
+                                         <RefreshCw className="w-3 h-3 animate-spin" />
+                                         Thinking...
+                                       </>
+                                     ) : (
+                                       <>
+                                         <BrainCircuit className="w-3 h-3" />
+                                         {aiAnalysis ? 'Update AI Analysis' : 'Get Deep AI Insight'}
+                                       </>
+                                     )}
+                                   </button>
                                  </div>
-                                 <div className="whitespace-pre-wrap font-sans text-xs sm:text-sm leading-relaxed text-slate-300">
-                                    {recommendation}
+
+                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                   {recommendation && (
+                                     <div className="space-y-2">
+                                       <div className="flex items-center gap-1.5 text-slate-500 text-[8px] font-black uppercase tracking-tighter">
+                                         <ClipboardList className="w-3 h-3" />
+                                         Standard Rules
+                                       </div>
+                                       <div className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-slate-300">
+                                         {recommendation}
+                                       </div>
+                                     </div>
+                                   )}
+
+                                   {aiAnalysis && (
+                                     <div className="space-y-2 border-l border-slate-800 pl-6">
+                                       <div className="flex items-center gap-1.5 text-teal-500 text-[8px] font-black uppercase tracking-tighter">
+                                         <Sparkles className="w-3 h-3" />
+                                         Gemini AI Clinical Scan
+                                       </div>
+                                       <div className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-teal-50/90 italic">
+                                         {aiAnalysis}
+                                       </div>
+                                     </div>
+                                   )}
                                  </div>
                               </div>
                            </motion.div>
@@ -1819,82 +2117,151 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                           exit={{ opacity: 0, height: 0 }}
                           className="col-span-full overflow-hidden"
                         >
-                          <div className="border-b border-slate-100 pb-4 mt-8 mb-4">
+                          <div className="border-b border-slate-100 pb-4 mt-8 mb-4 flex items-center justify-between">
                             <h4 className="text-xs font-black uppercase tracking-widest text-brand-primary">Microbiological Results (Definitive)</h4>
                           </div>
                           
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 bg-brand-primary/5 rounded-3xl border border-brand-primary/10">
-                            <div className="space-y-1">
-                               <label className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">Result Date</label>
-                               <input 
-                                 type="date"
-                                 className="text-input border-brand-primary/20"
-                                 value={formData.microbiology?.date || ''}
-                                 onChange={e => setFormData({...formData, microbiology: { ...formData.microbiology!, date: e.target.value }})}
-                               />
-                            </div>
-                            <div className="space-y-1">
-                               <label className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">Specimen</label>
-                               <input 
-                                 className="text-input border-brand-primary/20"
-                                 placeholder="e.g. Blood, Urine, CSF"
-                                 value={formData.microbiology?.specimen || ''}
-                                 onChange={e => setFormData({...formData, microbiology: { ...formData.microbiology!, specimen: e.target.value }})}
-                               />
-                            </div>
-                            <div className="space-y-1">
-                               <label className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">Organism</label>
-                               <select 
-                                 className="text-input border-brand-primary/20"
-                                 value={formData.microbiology?.organism || ''}
-                                 onChange={e => setFormData({...formData, microbiology: { ...formData.microbiology!, organism: e.target.value }})}
-                               >
-                                 <option value="">Select Organism...</option>
-                                 {[
-                                   'Acinetobacter baumannii', 'Candida (specify species)', 'Clostridium difficile',
-                                   'Enterococcus faecium/faecalis', 'Escherichia coli', 'Enterobacteriaceae (other)',
-                                   'Haemophilus influenzae', 'Klebsiella pneumoniae', 'Neisseria gonorrhoeae',
-                                   'Pseudomonas aeruginosa', 'Salmonella (non‑typhoidal)', 'Salmonella typhi',
-                                   'Shigella spp.', 'Staphylococcus aureus', 'Streptococcus pneumoniae', 'Others (specify)'
-                                 ].map(o => <option key={o} value={o}>{o}</option>)}
-                               </select>
-                               {(formData.microbiology?.organism === 'Others (specify)' || formData.microbiology?.organism?.includes('(specify)')) && (
-                                  <input 
-                                    className="text-input mt-2 py-2 border-brand-primary/20"
-                                    placeholder="Specify organism..."
-                                    value={formData.microbiology?.otherOrganism || ''}
-                                    onChange={e => setFormData({...formData, microbiology: { ...formData.microbiology!, otherOrganism: e.target.value }})}
-                                  />
-                               )}
-                            </div>
-                            <div className="col-span-full space-y-1.5">
-                               <label className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">Resistance Pattern / Result <span className="text-rose-500">*</span></label>
-                               <div className="flex flex-wrap gap-2">
-                                  {[
-                                    'MDR', 'XDR', 'PDR', 'ESBL', 'CRE', 
-                                    'Ampicillin‑resistant', 'Ceftriaxone‑resistant', 'Penicillin‑resistant', 
-                                    'Fluconazole‑resistant', 'Methicillin‑resistant (MRSA)', 'Vancomycin‑resistant (VRE)'
-                                  ].map(p => (
-                                    <button
-                                      key={p}
-                                      type="button"
-                                      onClick={() => setFormData({...formData, microbiology: { ...formData.microbiology!, resistancePattern: p }})}
-                                      className={cn(
-                                        "px-3 py-1.5 rounded-full text-[9px] font-bold uppercase tracking-widest transition-all",
-                                        formData.microbiology?.resistancePattern === p ? "bg-brand-primary text-white shadow-sm" : "bg-white text-slate-400 border border-slate-200 hover:border-brand-primary/30"
-                                      )}
-                                    >
-                                      {p}
-                                    </button>
-                                  ))}
-                                  <input 
-                                    placeholder="Others..."
-                                    className="text-[9px] font-bold uppercase tracking-widest bg-white border border-slate-200 rounded-full px-3 py-1.5 outline-none focus:ring-1 focus:ring-brand-primary w-32"
-                                    value={formData.microbiology?.otherResistance || ''}
-                                    onChange={e => setFormData({...formData, microbiology: { ...formData.microbiology!, otherResistance: e.target.value }})}
-                                  />
-                               </div>
-                            </div>
+                          <div className="space-y-4">
+                            {(formData.microbiologyResults || []).map((result, idx) => (
+                              <div key={idx} className="relative grid grid-cols-1 md:grid-cols-3 gap-6 p-6 bg-brand-primary/5 rounded-3xl border border-brand-primary/10">
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = [...(formData.microbiologyResults || [])];
+                                    updated.splice(idx, 1);
+                                    setFormData({...formData, microbiologyResults: updated});
+                                  }}
+                                  className="absolute -top-2 -right-2 p-1.5 bg-white border border-rose-100 text-rose-500 rounded-full shadow-sm hover:bg-rose-50 transition-colors z-10"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                                
+                                <div className="space-y-1">
+                                   <label className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">Result Date</label>
+                                   <input 
+                                     type="date"
+                                     className="text-input border-brand-primary/20"
+                                     value={result.date}
+                                     onChange={e => {
+                                       const updated = [...(formData.microbiologyResults || [])];
+                                       updated[idx] = { ...updated[idx], date: e.target.value };
+                                       setFormData({...formData, microbiologyResults: updated});
+                                     }}
+                                   />
+                                </div>
+                                <div className="space-y-1">
+                                   <label className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">Specimen</label>
+                                   <select 
+                                     className="text-input border-brand-primary/20"
+                                     value={result.specimen}
+                                     onChange={e => {
+                                       const updated = [...(formData.microbiologyResults || [])];
+                                       updated[idx] = { ...updated[idx], specimen: e.target.value };
+                                       setFormData({...formData, microbiologyResults: updated});
+                                     }}
+                                   >
+                                     <option value="">Select Specimen...</option>
+                                     {CULTURE_SPECIMENS.map(s => <option key={s} value={s}>{s}</option>)}
+                                   </select>
+                                   {result.specimen === 'Others' && (
+                                      <input 
+                                        className="text-input mt-2 py-2 border-brand-primary/20"
+                                        placeholder="Specify specimen..."
+                                        value={result.otherSpecimen || ''}
+                                        onChange={e => {
+                                          const updated = [...(formData.microbiologyResults || [])];
+                                          updated[idx] = { ...updated[idx], otherSpecimen: e.target.value };
+                                          setFormData({...formData, microbiologyResults: updated});
+                                        }}
+                                      />
+                                   )}
+                                </div>
+                                <div className="space-y-1">
+                                   <label className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">Organism</label>
+                                   <select 
+                                     className="text-input border-brand-primary/20"
+                                     value={result.organism}
+                                     onChange={e => {
+                                       const updated = [...(formData.microbiologyResults || [])];
+                                       updated[idx] = { ...updated[idx], organism: e.target.value };
+                                       setFormData({...formData, microbiologyResults: updated});
+                                     }}
+                                   >
+                                     <option value="">Select Organism...</option>
+                                     {[
+                                       'Acinetobacter baumannii', 'Candida (specify species)', 'Clostridium difficile',
+                                       'Enterococcus faecium/faecalis', 'Escherichia coli', 'Enterobacteriaceae (other)',
+                                       'Haemophilus influenzae', 'Klebsiella pneumoniae', 'Neisseria gonorrhoeae',
+                                       'Pseudomonas aeruginosa', 'Salmonella (non‑typhoidal)', 'Salmonella typhi',
+                                       'Shigella spp.', 'Staphylococcus aureus', 'Streptococcus pneumoniae', 'Others (specify)'
+                                     ].map(o => <option key={o} value={o}>{o}</option>)}
+                                   </select>
+                                   {(result.organism === 'Others (specify)' || result.organism?.includes('(specify)')) && (
+                                      <input 
+                                        className="text-input mt-2 py-2 border-brand-primary/20"
+                                        placeholder="Specify organism..."
+                                        value={result.otherOrganism || ''}
+                                        onChange={e => {
+                                          const updated = [...(formData.microbiologyResults || [])];
+                                          updated[idx] = { ...updated[idx], otherOrganism: e.target.value };
+                                          setFormData({...formData, microbiologyResults: updated});
+                                        }}
+                                      />
+                                   )}
+                                </div>
+                                <div className="col-span-full space-y-1.5">
+                                   <label className="text-[10px] font-bold uppercase tracking-widest text-brand-primary">Resistance Pattern / Result <span className="text-rose-500">*</span></label>
+                                   <div className="flex flex-wrap gap-2">
+                                      {[
+                                        'MDR', 'XDR', 'PDR', 'ESBL', 'CRE', 
+                                        'Ampicillin‑resistant', 'Ceftriaxone‑resistant', 'Penicillin‑resistant', 
+                                        'Fluconazole‑resistant', 'Methicillin‑resistant (MRSA)', 'Vancomycin‑resistant (VRE)'
+                                      ].map(p => (
+                                        <button
+                                          key={p}
+                                          type="button"
+                                          onClick={() => {
+                                            const updated = [...(formData.microbiologyResults || [])];
+                                            updated[idx] = { ...updated[idx], resistancePattern: p };
+                                            setFormData({...formData, microbiologyResults: updated});
+                                          }}
+                                          className={cn(
+                                            "px-3 py-1.5 rounded-full text-[9px] font-bold uppercase tracking-widest transition-all",
+                                            result.resistancePattern === p ? "bg-brand-primary text-white shadow-sm" : "bg-white text-slate-400 border border-slate-200 hover:border-brand-primary/30"
+                                          )}
+                                        >
+                                          {p}
+                                        </button>
+                                      ))}
+                                      <input 
+                                        placeholder="Others..."
+                                        className="text-[9px] font-bold uppercase tracking-widest bg-white border border-slate-200 rounded-full px-3 py-1.5 outline-none focus:ring-1 focus:ring-brand-primary w-32"
+                                        value={result.otherResistance || ''}
+                                        onChange={e => {
+                                          const updated = [...(formData.microbiologyResults || [])];
+                                          updated[idx] = { ...updated[idx], otherResistance: e.target.value };
+                                          setFormData({...formData, microbiologyResults: updated});
+                                        }}
+                                      />
+                                   </div>
+                                </div>
+                              </div>
+                            ))}
+                            
+                            <button
+                              type="button"
+                              onClick={() => setFormData({
+                                ...formData,
+                                microbiologyResults: [
+                                  ...(formData.microbiologyResults || []),
+                                  { date: new Date().toISOString().split('T')[0], specimen: '', organism: '', resistancePattern: '' }
+                                ]
+                              })}
+                              className="w-full py-4 border-2 border-dashed border-brand-primary/20 rounded-2xl text-brand-primary/40 hover:border-brand-primary hover:text-brand-primary transition-all flex items-center justify-center gap-2 bg-brand-primary/5"
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span className="text-[10px] font-black uppercase tracking-widest">Add Culture Result</span>
+                            </button>
                           </div>
                         </motion.div>
                       )}
@@ -2017,7 +2384,7 @@ function AMSDashboard({ stats }: { stats: any }) {
           { label: 'Common Indication', value: stats.commonIndication, sub: 'Top Driver', icon: Fingerprint, color: 'text-indigo-500' },
           { label: 'Primary Infection Focus', value: stats.commonFocus, sub: 'Clinical Target', icon: Target, color: 'text-rose-500' },
           { label: 'Top Restricted Drug', value: stats.commonAntibiotic, sub: 'Most Prescribed', icon: FlaskConical, color: 'text-amber-500' },
-          { label: 'Top Unit', value: stats.wardWithMostRequests, sub: 'By Volume', icon: SteppedAreaChartIcon, color: 'text-teal-500' },
+          { label: 'Top Unit', value: stats.wardWithMostRequests, sub: 'By Volume', icon: BarChart, color: 'text-teal-500' },
           { label: 'Top Dept', value: stats.deptWithMostRequests, sub: 'By Volume', icon: LayoutDashboard, color: 'text-blue-500' },
         ].map((item, idx) => (
           <div key={idx} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-start gap-3">
@@ -2121,5 +2488,3 @@ function AMSDashboard({ stats }: { stats: any }) {
 }
 
 // Simple icons fallback
-function LayoutDashboard(props: any) { return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>; }
-function SteppedAreaChartIcon(props: any) { return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M7 15h4v3H7z"/><path d="M13 9h4v9h-4z"/></svg>; }

@@ -57,6 +57,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
   const [view, setView] = useState<'LIST' | 'FORM'>('LIST');
   const [reports, setReports] = useState<OutbreakReport[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [activeReport, setActiveReport] = useState<OutbreakReport | null>(null);
   const [selectedCaseIndex, setSelectedCaseIndex] = useState<number | null>(null);
 
@@ -494,114 +495,138 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
           )}
         </button>
       </div>
-
-      {view === 'LIST' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-4">
-             {reports.length === 0 ? (
-               <div className="p-20 text-center bg-white rounded-[3rem] border border-dashed border-slate-200">
-                  <AlertOctagon className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                  <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">No active outbreaks reported</p>
+        {view === 'LIST' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 space-y-4">
+               <div className="flex items-center gap-3 px-6 py-4 bg-white rounded-[2rem] border border-slate-100 shadow-sm focus-within:ring-2 focus-within:ring-brand-primary/20 transition-all">
+                  <Search className="w-5 h-5 text-slate-400" />
+                  <input 
+                    placeholder="Search unit, type, or reporter..." 
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="bg-transparent border-none text-xs font-bold w-full outline-none placeholder:text-slate-300"
+                  />
                </div>
-             ) : (
-               reports.map(report => (
-                 <motion.div
-                   key={report.id}
-                   layoutId={report.id}
-                   className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 hover:shadow-md transition-all group"
-                 >
-                   <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                         <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-brand-primary/5 group-hover:text-brand-primary transition-colors">
-                            <AlertTriangle className="w-6 h-6 text-rose-500" />
-                         </div>
-                         <div>
-                            <div className="flex items-center gap-2">
-                               <h3 className="font-black text-slate-900 uppercase tracking-tight">{(report.type || []).join(', ') || 'Unspecified Type'}</h3>
-                               <span className={cn("px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest", STATUS_COLORS[report.status])}>
-                                 {report.status}
-                               </span>
-                            </div>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Detected: {report.detectedAt} • {report.lineList?.length || 0} Cases</p>
-                         </div>
-                      </div>
-                       <div className="flex items-center gap-2">
-                          {(user?.role === 'ADMIN' || user?.role === 'IPCN' || (user?.uid === report.reporterId && report.status === 'Suspected')) && (
-                            <button 
-                              onClick={(e) => {
-                                 e.stopPropagation();
-                                 handleDelete(report.id!, report.reporterId, report.status);
-                               }}
-                              className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                              title="Delete Report"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                          <button 
-                            onClick={() => {
-                              setActiveReport(report);
-                              setFormData(report);
-                              setView('FORM');
-                            }}
-                            className="p-2 hover:bg-slate-50 rounded-xl transition-colors"
-                          >
-                             <ChevronRight className="w-5 h-5 text-slate-400 group-hover:translate-x-1 transition-transform" />
-                          </button>
-                           <button 
-                            onClick={(e) => {
-                               e.stopPropagation();
-                               generateReport(report);
-                            }}
-                            className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl transition-colors"
-                            title="Generate Final Report"
-                          >
-                             <Download className="w-5 h-5" />
-                          </button>
-                       </div>
-                   </div>
-                   
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-2xl">
-                       <div className="space-y-1">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Attack Rate</span>
-                          <p className="text-xs font-bold text-slate-700">{report.epidemiology?.attackRate || 'N/A'}</p>
-                       </div>
-                       <div className="space-y-1 sm:text-center sm:border-x border-slate-200 px-2 truncate">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Units</span>
-                          <p className="text-xs font-bold text-slate-700 truncate">{report.epidemiology?.unitsAffected || 'N/A'}</p>
-                       </div>
-                       <div className="space-y-1 sm:text-center">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Validation</span>
-                          <p className="text-[10px] font-black uppercase text-brand-primary">{report.validation?.decision || 'PENDING'}</p>
-                       </div>
-                       <div className="space-y-1 text-right">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Reporter</span>
-                          <p className="text-xs font-bold text-slate-700 truncate">{report.reportedBy}</p>
-                       </div>
-                    </div>
-                 </motion.div>
-               ))
-             )}
-          </div>
+               {(() => {
+                  const filtered = reports.filter(report => {
+                    const s = searchTerm.toLowerCase();
+                    return (
+                      (report.type || []).some(t => t.toLowerCase().includes(s)) ||
+                      (report.epidemiology?.unitsAffected?.toLowerCase().includes(s)) ||
+                      (report.reportedBy?.toLowerCase().includes(s)) ||
+                      (report.status?.toLowerCase().includes(s))
+                    );
+                  });
 
-          <div className="space-y-6">
-             <div className="p-8 bg-slate-900 rounded-[2.5rem] text-white shadow-xl shadow-slate-900/20">
-                <div className="flex items-center gap-3 mb-6">
-                   <Activity className="w-5 h-5 text-brand-primary" />
-                   <h3 className="font-black uppercase tracking-widest text-xs">Trigger Protocol</h3>
-                </div>
-                <div className="space-y-4">
-                   <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-                      <p className="text-[10px] text-brand-primary font-black uppercase tracking-widest mb-1">Standard Definition</p>
-                      <p className="text-xs text-white/70 leading-relaxed font-medium">A cluster is defined as ≥2 epidemiologically linked cases within a specific unit over 14 days.</p>
-                   </div>
-                   <p className="text-[10px] text-white/40 font-black uppercase tracking-widest text-center">Contact IPCU Immediately for Lab Alerts</p>
-                </div>
-             </div>
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="p-20 text-center bg-white rounded-[3rem] border border-dashed border-slate-200">
+                          <AlertOctagon className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                          <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">
+                            {searchTerm ? `No results for "${searchTerm}"` : 'No active outbreaks reported'}
+                          </p>
+                      </div>
+                    );
+                  }
+
+                  return filtered.map(report => (
+                    <motion.div
+                      key={report.id}
+                      layoutId={report.id}
+                      className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 hover:shadow-md transition-all group"
+                    >
+                      <div className="flex items-center justify-between mb-4">
+                         <div className="flex items-center gap-3">
+                            <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-brand-primary/5 group-hover:text-brand-primary transition-colors">
+                               <AlertTriangle className="w-6 h-6 text-rose-500" />
+                            </div>
+                            <div>
+                               <div className="flex items-center gap-2">
+                                  <h3 className="font-black text-slate-900 uppercase tracking-tight">{(report.type || []).join(', ') || 'Unspecified Type'}</h3>
+                                  <span className={cn("px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest", STATUS_COLORS[report.status])}>
+                                    {report.status}
+                                  </span>
+                               </div>
+                               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Detected: {report.detectedAt} • {report.lineList?.length || 0} Cases</p>
+                            </div>
+                         </div>
+                          <div className="flex items-center gap-2">
+                             {(user?.role === 'ADMIN' || user?.role === 'IPCN' || (user?.uid === report.reporterId && report.status === 'Suspected')) && (
+                               <button 
+                                 onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDelete(report.id!, report.reporterId, report.status);
+                                  }}
+                                 className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                 title="Delete Report"
+                                >
+                                 <Trash2 className="w-4 h-4" />
+                               </button>
+                             )}
+                             <button 
+                               onClick={() => {
+                                 setActiveReport(report);
+                                 setFormData(report);
+                                 setView('FORM');
+                               }}
+                               className="p-2 hover:bg-slate-50 rounded-xl transition-colors"
+                             >
+                                <ChevronRight className="w-5 h-5 text-slate-400 group-hover:translate-x-1 transition-transform" />
+                             </button>
+                              <button 
+                               onClick={(e) => {
+                                  e.stopPropagation();
+                                  generateReport(report);
+                               }}
+                               className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl transition-colors"
+                               title="Generate Final Report"
+                             >
+                                <Download className="w-5 h-5" />
+                             </button>
+                          </div>
+                      </div>
+                      
+                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-2xl">
+                          <div className="space-y-1">
+                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Attack Rate</span>
+                             <p className="text-xs font-bold text-slate-700">{report.epidemiology?.attackRate || 'N/A'}</p>
+                          </div>
+                          <div className="space-y-1 sm:text-center sm:border-x border-slate-200 px-2 truncate">
+                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Units</span>
+                             <p className="text-xs font-bold text-slate-700 truncate">{report.epidemiology?.unitsAffected || 'N/A'}</p>
+                          </div>
+                          <div className="space-y-1 sm:text-center">
+                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Validation</span>
+                             <p className="text-[10px] font-black uppercase text-brand-primary">{report.validation?.decision || 'PENDING'}</p>
+                          </div>
+                          <div className="space-y-1 text-right">
+                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Reporter</span>
+                             <p className="text-xs font-bold text-slate-700 truncate">{report.reportedBy}</p>
+                          </div>
+                       </div>
+                    </motion.div>
+                  ));
+               })()}
+            </div>
+
+            <div className="space-y-6">
+               <div className="p-8 bg-slate-900 rounded-[2.5rem] text-white shadow-xl shadow-slate-900/20">
+                  <div className="flex items-center gap-3 mb-6">
+                     <Activity className="w-5 h-5 text-brand-primary" />
+                     <h3 className="font-black uppercase tracking-widest text-xs">Trigger Protocol</h3>
+                  </div>
+                  <div className="space-y-4">
+                     <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                        <p className="text-[10px] text-brand-primary font-black uppercase tracking-widest mb-1">Standard Definition</p>
+                        <p className="text-xs text-white/70 leading-relaxed font-medium">A cluster is defined as ≥2 epidemiologically linked cases within a specific unit over 14 days.</p>
+                     </div>
+                     <p className="text-[10px] text-white/40 font-black uppercase tracking-widest text-center">Contact IPCU Immediately for Lab Alerts</p>
+                  </div>
+               </div>
+            </div>
           </div>
-        </div>
-      ) : (
-        <AnimatePresence>
+        ) : (
+          <AnimatePresence>
           <motion.form
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

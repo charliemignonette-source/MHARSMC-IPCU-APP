@@ -157,18 +157,26 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         return {
           ...common,
           'Request Type': d.type,
-          'Date Requested': d.date,
+          'Date Requested': d.date || d.dateTimeRequested || '',
           'Patient Name': d.patientName,
           'Hosp Number': d.hospNo,
-          'Unit': d.unit,
+          'Unit': d.unit || d.ward || '',
           'Drug Requested': d.antibiotic || d.antimicrobialsRequested?.join(', '),
           'Indication': d.indication || d.indicationForUse,
           'Diagnosis': d.diagnosis || d.infectiousDiagnosis,
           'Status': d.status,
           'Prescriber': d.prescriberName || d.prescriberEmail || d.prescriberId,
+          'Clinical Data': d.clinicalData || '',
+          'Lab Data': d.labData || '',
+          'Treatment Plan': d.treatmentPlan || '',
+          'Duration': d.durationOfTherapy || '',
+          'Justification': d.justification || '',
           'Decision Basis': d.overrideReason || d.remarks || '',
           'Reviewer': d.reviewerName || d.reviewerEmail || d.reviewerId || 'Pending',
-          'Reviewed At': d.reviewedAt || 'Pending'
+          'Reviewed At': d.reviewedAt || 'Pending',
+          'Pharmacist': d.pharmacistName || d.pharmacistId || 'N/A',
+          'Dispensed At': d.dispensedAt || 'N/A',
+          'Dispensing Remarks': d.dispensingRemarks || ''
         };
 
       case 'HAI':
@@ -182,10 +190,14 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           'Trigger Date': d.triggerDate,
           'Risk Level': d.riskLevel,
           'Status': d.status,
+          'Clinical Criteria': d.clinicalCriteria?.join('; ') || '',
+          'Lab Criteria': d.labCriteria?.join('; ') || '',
+          'Bundle Invariants': d.bundleIssues || '',
+          'Clinical Summary': d.clinicalIssues || '',
+          'Lab Summary': d.labIssues || '',
           'Validator': d.validatorName || 'Pending',
           'Decision Note': d.decisionNote || '',
-          'Validated At': d.validatedAt || 'Pending',
-          'Invariants Found': [d.bundleIssues, d.clinicalIssues, d.labIssues].filter(Boolean).join('; ')
+          'Validated At': d.validatedAt || 'Pending'
         };
 
       case 'NSI':
@@ -193,15 +205,22 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         return {
           ...common,
           'Incident Date': d.incident?.date,
+          'Incident Time': d.incident?.time,
           'Exposure Type': d.incident?.exposureType,
+          'Category': d.incident?.category,
           'Device': d.incident?.deviceInvolved,
+          'Device Safety': d.incident?.safetyDevice ? 'YES' : 'NO',
           'Activity': d.incident?.activity,
-          'Staff Name': d.staff?.name || d.reporterName || d.reporterEmail,
           'Unit': d.incident?.unit,
+          'Department': d.staff?.department || '',
+          'Designation': d.staff?.designation || '',
+          'Staff Name': d.staff?.name || d.reporterName || d.reporterEmail,
+          'Outcome': d.outcome || '',
           'Status': d.status,
           'IPCU Decision': d.validation?.decision || 'Pending',
           'Classification': d.validation?.classification || '',
           'Root Causes': (d.validation?.rootCauses || []).join('; '),
+          'Corrective Actions': (d.validation?.correctiveActions || []).join('; '),
           'Validator': d.validation?.validatorName || d.validation?.validatorId || 'Pending',
           'Validated At': d.validation?.validatedAt?.toDate ? d.validation.validatedAt.toDate().toLocaleString() : 'Pending'
         };
@@ -211,11 +230,24 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         return {
           ...common,
           'Detected At': d.detectedAt,
+          'Detected Time': d.detectedTime,
+          'Type': (d.type || []).join(', '),
+          'Reporting Source': (d.reportingSrc || []).join(', '),
+          'Trigger Criteria': (d.triggerCriteria || []).join(', '),
           'Status': d.status,
+          'Index Case': d.epidemiology?.indexCase || '',
           'Affected Units': d.epidemiology?.unitsAffected,
           'Total Cases': d.epidemiology?.totalCases,
+          'Attack Rate (%)': d.epidemiology?.attackRate || '',
+          'Transmission Mode': (d.epidemiology?.transmissionMode || []).join(', '),
+          'Control Measures': (d.controlMeasures?.actions || []).join(', '),
+          'Lab Findings': d.findings?.labAlerts?.organism || '',
+          'Resistance Pattern': d.findings?.labAlerts?.resistancePattern || '',
+          'Environmental Swabbing': d.findings?.envSwabbing?.done ? 'YES' : 'NO',
           'Reporter': d.reportedBy || d.reporterEmail || 'System',
-          'Confirmed By': d.validation?.validatorName || 'Pending',
+          'Conclusion': d.conclusion || '',
+          'Recommendations': d.recommendations || '',
+          'Investigation Team': (d.investigationTeam || []).join('; '),
           'Validation Decision': d.validation?.decision || ''
         };
 
