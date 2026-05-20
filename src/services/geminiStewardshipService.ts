@@ -37,17 +37,18 @@ export async function getGeminiStewardshipAnalysis(req: Partial<AMSRequest>, uni
     ${JSON.stringify(INSTITUTIONAL_ANTIBIOGRAM_DATA)}
     
     TASK:
-    1. Assess the appropriateness of the requested antibiotic based on the diagnosis and focus.
-    2. Check for potential resistance risks using the local antibiogram data for the specific unit (${unit}).
-    3. Suggest any adjustments to the dosing based on patient's renal/hepatic function (if applicable).
-    4. Provide a clear "ACTION" or "WARNING" if something looks clinically risky.
-    
-    Keep the response concise (max 200 words), professional, and formatted with bullet points/emojis as in the existing system.
+    1. APPROPRIATENESS: Evaluate if the requested drug/dose matches the likely pathogens for the specified focus and diagnosis.
+    2. RESISTANCE/LOCAL DATA: Cross-reference with the provided local antibiogram data for the specific unit (${unit}). Alert if the empirical choice covers <80% of local strains.
+    3. PHARMACOKINETICS: Critically evaluate the specific mg/kg dosing and interval. Recommend precise dose adjustments based strictly on the provided CrCl (${req.creatinineClearance} mL/min) and body weight (${req.weight} kg).
+    4. DE-ESCALATION: Suggest step-down/narrow-spectrum alternatives if appropriate, especially if cultures are negative or pending.
+    5. INTERVENTION: Conclude with a clear, definitive "APPROVED", "DENIED", or "MODIFY" recommendation for the AMS committee.
+
+    Format the response using clear markdown, robust medical terminology, and emojis for quick visual parsing (e.g., ⚠️ for warnings, ✅ for safe choices). Keep it extremely concise but highly actionable (max 300 words).
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-pro-preview",
       contents: [{ parts: [{ text: prompt }] }],
     });
 

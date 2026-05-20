@@ -65,6 +65,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
   const [selectedPatient, setSelectedPatient] = useState<BundleMonitoring | null>(null);
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [isAddingDay, setIsAddingDay] = useState(false);
+  const [isAddingDeviceToPatient, setIsAddingDeviceToPatient] = useState(false);
   const [isEndingMonitoring, setIsEndingMonitoring] = useState(false);
 
   const calculateCompliance = (day: MonitoringDay) => {
@@ -113,6 +114,13 @@ export default function HAI({ user }: { user: UserProfile | null }) {
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | null } | null>(null);
   const [selectedDayToVerify, setSelectedDayToVerify] = useState<{ patient: BundleMonitoring, day: any, index: number } | null>(null);
   const [isVerifyingDay, setIsVerifyingDay] = useState(false);
+
+  useEffect(() => {
+    if (selectedPatient) {
+      const fresh = monitorings.find(m => m.id === selectedPatient.id);
+      if (fresh) setSelectedPatient(fresh);
+    }
+  }, [monitorings]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -781,10 +789,10 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                                 {day.possibleHAI && (
                                   <span className="px-1.5 py-0.5 bg-rose-50 text-rose-600 [font-size:8px] font-black uppercase rounded border border-rose-100">{day.triggerReason || 'Manual Flag'}</span>
                                 )}
-                                {Object.entries(day.clinicalCriteria || {}).filter(([_, v]) => v === true).map(([k]) => (
+                                {Object.entries(day.clinicalCriteria || {}).filter(([_, v]) => v === true || v === 'Present').map(([k]) => (
                                   <span key={k} className="px-1.5 py-0.5 bg-amber-50 text-amber-600 [font-size:8px] font-black uppercase rounded border border-amber-100">{k}</span>
                                 ))}
-                                {!day.possibleHAI && Object.values(day.clinicalCriteria || {}).every(v => v !== true) && <span className="text-[8px] font-bold text-slate-300 uppercase">Negative</span>}
+                                {!day.possibleHAI && Object.values(day.clinicalCriteria || {}).every(v => v !== true && v !== 'Present') && <span className="text-[8px] font-bold text-slate-300 uppercase">Negative</span>}
                              </div>
                           </td>
                           <td className="px-6 py-4 text-right">
@@ -1081,6 +1089,15 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                            </p>
                            <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-tighter">Avg Daily</p>
                          </div>
+                         {selectedPatient.status === 'ACTIVE' && (
+                           <button 
+                             onClick={() => setIsAddingDeviceToPatient(true)}
+                             className="p-4 bg-teal-500/10 hover:bg-teal-500 text-teal-500 hover:text-white border border-teal-500/20 rounded-2xl transition-all group"
+                             title="Add New Device"
+                           >
+                             <Plus className="w-5 h-5" />
+                           </button>
+                         )}
                          {selectedPatient.status === 'ACTIVE' ? (
                            isAdmin && (
                              <button 
@@ -1323,13 +1340,13 @@ export default function HAI({ user }: { user: UserProfile | null }) {
               }));
 
               // Trigger HAI case if clinical criteria are present OR manually flagged
-              const hasSigns = Object.values(day.clinicalCriteria || {}).some(v => v === true);
+              const hasSigns = Object.values(day.clinicalCriteria || {}).some(v => v === true || v === 'Present');
               if (hasSigns || day.possibleHAI) {
                 const patientHistory = updatedDays.filter(d => !d.missedDay);
                 const totalDays = patientHistory.length;
                 
                 const manualCriteria = day.possibleHAI ? [day.triggerReason || 'Manual Flag'] : [];
-                const clinicalCriteriaList = Object.entries(day.clinicalCriteria || {}).filter(([_, v]) => v === true).map(([k]) => k);
+                const clinicalCriteriaList = Object.entries(day.clinicalCriteria || {}).filter(([_, v]) => v === true || v === 'Present').map(([k]) => k);
                 const allCriteria = Array.from(new Set([...manualCriteria, ...clinicalCriteriaList]));
 
                 await addDoc(collection(db, 'hai_cases'), removeUndefined({
@@ -1392,6 +1409,14 @@ export default function HAI({ user }: { user: UserProfile | null }) {
               handleFirestoreError(err, OperationType.UPDATE, 'bundle_monitorings');
             }
           }}
+        />
+      )}
+
+      {isAddingDeviceToPatient && selectedPatient && (
+        <AddDeviceToPatientModal
+          onClose={() => setIsAddingDeviceToPatient(false)}
+          patient={selectedPatient}
+          showToast={showToast}
         />
       )}
 
@@ -1883,7 +1908,7 @@ function SurveillanceModal({ onClose, formData, setFormData, onSubmit }: any) {
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Patient Name</label>
                     <input placeholder="Full Name" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold outline-none" value={formData.patientName} onChange={e => setFormData({...formData, patientName: e.target.value})} />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Hosp #</label>
                       <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold outline-none" value={formData.hospNo} onChange={e => setFormData({...formData, hospNo: e.target.value})} />
@@ -1893,6 +1918,10 @@ function SurveillanceModal({ onClose, formData, setFormData, onSubmit }: any) {
                       <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold outline-none" value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})}>
                         {UNITS.map(u => <option key={u}>{u}</option>)}
                       </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Bed/Room</label>
+                      <input placeholder="e.g. 1A" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold outline-none" value={formData.bedNumber || ''} onChange={e => setFormData({...formData, bedNumber: e.target.value})} />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -2057,11 +2086,15 @@ function BundleModal({ onClose, formData, setFormData, onSubmit }: any) {
                   <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Time</label>
                   <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.time} onChange={e => setFormData({...formData, time: e.target.value})} />
                </div>
-               <div className="space-y-1.5 md:col-span-2">
+               <div className="space-y-1.5 md:col-span-1">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Unit / Ward</label>
                   <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})}>
                     {UNITS.map(u => <option key={u}>{u}</option>)}
                   </select>
+               </div>
+               <div className="space-y-1.5 md:col-span-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Bed/Room</label>
+                  <input placeholder="e.g. 1A" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={formData.bedNumber || ''} onChange={e => setFormData({...formData, bedNumber: e.target.value})} />
                </div>
                <div className="space-y-1.5 md:col-span-2">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Patient Name</label>
@@ -2532,10 +2565,14 @@ function MonitoringDayValidationModal({ onClose, patient, day, dayIndex, onSubmi
                    {Object.entries(day.clinicalCriteria || {}).map(([key, val]) => (
                       <div key={key} className={cn(
                         "flex items-center justify-between p-2.5 rounded-xl border transition-all",
-                        val ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-white border-slate-100 text-slate-300"
+                        (val === true || val === 'Present') ? "bg-amber-50 border-amber-200 text-amber-700" : 
+                        val === 'No Entry' ? "bg-rose-50 border-rose-200 text-rose-700" : 
+                        "bg-white border-slate-100 text-slate-400"
                       )}>
-                        <span className="text-[9px] font-black uppercase tracking-tight truncate">{key}</span>
-                        <div className={cn("w-2 h-2 rounded-full", val ? "bg-amber-500" : "bg-slate-200")} />
+                        <span className="text-[9px] font-black uppercase tracking-tight truncate flex-1">{key}</span>
+                        {(val === true || val === 'Present') ? <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-amber-200 rounded text-amber-800 ml-2">Present</span> :
+                         (val === false || val === 'Absent') ? <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-slate-100 rounded text-slate-500 ml-2">Absent</span> :
+                         <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 bg-rose-200 rounded text-rose-800 ml-2">No Entry</span>}
                       </div>
                    ))}
                 </div>
@@ -2875,7 +2912,7 @@ function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: Bundl
 
   const getBundleItems = () => {
     if (selectedBundleType === 'CLABSI') {
-      if (selectedSubtype === 'Insertion') return CLABSI_DETAILED_BUNDLES.INSERTION;
+      if (selectedSubtype === 'Insertion') return isPedia ? CLABSI_DETAILED_BUNDLES.INSERTION_PEDIA : CLABSI_DETAILED_BUNDLES.INSERTION_ADULT;
       return isPedia ? CLABSI_DETAILED_BUNDLES.MAINTENANCE_PEDIA : CLABSI_DETAILED_BUNDLES.MAINTENANCE_ADULT;
     }
     if (selectedBundleType === 'CAUTI') return isPedia ? CAUTI_BUNDLES.PEDIA : CAUTI_BUNDLES.ADULT;
@@ -3099,9 +3136,10 @@ function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: Bundl
                         {clinicalItems.map(item => (
                           <div key={item} className="flex flex-col bg-white p-3 rounded-2xl border border-slate-100 shadow-sm">
                              <span className="text-[9px] font-bold text-slate-700 leading-tight mb-2 min-h-[2.5em]">{item}</span>
-                             <div className="flex gap-2">
-                                <button type="button" onClick={() => setClinicalCriteria({...clinicalCriteria, [item]: true})} className={cn("flex-1 py-1 text-[8px] font-black rounded-lg transition-all uppercase", clinicalCriteria[item] === true ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-400")}>Present</button>
-                                <button type="button" onClick={() => setClinicalCriteria({...clinicalCriteria, [item]: false})} className={cn("flex-1 py-1 text-[8px] font-black rounded-lg transition-all uppercase", clinicalCriteria[item] === false ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-400")}>Absent</button>
+                             <div className="flex gap-1.5 flex-wrap">
+                                <button type="button" onClick={() => setClinicalCriteria({...clinicalCriteria, [item]: 'Present'})} className={cn("flex-1 py-1 px-1.5 text-[8px] font-black rounded-lg transition-all uppercase whitespace-nowrap", (clinicalCriteria[item] === true || clinicalCriteria[item] === 'Present') ? "bg-amber-500 text-white shadow-lg" : "bg-slate-100 text-slate-400 hover:bg-slate-200")}>Present</button>
+                                <button type="button" onClick={() => setClinicalCriteria({...clinicalCriteria, [item]: 'Absent'})} className={cn("flex-1 py-1 px-1.5 text-[8px] font-black rounded-lg transition-all uppercase whitespace-nowrap", (clinicalCriteria[item] === false || clinicalCriteria[item] === 'Absent') ? "bg-slate-700 text-white shadow-lg" : "bg-slate-100 text-slate-400 hover:bg-slate-200")}>Absent</button>
+                                <button type="button" onClick={() => setClinicalCriteria({...clinicalCriteria, [item]: 'No Entry'})} className={cn("flex-1 py-1 px-1.5 text-[8px] font-black rounded-lg transition-all uppercase whitespace-nowrap", clinicalCriteria[item] === 'No Entry' ? "bg-rose-500 text-white shadow-lg" : "bg-slate-100 text-slate-400 hover:bg-slate-200")}>No Entry</button>
                              </div>
                           </div>
                         ))}
@@ -3216,6 +3254,161 @@ function RateTile({ label, rate, unit, baseline }: { label: string, rate: number
           <div className="text-[8px] font-bold uppercase tracking-tight text-slate-400 mb-1">{unit}</div>
           <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Baseline: {baseline}</div>
        </div>
+    </div>
+  );
+}
+
+function AddDeviceToPatientModal({ onClose, patient, showToast }: { onClose: () => void, patient: BundleMonitoring, showToast: any }) {
+  const [form, setForm] = useState<any>({
+    clabsi: false, cauti: false, vap: false, ssi: false,
+    clabsiType: '', clabsiDate: '',
+    cautiType: '', cautiDate: '',
+    vapType: '', vapDate: '',
+    ssiType: '', ssiDate: ''
+  });
+  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    
+    const devices = { ...(patient.devices || {}) };
+    let surgery = patient.surgery;
+
+    if (form.clabsi) devices.clabsi = { type: form.clabsiType || 'Central Line', insertionDate: form.clabsiDate || new Date().toISOString().split('T')[0] };
+    if (form.cauti) devices.cauti = { type: form.cautiType || 'Foley Catheter', insertionDate: form.cautiDate || new Date().toISOString().split('T')[0] };
+    if (form.vap) devices.vap = { type: form.vapType || 'Endotracheal Tube', intubationDate: form.vapDate || new Date().toISOString().split('T')[0] };
+    if (form.ssi) surgery = { type: form.ssiType || 'Surgery', startDate: form.ssiDate || new Date().toISOString().split('T')[0] };
+
+    try {
+      await updateDoc(doc(db, 'bundle_monitorings', patient.id!), removeUndefined({
+        devices,
+        surgery,
+        updatedAt: serverTimestamp()
+      }));
+      showToast('Devices successfully added to patient');
+      onClose();
+    } catch(err) {
+      console.error(err);
+      showToast('Error saving new devices', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/10 backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="p-6 bg-slate-900 flex justify-between items-center text-white">
+          <div>
+            <h3 className="font-bold uppercase tracking-tight">Add New Device / Monitor</h3>
+            <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase">For {patient.patientName}</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white"><XCircle className="w-6 h-6" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+          {/* CLABSI */}
+          <div className="p-4 border border-slate-200 rounded-2xl bg-slate-50 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-900">CLABSI / Central Line</span>
+              {patient.devices?.clabsi ? (
+                <span className="text-[10px] bg-teal-100 text-teal-700 px-2 py-1 rounded-full font-bold uppercase">Already Active</span>
+              ) : (
+                <input type="checkbox" className="w-4 h-4" checked={form.clabsi} onChange={e => setForm({...form, clabsi: e.target.checked})} />
+              )}
+            </div>
+            {form.clabsi && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Device Type</label>
+                  <input type="text" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs" value={form.clabsiType} onChange={e => setForm({...form, clabsiType: e.target.value})} placeholder="e.g. IJ Line" required />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Insertion Date</label>
+                  <input type="date" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs" value={form.clabsiDate} onChange={e => setForm({...form, clabsiDate: e.target.value})} required />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* CAUTI */}
+          <div className="p-4 border border-slate-200 rounded-2xl bg-slate-50 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-900">CAUTI / Foley Catheter</span>
+              {patient.devices?.cauti ? (
+                <span className="text-[10px] bg-teal-100 text-teal-700 px-2 py-1 rounded-full font-bold uppercase">Already Active</span>
+              ) : (
+                <input type="checkbox" className="w-4 h-4" checked={form.cauti} onChange={e => setForm({...form, cauti: e.target.checked})} />
+              )}
+            </div>
+            {form.cauti && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Device Type</label>
+                  <input type="text" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs" value={form.cautiType} onChange={e => setForm({...form, cautiType: e.target.value})} placeholder="e.g. Silicone Foley" required />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Insertion Date</label>
+                  <input type="date" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs" value={form.cautiDate} onChange={e => setForm({...form, cautiDate: e.target.value})} required />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* VAP */}
+          <div className="p-4 border border-slate-200 rounded-2xl bg-slate-50 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-900">VAP / Ventilator</span>
+              {patient.devices?.vap ? (
+                <span className="text-[10px] bg-teal-100 text-teal-700 px-2 py-1 rounded-full font-bold uppercase">Already Active</span>
+              ) : (
+                <input type="checkbox" className="w-4 h-4" checked={form.vap} onChange={e => setForm({...form, vap: e.target.checked})} />
+              )}
+            </div>
+            {form.vap && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Intubation Method</label>
+                  <input type="text" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs" value={form.vapType} onChange={e => setForm({...form, vapType: e.target.value})} placeholder="e.g. ET Tube" required />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Intubation Date</label>
+                  <input type="date" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs" value={form.vapDate} onChange={e => setForm({...form, vapDate: e.target.value})} required />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* SSI */}
+          <div className="p-4 border border-slate-200 rounded-2xl bg-slate-50 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-900">SSI / Surgery</span>
+              {patient.surgery ? (
+                <span className="text-[10px] bg-teal-100 text-teal-700 px-2 py-1 rounded-full font-bold uppercase">Already Active</span>
+              ) : (
+                <input type="checkbox" className="w-4 h-4" checked={form.ssi} onChange={e => setForm({...form, ssi: e.target.checked})} />
+              )}
+            </div>
+            {form.ssi && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Procedure Type</label>
+                  <input type="text" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs" value={form.ssiType} onChange={e => setForm({...form, ssiType: e.target.value})} placeholder="e.g. Appendectomy" required />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Procedure Date</label>
+                  <input type="date" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs" value={form.ssiDate} onChange={e => setForm({...form, ssiDate: e.target.value})} required />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button type="submit" disabled={isSubmitting} className="w-full py-4 bg-teal-600 text-white rounded-xl font-black uppercase tracking-widest active:scale-95 transition-all text-xs">
+            {isSubmitting ? 'Saving...' : 'Add Selected Devices'}
+          </button>
+        </form>
+      </motion.div>
     </div>
   );
 }

@@ -66,6 +66,7 @@ export default function NSI({ user }: NSIProps) {
       date: new Date().toISOString().split('T')[0],
       time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
       unit: user?.unit || UNITS[0],
+      bedNumber: '',
       exposureType: 'Needle-stick' as NSIExposureType,
       exposureOther: '',
       deviceInvolved: 'Hollow-bore needle' as NSIDevice,
@@ -123,11 +124,17 @@ export default function NSI({ user }: NSIProps) {
     if (isValidator) {
       q = query(baseQuery, orderBy('createdAt', 'desc'));
     } else {
-      q = query(baseQuery, where('reporterId', '==', user.uid), orderBy('createdAt', 'desc'));
+      q = query(baseQuery, where('reporterId', '==', user.uid));
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NSIReport)));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NSIReport));
+      const sortedData = data.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+      setReports(sortedData);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'nsi_reports');
     });
@@ -336,6 +343,15 @@ export default function NSI({ user }: NSIProps) {
                     >
                       {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400">Bed / Room Location</label>
+                    <input 
+                      placeholder="e.g. 1A, Bed 3"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-rose-500"
+                      value={formData.incident.bedNumber}
+                      onChange={e => setFormData({...formData, incident: {...formData.incident, bedNumber: e.target.value}})}
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

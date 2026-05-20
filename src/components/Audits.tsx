@@ -733,15 +733,26 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                   </div>
 
                   <div className="space-y-6">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Target Location</label>
-                      <select 
-                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-brand-primary outline-none appearance-none"
-                        value={formData.unit || ''}
-                        onChange={(e) => setFormData({...formData, unit: e.target.value})}
-                      >
-                        {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                      </select>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Target Location</label>
+                        <select 
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-brand-primary outline-none appearance-none"
+                          value={formData.unit || ''}
+                          onChange={(e) => setFormData({...formData, unit: e.target.value})}
+                        >
+                          {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Bed / Room Location</label>
+                        <input 
+                          placeholder="e.g. 1A, Bed 3"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-brand-primary outline-none"
+                          value={formData.bedNumber || ''}
+                          onChange={(e) => setFormData({...formData, bedNumber: e.target.value})}
+                        />
+                      </div>
                     </div>
 
                     {selectedType === 'HH_AVAILABILITY' ? (
@@ -1442,18 +1453,19 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                             />
                           </div>
                         </div>
-
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Field Summary</label>
-                          <textarea 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-medium h-28 resize-none focus:ring-2 focus:ring-brand-primary outline-none"
-                            placeholder="Note any specific deviations..."
-                            value={formData.remarks || ''}
-                            onChange={(e) => setFormData({...formData, remarks: e.target.value})}
-                          ></textarea>
-                        </div>
                       </div>
                     )}
+                    
+                    {/* Universal Remarks Space */}
+                    <div className="space-y-1.5 mt-8 border-t border-slate-100 pt-6">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">General Remarks / Notes</label>
+                      <textarea 
+                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-medium h-28 resize-none focus:ring-2 focus:ring-brand-primary outline-none text-slate-700"
+                        placeholder="Add any specific deviations, notes, or remarks..."
+                        value={formData.remarks || ''}
+                        onChange={(e) => setFormData({...formData, remarks: e.target.value})}
+                      ></textarea>
+                    </div>
                   </div>
                 </div>
               </div>

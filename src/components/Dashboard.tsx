@@ -35,7 +35,7 @@ const amsTrends = [
 ];
 
 export default function Dashboard({ user, onNavigate }: { user: UserProfile | null, onNavigate?: (tab: string) => void }) {
-  const [activeTab, setActiveTab] = useState<'OVERALL' | 'CLABSI' | 'CAUTI' | 'VAP' | 'SSI' | 'IPCU' | 'AUDITS' | 'AMS_SAFETY'>('OVERALL');
+  const [activeTab, setActiveTab] = useState<'OVERALL' | 'CLABSI' | 'CAUTI' | 'VAP' | 'SSI' | 'IPCU' | 'AUDITS' | 'AMS' | 'SAFETY'>('OVERALL');
   const [rawLogs, setRawLogs] = useState<{
     boc: BOCLog[];
     ams: any[];
@@ -427,7 +427,7 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
         {[
           { id: 'validation', dashboardTab: 'IPCU', label: 'IPC Validation', color: 'bg-indigo-600', icon: ShieldCheck, desc: 'Daily Bundle Audits' },
           { id: 'antibiogram', dashboardTab: 'OVERALL', label: 'Antibiogram', color: 'bg-emerald-600', icon: Database, desc: 'Resistance Patterns 2025' },
-          { id: 'ams', dashboardTab: 'AMS_SAFETY', label: 'Antimicrobial Stewardship', color: 'bg-teal-600', icon: FlaskConical, desc: 'Drug Request Console' },
+          { id: 'ams', dashboardTab: 'AMS', label: 'Antimicrobial Stewardship', color: 'bg-teal-600', icon: FlaskConical, desc: 'Drug Request Console' },
           { id: 'audits', dashboardTab: 'AUDITS', label: 'IPC Audits', color: 'bg-amber-600', icon: ClipboardCheck, desc: 'HH & PPE Compliance' }
         ].map((tile) => (
           <button
@@ -466,8 +466,9 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
               { id: 'CAUTI', label: 'CAUTI' },
               { id: 'VAP', label: 'VAP' },
               { id: 'SSI', label: 'SSI' },
-              { id: 'AUDITS', label: 'HH' },
-              { id: 'AMS_SAFETY', label: 'Safety' },
+              { id: 'AUDITS', label: 'IPC' },
+              { id: 'AMS', label: 'AMS' },
+              { id: 'SAFETY', label: 'Safety' },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -780,8 +781,10 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
         <VerificationDashboard stats={stats} />
       ) : activeTab === 'AUDITS' ? (
         <AuditsDashboard stats={stats} />
-      ) : activeTab === 'AMS_SAFETY' ? (
-        <AmsSafetyDashboard stats={stats} />
+      ) : activeTab === 'AMS' ? (
+        <AmsDashboard stats={stats} />
+      ) : activeTab === 'SAFETY' ? (
+        <SafetyDashboard stats={stats} />
       ) : (
         <DeviceSpecificDashboard type={activeTab} stats={stats} />
       )}
@@ -889,7 +892,7 @@ function AuditsDashboard({ stats }: any) {
   );
 }
 
-function AmsSafetyDashboard({ stats }: any) {
+function AmsDashboard({ stats }: any) {
   return (
     <div className="space-y-6">
        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -920,6 +923,15 @@ function AmsSafetyDashboard({ stats }: any) {
                 </ResponsiveContainer>
              </div>
           </div>
+       </div>
+    </div>
+  );
+}
+
+function SafetyDashboard({ stats }: any) {
+  return (
+    <div className="space-y-6">
+       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bento-card p-6 bg-rose-600 text-white md:col-span-2">
              <h4 className="text-[10px] font-black uppercase tracking-widest text-rose-100 mb-6">Workplace Safety Incidents</h4>
              <div className="flex items-baseline gap-4 mb-8">

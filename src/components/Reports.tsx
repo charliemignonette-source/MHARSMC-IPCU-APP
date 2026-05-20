@@ -2,15 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { 
   FileText, Download, Calendar, Filter, 
   CheckCircle2, FileSpreadsheet, Loader2,
-  Activity, ClipboardCheck, AlertTriangle, Stethoscope, ShieldAlert
+  Activity, ClipboardCheck, AlertTriangle, Stethoscope, ShieldAlert,
+  Building2
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { collection, query, getDocs, where, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserProfile } from '../types';
 import { cn } from '../lib/utils';
+import { UNITS } from '../constants';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
-type ReportType = 'COMPLIANCE' | 'AUDITS' | 'AMS' | 'HAI' | 'NSI' | 'OUTBREAK' | 'CLINICAL_SYSTEMS';
+type ReportType = 'COMPLIANCE' | 'AUDITS' | 'AMS' | 'HAI' | 'NSI' | 'OUTBREAK' | 'CLINICAL_SYSTEMS' | 'WARD_SUMMARY';
 type TimeFrame = 'DAILY' | 'MONTHLY' | 'ALL_TIME';
 
 export default function Reports({ user }: { user: UserProfile | null }) {
@@ -18,11 +22,13 @@ export default function Reports({ user }: { user: UserProfile | null }) {
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('MONTHLY');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedMonth, setSelectedMonth] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
+  const [selectedWard, setSelectedWard] = useState<string>(UNITS[0]);
   const [isExporting, setIsExporting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   const reportOptions = [
     { id: 'CLINICAL_SYSTEMS', label: 'Systems Integrity Report', icon: FileSpreadsheet, description: 'Consolidated Audits, Bundles, & HAI Cases for holistic oversight' },
+    { id: 'WARD_SUMMARY', label: 'Ward/Location Monthly Summary', icon: Building2, description: 'Comparative monthly scorecard per unit (PDF)' },
     { id: 'COMPLIANCE', label: 'Bundle Compliance', icon: Activity, description: 'CLABSI, CAUTI, VAP, SSI bundles' },
     { id: 'AUDITS', label: 'IPC Audits', icon: ClipboardCheck, description: 'Hand HH, PPE, and Environmental adherence logs' },
     { id: 'AMS', label: 'Antimicrobial Stewardship', icon: Stethoscope, description: 'Antibiotic requests & approvals' },
@@ -320,6 +326,183 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         return querySnapshot.docs.map(doc => ({ id: doc.id, __source: collName, ...doc.data() as any }));
       };
 
+      if (reportType === 'WARD_SUMMARY') {
+        const [audits, bocLogs, amsRequests, haiCases, nsiReports] = await Promise.all([
+          fetchCollectionData('audits', 'createdAt'),
+          fetchCollectionData('boc_logs', 'date'),
+          fetchCollectionData('ams_requests', 'dateTimeRequested'),
+          fetchCollectionData('hai_cases', 'createdAt'),
+          fetchCollectionData('nsi_reports', 'reportedAt')
+        ]);
+        
+        const calcStats = (data: any[], type: string, ward: string | null) => {
+          let subset = data;
+          if (ward) {
+             subset = data.filter(d => {
+               const u = d.unit || d.ward || (d.incident?.unit) || (d.epidemiology?.unitsAffected?.[0]) || '';
+               return u === ward;
+             });
+          }
+          
+          if (type.startsWith('AUDIT_TYPE:')) {
+            const auditType = type.split(':')[1];
+            const valid = subset.filter(d => d.total > 0 && d.type === auditType);
+            if (!valid.length) return { score: 'N/A', raw: -1 };
+            const avg = valid.reduce((acc, curr) => acc + (curr.score / curr.total), 0) / valid.length;
+            return { score: (avg * 100).toFixed(1) + '%', raw: avg * 100 };
+          }
+          if (type === 'AUDITS_ALL') {
+            const valid = subset.filter(d => d.total > 0);
+            if (!valid.length) return { score: 'N/A', raw: -1 };
+            const avg = valid.reduce((acc, curr) => acc + (curr.score / curr.total), 0) / valid.length;
+            return { score: (avg * 100).toFixed(1) + '%', raw: avg * 100 };
+          }
+          if (type === 'BUNDLE') {
+            if (!subset.length) return { score: 'N/A', raw: -1 };
+            const avg = subset.reduce((acc, curr) => acc + (curr.compliancePercentage || 0), 0) / subset.length;
+            return { score: avg.toFixed(1) + '%', raw: avg };
+          }
+          if (type === 'AMS') {
+            const approved = subset.filter(d => d.status === 'APPROVED');
+            return { score: `${approved.length} / ${subset.length}`, raw: subset.length };
+          }
+          if (type === 'HAI') {
+            return { score: `${subset.length}`, raw: subset.length };
+          }
+          if (type === 'NSI') {
+            return { score: `${subset.length}`, raw: subset.length };
+          }
+          return { score: 'N/A', raw: -1 };
+        };
+
+        const wardStatsDefinitions = [
+          { metric: 'Overall IPC Audit Avg', type: 'AUDITS_ALL', isPercent: true },
+          { metric: '   Hand Hygiene Compliance', type: 'AUDIT_TYPE:HH_COMPLIANCE', isPercent: true },
+          { metric: '   Hand Hygiene Availability', type: 'AUDIT_TYPE:HH_AVAILABILITY', isPercent: true },
+          { metric: '   PPE Compliance', type: 'AUDIT_TYPE:PPE_COMPLIANCE', isPercent: true },
+          { metric: '   PPE Availability', type: 'AUDIT_TYPE:PPE_AVAILABILITY', isPercent: true },
+          { metric: '   Environmental Cleaning', type: 'AUDIT_TYPE:ENV_CLEANING', isPercent: true },
+          { metric: '   Safe Injections', type: 'AUDIT_TYPE:SAFE_INJECTION', isPercent: true },
+          { metric: 'Device Bundle Compliance', type: 'BUNDLE', isPercent: true },
+          { metric: 'AMS Approvals / Requests', type: 'AMS', isPercent: false },
+          { metric: 'Reported HAI Cases', type: 'HAI', isPercent: false },
+          { metric: 'Reported NSI Cases', type: 'NSI', isPercent: false }
+        ];
+
+        // We will store pure objects to pass to autoTable and also render custom bars
+        const wardStatsData = wardStatsDefinitions.map(m => {
+           let dataRef: any[] = [];
+           if (m.type.startsWith('AUDIT_TYPE:') || m.type === 'AUDITS_ALL') dataRef = audits;
+           if (m.type === 'BUNDLE') dataRef = bocLogs;
+           if (m.type === 'AMS') dataRef = amsRequests;
+           if (m.type === 'HAI') dataRef = haiCases;
+           if (m.type === 'NSI') dataRef = nsiReports;
+           
+           const target = calcStats(dataRef, m.type, selectedWard);
+           const otherWards = dataRef.filter(d => {
+             const u = d.unit || d.ward || (d.incident?.unit) || (d.epidemiology?.unitsAffected?.[0]) || '';
+             return u !== selectedWard;
+           });
+           const rest = calcStats(otherWards, m.type, null);
+           
+           let status = 'Neutral';
+           if (m.isPercent) {
+              if (target.raw > rest.raw && target.raw !== -1 && rest.raw !== -1) status = 'Better';
+              if (target.raw < rest.raw && target.raw !== -1 && rest.raw !== -1) status = 'Worse';
+           } else {
+              // For counts, fewer is better generally (except maybe AMS where it's complex, but let's assume fewer cases is better)
+              if (target.raw > rest.raw && target.raw !== -1 && rest.raw !== -1) status = 'Worse';
+              if (target.raw < rest.raw && target.raw !== -1 && rest.raw !== -1) status = 'Better';
+           }
+           
+           let performanceIndicator = '';
+           if (status === 'Better') performanceIndicator = '(+) Better';
+           if (status === 'Worse') performanceIndicator = '(-) Worse';
+           if (status === 'Neutral') performanceIndicator = '(--) Neutral';
+           if (target.raw === -1 || rest.raw === -1) performanceIndicator = '(--) N/A';
+
+           return {
+             metric: m.metric,
+             targetScore: target.score,
+             restScore: rest.score,
+             status: performanceIndicator,
+             rawTarget: target.raw,
+             rawRest: rest.raw,
+             isPercent: m.isPercent
+           };
+        });
+
+        // Convert for standard autoTable array
+        const autoTableData = wardStatsData.map(d => [
+          d.metric, 
+          d.targetScore, 
+          d.restScore, 
+          d.status
+        ]);
+
+        const doc = new jsPDF();
+        
+        doc.setFontSize(18);
+        doc.setTextColor(15, 23, 42); // slate-900
+        doc.text(`Ward Analytics Report: ${selectedWard}`, 14, 22);
+        
+        doc.setFontSize(11);
+        doc.setTextColor(100, 116, 139); // slate-500
+        const periodStr = timeFrame === 'MONTHLY' ? selectedMonth : (timeFrame === 'DAILY' ? selectedDate : 'All Time');
+        doc.text(`Period: ${timeFrame} (${periodStr})   |   Generated: ${new Date().toLocaleDateString()}`, 14, 30);
+        
+        autoTable(doc, {
+          startY: 40,
+          head: [['Metric', `Target (${selectedWard})`, 'Rest of Hospital', 'Comparison']],
+          body: autoTableData,
+          headStyles: { fillColor: [13, 148, 136] }, // brand-primary teal
+          theme: 'grid',
+          styles: { fontSize: 10, cellPadding: 6 },
+          columnStyles: {
+            0: { cellWidth: 70 },
+            1: { cellWidth: 35 },
+            2: { cellWidth: 35 },
+            3: { cellWidth: 40 }
+          },
+          willDrawCell: (data: any) => {
+             if (data.section === 'body' && data.column.index === 3) {
+                const val = String(data.cell.raw);
+                if (val.includes('Better')) data.cell.styles.textColor = [16, 185, 129];
+                if (val.includes('Worse')) data.cell.styles.textColor = [244, 63, 94];
+                if (val.includes('Neutral') || val.includes('N/A')) data.cell.styles.textColor = [100, 116, 139];
+             }
+             if (data.section === 'body' && data.column.index === 0) {
+                const val = String(data.cell.raw);
+                if (val.startsWith('   ')) {
+                   data.cell.styles.fontStyle = 'italic';
+                   data.cell.styles.textColor = [100, 116, 139]; // subtle indent text
+                } else {
+                   data.cell.styles.fontStyle = 'bold';
+                }
+             }
+          },
+          didDrawCell: (data: any) => {
+             if (data.section === 'body' && (data.column.index === 1 || data.column.index === 2)) {
+                const rowData = wardStatsData[data.row.index];
+                if (rowData && rowData.isPercent) {
+                   const rawVal = data.column.index === 1 ? rowData.rawTarget : rowData.rawRest;
+                   if (rawVal !== -1) {
+                      const width = Math.max(2, (rawVal / 100) * (data.cell.width - 4));
+                      doc.setDrawColor(13, 148, 136);
+                      // Draw a 3px high bar under the text
+                      doc.setFillColor(13, 148, 136);
+                      doc.rect(data.cell.x + 2, data.cell.y + data.cell.height - 4, width, 2, 'F');
+                   }
+                }
+             }
+          }
+        });
+
+        doc.save(`${selectedWard.replace(/\s+/g, '_')}_Report_${periodStr}.pdf`);
+        setMessage({ type: 'success', text: `Ward PDF Report for ${selectedWard} downloaded successfully.` });
+        return;
+      }
+
       if (reportType === 'CLINICAL_SYSTEMS') {
         const p1 = fetchCollectionData('audits', 'createdAt');
         const p2 = fetchCollectionData('boc_logs', 'date');
@@ -485,7 +668,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                  </div>
                )}
                {timeFrame === 'MONTHLY' && (
-                 <div className="space-y-1.5">
+                 <div className="space-y-1.5 break-inside-avoid">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Target Month</label>
                    <div className="relative">
                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -495,6 +678,22 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                        onChange={e => setSelectedMonth(e.target.value)}
                        className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-black text-slate-900 focus:ring-2 focus:ring-brand-primary/20 outline-none"
                      />
+                   </div>
+                 </div>
+               )}
+               
+               {reportType === 'WARD_SUMMARY' && (
+                 <div className="space-y-1.5 mt-4">
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Target Ward/Location</label>
+                   <div className="relative">
+                     <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                     <select 
+                       value={selectedWard}
+                       onChange={e => setSelectedWard(e.target.value)}
+                       className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-black text-slate-900 focus:ring-2 focus:ring-brand-primary/20 outline-none"
+                     >
+                       {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                     </select>
                    </div>
                  </div>
                )}
@@ -516,9 +715,11 @@ export default function Reports({ user }: { user: UserProfile | null }) {
               <div className="p-5 bg-white/10 rounded-full mb-6">
                  <FileSpreadsheet className="w-10 h-10 text-brand-primary" />
               </div>
-              <h3 className="text-sm font-black uppercase tracking-[0.2em] mb-2 text-white">Generate CSV</h3>
+              <h3 className="text-sm font-black uppercase tracking-[0.2em] mb-2 text-white">
+                {reportType === 'WARD_SUMMARY' ? 'Generate PDF' : 'Generate CSV'}
+              </h3>
               <p className="text-[10px] text-slate-400 mb-8 font-bold uppercase tracking-widest leading-loose">
-                Ready to compile {reportType.toLowerCase()} records for {timeFrame.toLowerCase()} period.
+                Ready to compile {reportType.toLowerCase().replace('_', ' ')} records for {timeFrame.toLowerCase()} period.
               </p>
               
               <button

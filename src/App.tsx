@@ -52,7 +52,7 @@ import Maintenance from './components/Maintenance';
 
 const ADMIN_EMAILS = ['charliemignonette@gmail.com', 'beeohend@gmail.com', 'doc.julierose@gmail.com', 'ardeleon.mharsmc@gmail.com'];
 const PHARMACY_EMAILS = ['salllydinesiso@gmail.com', 'pharmacy@mharsmc.doh.gov.ph'];
-const IPCN_EMAILS = ['bjponz.22.bp@gmail.com', 'belzarinojrmacamay@gmail.com', 'maryjoy.jokjok13@gmail.com', 'noerensolitana@gmail.com', 'febemaecoronel@gmail.com', 'snmanugas@gmail.com', 'andreamaearcamo@gmail.com'];
+const IPCN_EMAILS = ['bjponz.22.bp@gmail.com', 'belzarinojrmacamay@gmail.com', 'maryjoy.jokjok13@gmail.com', 'noerensolitana@gmail.com', 'febemaecoronel@gmail.com', 'snmanugas@gmail.com', 'alcyanide88@gmail.com'];
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -167,6 +167,7 @@ export default function App() {
         else {
           const anonymousProfile: UserProfile = {
             uid: authStateUser.uid,
+            email: '', // Ensure email key exists for schema consistency
             name: 'Ward Staff',
             role: 'USER',
             unit: 'Medical Ward',

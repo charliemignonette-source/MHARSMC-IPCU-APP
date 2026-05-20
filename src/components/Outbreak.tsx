@@ -100,10 +100,16 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     if (isIPCU) {
       q = query(baseQuery, orderBy('createdAt', 'desc'));
     } else {
-      q = query(baseQuery, where('reporterId', '==', user.uid), orderBy('createdAt', 'desc'));
+      q = query(baseQuery, where('reporterId', '==', user.uid));
     }
     const unsub = onSnapshot(q, (snap) => {
-      setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as OutbreakReport)));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as OutbreakReport));
+      const sortedData = data.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+      setReports(sortedData);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, 'outbreaks');
     });

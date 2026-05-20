@@ -1,8 +1,9 @@
 export const UNITS = [
-  'ICU', 'NICU', 'PICU', 'Ward 1A', 'Ward 1B', 'Ward 1C', 'Ward 2A', 'Ward 2B', 
-  'Ward 3A', 'Ward 3B', 'Ward 4A', 'Ward 4B', 'Ward 5A', 'Ward 5B', 'Ward 6', 
+  'ICU 1', 'ICU 2', 'NICU', 'PICU', 'Ward 1A', 'Ward 1B', 'Ward 1C', 'Ward 2A', 'Ward 2B', 
+  'Ward 3A', 'Ward 3B', 'Ward 4', 'Ward 5A', 'Ward 5B', 'Ward 5C', 'Ward 6', 
   'C2', 'C3', 'C4', 'ER', 'OPD 1', 'OPD 2', 'OR', 'DR', 'OB Ward', 
-  'Surgical Ward', 'Medical Ward', 'Pedia Ward', 'IPCU', 'HDU', 'LABORATORY', 'RADIOLOGY'
+  'Surgical Ward', 'Medical Ward', 'Pedia Ward', 'IPCU', 'HDU 1', 'HDU 2', 'LABORATORY', 'RADIOLOGY',
+  'OBER', 'Dental Clinic', 'TB DOTS', 'NBS', '2D Echo', 'Blood Bank', 'Microbiology', 'CSR', 'CSSD', 'Housekeeping', 'Laundry and Linen', 'OPD Lab', 'Oncology', 'RTU', 'Dietary', 'Rehabilitation', 'Acute Stroke Unit'
 ];
 
 export const STAFF_TYPES = [
@@ -17,7 +18,7 @@ export const ANTIBIOTICS = {
   WATCH: [
     'Amikacin', 'Azithromycin', 'Cefixime', 'Cefotaxime', 'Ceftriaxone', 
     'Cefuroxime', 'Ciprofloxacin', 'Clindamycin', 'Ertapenem', 'Fluconazole', 
-    'Levofloxacin'
+    'Levofloxacin', 'Piperacillin-Tazobactam'
   ],
   RESERVE: [
     'Amphotericin B', 'Aztreonam', 'Cefepime', 'Ceftazidime–Avibactam', 
@@ -26,12 +27,12 @@ export const ANTIBIOTICS = {
   ],
   FULL: [
     'Amikacin', 'Amoxicillin-Clavulanate', 'Amphotericin B', 'Azithromycin', 'Aztreonam',
-    'Cefazolin', 'Cefepime', 'Cefixime', 'Cefotaxime', 
+    'Benzylpenicillin', 'Cefazolin', 'Cefepime', 'Cefixime', 'Cefotaxime', 
     'Ceftazidime', 'Ceftazidime–Avibactam', 'Ceftriaxone', 'Ceftriaxone (Special Use)', 
     'Cefuroxime', 'Ciprofloxacin', 'Clindamycin', 'Cloxacillin', 'Colistin / Polymyxin', 
     'Ertapenem', 'Fluconazole', 'Gentamicin', 'Imipenem–Cilastatin', 'Levofloxacin', 
-    'Linezolid', 'Meropenem', 'Metronidazole', 'Micafungin', 'Oxacillin', 
-    'Tigecycline', 'Vancomycin', 'Voriconazole'
+    'Linezolid', 'Meropenem', 'Metronidazole', 'Micafungin', 'Nitrofurantoin', 'Oxacillin', 
+    'Piperacillin-Tazobactam', 'Tigecycline', 'Vancomycin', 'Voriconazole'
   ]
 };
 
@@ -83,12 +84,17 @@ export const BUNDLE_ELEMENTS = {
 };
 
 export const CLABSI_DETAILED_BUNDLES = {
-  INSERTION: [
+  INSERTION_ADULT: [
     "Proper hand hygiene before insertion",
     "Best insertion site chosen",
     "0.5% chlorhexidine in alcohol for skin prep (30 sec scrub, 2 min dry)",
     "Full sterile barrier precautions",
     "Sterile gauze or sterile transparent dressing applied"
+  ],
+  INSERTION_PEDIA: [
+    "Did inserter and assistant/s perform proper hand hygiene technique PRIOR to insertion?",
+    "Was 70% alcohol/betadine/ >0.5% Chlorhexidine at least 30 secs & allowed to dry for 2 minutes used in cleaning the site of insertion?",
+    "Did the inserter and assistant/s practise sterile barrier precautions (wearing a sterile gown, sterile gloves, cap and mask)? Was there full body drape for the patient?"
   ],
   MAINTENANCE_ADULT: [
     "Review central line necessity",
@@ -101,14 +107,14 @@ export const CLABSI_DETAILED_BUNDLES = {
     "Sterile gauze or sterile transparent dressing over insertion site"
   ],
   MAINTENANCE_PEDIA: [
-    "Review central line necessity",
-    "Hand hygiene before maintenance/access",
+    "Review done for central line necessity (to confer with resident-in-charge or attending physician)",
+    "Hand hygiene practiced before all maintenance/ access procedures",
     "New clean gloves worn",
-    "70% alcohol to disinfect hub (30 sec, dry 2 min)",
-    "Dressing changes: transparent every 7 days; sterile gauze every 24 hours; umbilical catheter 70% alcohol 3×/day",
-    "Remove gloves after procedure",
-    "Hand hygiene after glove removal",
-    "IV tubing replacement rules (alimentation, blood products, phlebitis, peripheral lines)"
+    "70% Alcohol used to disinfect the hub least 30 sec then allowed to dry 2 mins",
+    "Dressing changed in aseptic technique (Transparent dressing every 7 days, Sterile gauze every 24 hours, For Umbicath: use 70% alcohol 3x a day for open dressing (tip of stump) but keep it open.)",
+    "Gloves removed",
+    "Hand hygiene done",
+    "Intravenous tubings replaced : Used for Alimentation change every 24 hours, Blood Products or lipid formulations change every 24 hrs, Signs of Phlebitis change immediately the entire IV system, Periph iv lines+ IV set with no signs of infection changed every 4-7 days"
   ]
 };
 
@@ -142,12 +148,17 @@ export const VAP_BUNDLES = {
     "DVT prophylaxis"
   ],
   PEDIA: [
-    "Hand hygiene",
-    "Head elevation (30–45° infants; 15–30° neonates)",
-    "Oral care (chlorhexidine >2 months; saline <2 months)",
-    "Suctioning done properly",
-    "Sedation holiday with remarks",
-    "Assessment for readiness to wean/extubate"
+    "Hand Hygiene Before & after Patient Care",
+    "Head of Bed Elevation (30-45 degrees for infants & above), (15-30 degrees for neonates)",
+    "Chlorhexidine Oral Care (>2months old) or Normal Saline (<2months old)",
+    "Suctioning done Properly?",
+    "Sedation Holiday",
+    "Confer with resident-in-charge for assessment of readiness to wean / extubate",
+    "Change suction catheters at least every shift(open suction only) / (Closed suction) every 5 days",
+    "Change suction connector tubings daily (open suction) / closed suction as needed/contaminated",
+    "Change ventilator tubings/circuits every 5 days",
+    "Change to sterilized suction drainage bottles every suction",
+    "Change humidifiers as needed using sterile or distilled water"
   ]
 };
 

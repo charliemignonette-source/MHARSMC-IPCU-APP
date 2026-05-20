@@ -63,12 +63,12 @@ export default function AMS({ user }: { user: UserProfile | null }) {
   const [isSwitchingWard, setIsSwitchingWard] = useState(false);
 
   const getDepartment = (unit: string) => {
-    if (['ICU', 'NICU', 'PICU', 'HDU'].includes(unit)) return 'Critical Care';
-    if (['Ward 1A', 'Ward 1B', 'Ward 1C', 'Medical Ward'].includes(unit)) return 'Medicine';
+    if (['ICU 1', 'ICU 2', 'NICU', 'PICU', 'HDU 1', 'HDU 2'].includes(unit)) return 'Critical Care';
+    if (['Ward 1A', 'Ward 1B', 'Ward 1C', 'Medical Ward', 'Acute Stroke Unit', 'RTU', 'Oncology'].includes(unit)) return 'Medicine';
     if (['Ward 2A', 'Ward 2B', 'Surgical Ward', 'OR'].includes(unit)) return 'Surgery';
-    if (['OB Ward', 'DR'].includes(unit)) return 'OB-GYN';
-    if (['Ward 3A', 'Ward 3B', 'Pedia Ward'].includes(unit)) return 'Pediatrics';
-    if (['ER', 'OPD 1', 'OPD 2'].includes(unit)) return 'Emergency/Outpatient';
+    if (['OB Ward', 'DR', 'OBER'].includes(unit)) return 'OB-GYN';
+    if (['Ward 3A', 'Ward 3B', 'Pedia Ward', 'NBS'].includes(unit)) return 'Pediatrics';
+    if (['ER', 'OPD 1', 'OPD 2', 'OPD Lab', '2D Echo'].includes(unit)) return 'Emergency/Outpatient';
     return 'Ancillary/Other';
   };
 
@@ -210,6 +210,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
 
   const [reviewRemarks, setReviewRemarks] = useState<Record<string, string>>({});
   const [reviewPhysicians, setReviewPhysicians] = useState<Record<string, string>>({});
+  const [reviewDays, setReviewDays] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!user) return;
@@ -219,28 +220,71 @@ export default function AMS({ user }: { user: UserProfile | null }) {
 
     if (user.role === 'ADMIN' || user.role === 'IPCN' || user.role === 'APPROVER' || user.role === 'PHARMACY') {
       q = query(baseQuery, orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AMSRequest));
+        const sortedData = data.sort((a, b) => {
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
+          return timeB - timeA;
+        });
+        setRequests(sortedData);
+        setError(null);
+      }, (err) => {
+        console.error("AMS Admin Snapshot Error:", err);
+        handleFirestoreError(err, OperationType.LIST, 'ams_requests');
+      });
+      return () => unsubscribe();
     } else {
       // Regular users see their own requests OR requests from their unit
-      // This helps ward staff see requests for their ward even if they use different anonymous accounts
-      q = query(baseQuery, 
-        or(
-          where('prescriberId', '==', user.uid),
-          where('unit', '==', user.unit || 'General')
-        ),
-        orderBy('createdAt', 'desc')
-      );
-    }
+      // Split into two queries to avoid "Missing or insufficient permissions" with complex OR queries in rules
+      const q1 = query(baseQuery, where('prescriberId', '==', user.uid));
+      const q2 = query(baseQuery, where('unit', '==', user.unit || 'General'));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AMSRequest));
-      setRequests(data);
-      setError(null);
-    }, (err) => {
-      console.error("AMS Snapshot Error:", err);
-      setError("Database connection error or missing permissions.");
-      handleFirestoreError(err, OperationType.LIST, 'ams_requests');
-    });
-    return () => unsubscribe();
+      const updateRequests = (snapshot1: any, snapshot2: any) => {
+        const data1 = snapshot1.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as AMSRequest));
+        const data2 = snapshot2.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as AMSRequest));
+        
+        // Combine and deduplicate
+        const combined = [...data1];
+        data2.forEach((item: any) => {
+          if (!combined.find(x => x.id === item.id)) {
+            combined.push(item);
+          }
+        });
+
+        const sortedData = combined.sort((a, b) => {
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
+          return timeB - timeA;
+        });
+        setRequests(sortedData);
+        setError(null);
+      };
+
+      let snap1: any = { docs: [] };
+      let snap2: any = { docs: [] };
+      
+      const unsub1 = onSnapshot(q1, (s) => {
+        snap1 = s;
+        updateRequests(snap1, snap2);
+      }, (err) => {
+        console.error("AMS Prescriber Snapshot Error:", err);
+        handleFirestoreError(err, OperationType.LIST, 'ams_requests');
+      });
+
+      const unsub2 = onSnapshot(q2, (s) => {
+        snap2 = s;
+        updateRequests(snap1, snap2);
+      }, (err) => {
+        console.error("AMS Unit Snapshot Error:", err);
+        // We don't necessarily error out if unit fetch fails if the user is anonymous and just starting
+      });
+
+      return () => {
+        unsub1();
+        unsub2();
+      };
+    }
   }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -378,6 +422,29 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     });
   };
 
+  const handleRenew = (req: AMSRequest) => {
+    setFormData({
+      ...req,
+      type: 'EXTENSION_7D',
+      status: 'PENDING',
+      reviewerId: '',
+      reviewerEmail: '',
+      reviewerName: '',
+      reviewedAt: null as any,
+      remarks: '',
+      dateTimeApproved: null as any,
+      isValidated: false,
+      validatedBy: '',
+      validatedAt: null as any,
+      validatorName: '',
+      date: new Date().toISOString().split('T')[0],
+      dateTimeRequested: undefined,
+      durationRequested: ''
+    });
+    setEditingId(null);
+    setIsAdding(true);
+  };
+
   const handleEdit = (req: AMSRequest) => {
     setFormData({
       ...req,
@@ -411,7 +478,8 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     if (!req) return;
 
     const remarks = reviewRemarks[requestId] || '';
-    const requestingPhysician = reviewPhysicians[requestId] || '';
+    const reviewerNameOverride = reviewPhysicians[requestId] || '';
+    const daysApproved = reviewDays[requestId] || 7; // Default to 7 days if not specified
     const now = new Date();
     const dateTimeApproved = `${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     
@@ -421,17 +489,14 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         remarks,
         reviewerId: user.uid,
         reviewerEmail: user.email,
-        reviewerName: user.name,
+        reviewerName: reviewerNameOverride || user.name,
         reviewedAt: new Date().toISOString(),
         updatedAt: serverTimestamp()
       };
 
       if (status === 'APPROVED') {
         updateData.dateTimeApproved = dateTimeApproved;
-      }
-
-      if (requestingPhysician) {
-        updateData.requestingPhysician = requestingPhysician;
+        updateData.daysApproved = daysApproved;
       }
 
       await updateDoc(doc(db, 'ams_requests', requestId), updateData);
@@ -462,6 +527,11 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         return next;
       });
       setReviewPhysicians(prev => {
+        const next = { ...prev };
+        delete next[requestId];
+        return next;
+      });
+      setReviewDays(prev => {
         const next = { ...prev };
         delete next[requestId];
         return next;
@@ -697,7 +767,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         startY: currentY,
         head: [['Antimicrobial Agent Requested', 'Dose Information']],
         body: req.antimicrobialsRequested?.map(drug => [
-          drug, 
+          drug === 'Others' ? `Others (${req.otherAntibiotic || 'Not specified'})` : drug, 
           req.drugDoses?.[drug] || 'No specific dose provided'
         ]) || [['No drugs selected', 'N/A']],
         headStyles: { fillColor: [13, 148, 136], fontSize: 10 },
@@ -772,8 +842,8 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         head: [['Request & Review Timeline', 'Timestamp', 'Personnel']],
         body: [
           ['Date/Time Requested', req.dateTimeRequested || 'N/A', req.requestingPhysician || req.prescriberEmail || 'Unknown'],
-          ['Review Outcome', req.status || 'PENDING', req.reviewerEmail || 'Awaiting Review'],
-          ['Approval Date', req.dateTimeApproved || 'N/A', req.status === 'APPROVED' ? req.reviewerEmail || 'N/A' : 'N/A'],
+          ['Review Outcome', (req.status + (req.daysApproved ? ` (APPROVED FOR ${req.daysApproved} DAYS)` : '')) || 'PENDING', req.reviewerName || req.reviewerEmail || 'Awaiting Review'],
+          ['Approval Date', req.dateTimeApproved || 'N/A', req.status === 'APPROVED' ? req.reviewerName || req.reviewerEmail || 'N/A' : 'N/A'],
           ['Dispensing Log', req.status === 'DISPENSED' ? 'DISPENSED' : 'N/A', req.dispensedBy || 'N/A'],
         ],
         headStyles: { fillColor: [15, 23, 42], fontSize: 10 },
@@ -824,15 +894,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
   const filteredRequests = requests.filter(req => {
     const matchesFilter = activeFilter === 'ALL' || req.status === activeFilter;
     const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = searchTerm === '' || 
-      req.patientName?.toLowerCase().includes(searchLower) ||
-      req.hospNo?.toLowerCase().includes(searchLower) ||
-      req.antibiotic?.toLowerCase().includes(searchLower) ||
-      req.unit?.toLowerCase().includes(searchLower) ||
-      req.diagnosis?.toLowerCase().includes(searchLower) ||
-      req.prescriberName?.toLowerCase().includes(searchLower) ||
-      req.requestingPhysician?.toLowerCase().includes(searchLower) ||
-      (req.antimicrobialsRequested || []).some(a => a.toLowerCase().includes(searchLower));
+    const matchesSearch = searchTerm === '' || JSON.stringify(req).toLowerCase().includes(searchLower);
     
     return matchesFilter && matchesSearch;
   });
@@ -1015,11 +1077,11 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                       <div className="flex flex-col gap-0.5">
                          <p className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-tight opacity-80">{req.type.replace('_', ' ')} • MISSION CRITICAL</p>
                          {req.dateTimeRequested && <p className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase">Req: {formatDate(req.dateTimeRequested)}</p>}
-                         <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px] sm:max-w-none">Physician: {req.prescriberName || req.requestingPhysician || req.prescriberEmail}</p>
+                         <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px] sm:max-w-none">Requesting: {req.requestingPhysician || req.prescriberEmail}</p>
                          {req.isValidated && (
                             <p className="text-[8px] sm:text-[9px] font-bold text-emerald-600 uppercase tracking-tight flex items-center gap-1">
                                <CheckCircle2 className="w-2.5 h-2.5" />
-                               <span className="hidden sm:inline">Validated by:</span> {req.reviewerName || req.validatedBy}
+                               <span className="hidden sm:inline">Reviewed by:</span> {req.reviewerName}
                             </p>
                          )}
                       </div>
@@ -1034,6 +1096,15 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                     >
                       <FileDown className="w-5 h-5" />
                     </button>
+                    {(req.prescriberId === user?.uid || (user?.isAnonymous && req.unit === user?.unit)) && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRenew(req); }}
+                        className="p-2 text-slate-400 hover:text-emerald-600 transition-colors"
+                        title="Renew / Extend Request"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                      </button>
+                    )}
                     <div className="flex items-center gap-3">
                       {(req.prescriberId === user?.uid || (user?.isAnonymous && req.unit === user?.unit)) && (req.status === 'PENDING' || req.status === 'MODIFY') && (
                         <button
@@ -1097,6 +1168,21 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                             />
                           </div>
                         </div>
+                        {req.status === 'PENDING' && isApprover && (
+                          <div className="flex items-center gap-2 mb-2 w-full max-w-[240px] sm:max-w-xs bg-emerald-50/50 p-2 rounded-xl border border-emerald-100 mt-2">
+                             <Clock className="w-3 h-3 text-emerald-600" />
+                             <span className="text-[9px] font-black uppercase text-emerald-700 tracking-widest">Approve for:</span>
+                             <select 
+                               value={reviewDays[req.id!] || 7}
+                               onChange={(e) => setReviewDays(prev => ({ ...prev, [req.id!]: parseInt(e.target.value) }))}
+                               className="ml-auto bg-white border border-emerald-200 rounded-lg text-[9px] font-bold px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-500"
+                             >
+                                {[1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30].map(d => (
+                                   <option key={d} value={d}>{d} Days</option>
+                                ))}
+                             </select>
+                          </div>
+                        )}
                         <div className="flex gap-2 bg-slate-100 p-1 rounded-xl">
                           <button 
                             onClick={(e) => { e.stopPropagation(); handleAction(req.id!, 'APPROVED'); }}
@@ -1277,7 +1363,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                   )}
                                   {req.antimicrobialsRequested?.map(drug => (
                                     <div key={drug} className="flex justify-between items-center bg-white p-2 rounded-xl border border-slate-100">
-                                       <span className="text-xs font-bold text-slate-900">{drug}</span>
+                                       <span className="text-xs font-bold text-slate-900">{drug === 'Others' ? `Others (${req.otherAntibiotic || 'Not specified'})` : drug}</span>
                                        <span className="text-[10px] font-mono bg-slate-50 px-2 py-0.5 rounded text-slate-600">{req.drugDoses?.[drug] || 'No dose info'}</span>
                                     </div>
                                   ))}
@@ -1354,6 +1440,19 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Requesting Physician</p>
                                  <p className="text-sm font-bold text-slate-900">{req.requestingPhysician}</p>
                                </div>
+                            )}
+                            {req.reviewerName && (
+                               <div>
+                                 <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 mb-2">Reviewing/Approving Physician</p>
+                                 <div className="flex items-center gap-3">
+                                   <p className="text-sm font-bold text-slate-900">{req.reviewerName}</p>
+                                   {req.daysApproved && (
+                                     <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-black rounded-full uppercase tracking-tighter">
+                                        Approv. for {req.daysApproved} Days
+                                     </span>
+                                   )}
+                                 </div>
+                                </div>
                             )}
                             {req.prescriberContact && (
                                <div>
@@ -1569,7 +1668,10 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                              <input required className="text-input" placeholder="mg/dL" value={formData.serumCreatinine} onChange={e => setFormData({...formData, serumCreatinine: e.target.value})} />
                           </div>
                           <div className="space-y-1">
-                             <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Cr. Clearance <span className="text-rose-500">*</span></label>
+                             <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Cr. Clearance <span className="text-rose-500">*</span></label>
+                                <span className="text-[8px] font-bold text-brand-primary uppercase tracking-widest bg-brand-primary/10 px-1.5 py-0.5 rounded">Auto-Calculated</span>
+                             </div>
                              <input required className="text-input" placeholder="mL/min" value={formData.creatinineClearance} onChange={e => setFormData({...formData, creatinineClearance: e.target.value})} />
                           </div>
                        </div>

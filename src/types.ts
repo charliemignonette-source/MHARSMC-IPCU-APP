@@ -6,6 +6,7 @@ export interface UserProfile {
   name: string;
   role: Role;
   unit?: string;
+  bedNumber?: string;
   staffCode?: string;
   pin?: string;
   isVerified: boolean;
@@ -25,6 +26,7 @@ export interface Audit {
   id: string;
   type: AuditType;
   unit: string;
+  bedNumber?: string;
   auditorId: string;
   auditorEmail?: string;
   timestamp: string;
@@ -56,6 +58,7 @@ export interface NSIReport {
     date: string;
     time: string;
     unit: string;
+    bedNumber?: string;
     exposureType: NSIExposureType;
     deviceInvolved: NSIDevice;
     deviceOther?: string;
@@ -180,6 +183,7 @@ export interface AMSRequest {
 
   // Legacy/Required fields
   unit: string;
+  bedNumber?: string;
   antibiotic: string;
   dose: string;
   diagnosis: string;
@@ -197,6 +201,7 @@ export interface AMSRequest {
   reviewedAt?: string;
   dateTimeApproved?: string;
   remarks?: string;
+  daysApproved?: number;
   manualApproval?: boolean;
   overrideReason?: string;
   isValidated?: boolean;
@@ -215,6 +220,7 @@ export interface HAICase {
   patientName: string;
   hospNo: string;
   unit: string;
+  bedNumber?: string;
   deviceType?: string;
   deviceTypeOther?: string;
   procedureType?: string;
@@ -250,6 +256,7 @@ export interface IPCUAction {
   staffName: string;
   staffId: string;
   unit?: string;
+  bedNumber?: string;
   discrepancyFound?: string;
   createdAt?: any;
 }
@@ -306,6 +313,7 @@ export interface BundleMonitoring {
   age: string;
   sex: 'Male' | 'Female';
   unit: string;
+  bedNumber?: string;
   roomWard: string;
   attendingPhysician: string;
   assignedMonitor: AssignedMonitor;
@@ -343,6 +351,7 @@ export interface BOCLog {
   date: string;
   time: string;
   unit: string;
+  bedNumber?: string;
   patientName: string;
   hospNo: string;
   age: string;
@@ -383,6 +392,7 @@ export interface OutbreakCase {
   patientName: string;
   hospNo: string;
   unit: string;
+  bedNumber?: string;
   onSetDate: string;
   symptoms: string;
   labResults: string;

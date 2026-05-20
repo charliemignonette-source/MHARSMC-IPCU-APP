@@ -19,7 +19,7 @@ service cloud.firestore {
 
     function isAdmin() { 
       return isSignedIn() && (
-        (request.auth.token.email in [
+        (request.auth.token.email != null && request.auth.token.email in [
           'charliemignonette@gmail.com', 
           'beeohend@gmail.com', 
           'doc.julierose@gmail.com',
@@ -32,14 +32,14 @@ service cloud.firestore {
     function isIPCN() { 
       return isSignedIn() && (
         isAdmin() || 
-        request.auth.token.email in ['bjponz.22.bp@gmail.com', 'belzarinojrmacamay@gmail.com', 'maryjoy.jokjok13@gmail.com', 'noerensolitana@gmail.com', 'febemaecoronel@gmail.com', 'snmanugas@gmail.com', 'andreamaearcamo@gmail.com'] ||
+        (request.auth.token.email != null && request.auth.token.email in ['bjponz.22.bp@gmail.com', 'belzarinojrmacamay@gmail.com', 'maryjoy.jokjok13@gmail.com', 'noerensolitana@gmail.com', 'febemaecoronel@gmail.com', 'snmanugas@gmail.com', 'alcyanide88@gmail.com']) ||
         (userExists() && getUser().role == 'IPCN')
       ); 
     }
     function isPharmacy() { 
       return isSignedIn() && (
         isAdmin() || 
-        request.auth.token.email in ['pharmacy@mharsmc.doh.gov.ph', 'salllydinesiso@gmail.com'] ||
+        (request.auth.token.email != null && request.auth.token.email in ['pharmacy@mharsmc.doh.gov.ph', 'salllydinesiso@gmail.com']) ||
         (userExists() && getUser().role == 'PHARMACY')
       ); 
     }
@@ -63,8 +63,7 @@ service cloud.firestore {
       return data.keys().hasAll(['uid', 'role', 'isVerified', 'createdAt']) &&
              data.keys().size() >= 4 &&
              data.uid == request.auth.uid &&
-             data.role in ['ADMIN', 'IPCN', 'PHYSICIAN', 'PHARMACY', 'APPROVER', 'USER'] &&
-             data.createdAt is string;
+             data.role in ['ADMIN', 'IPCN', 'PHYSICIAN', 'PHARMACY', 'APPROVER', 'USER'];
     }
 
     function isValidAudit(data) {
@@ -153,15 +152,23 @@ service cloud.firestore {
     }
 
     match /ams_requests/{reqId} {
-      allow get: if isSignedIn() && (existing().prescriberId == request.auth.uid || isApprover() || isAdmin() || isPharmacy() || (existing().unit != null && userExists() && existing().unit == getUser().get('unit', '')));
-      allow list: if isSignedIn() && (resource.data.prescriberId == request.auth.uid || isApprover() || isAdmin() || isPharmacy() || (resource.data.unit != null && userExists() && resource.data.unit == getUser().get('unit', '')));
+      allow get: if isSignedIn() && (
+        existing().prescriberId == request.auth.uid || 
+        isApprover() || isAdmin() || isPharmacy() || 
+        (existing().unit != null && userExists() && existing().unit == getUser().get('unit', 'General'))
+      );
+      allow list: if isSignedIn() && (
+        resource.data.prescriberId == request.auth.uid || 
+        isApprover() || isAdmin() || isPharmacy() || 
+        (resource.data.unit != null && userExists())
+      );
       allow create: if isSignedIn() && isValidAntimicrobialReq(incoming()) && incoming().prescriberId == request.auth.uid && incoming().status == 'PENDING' && isValidId(reqId);
       allow update: if (isApprover() || isAdmin() || isPharmacy() || isWardStaffOrOwner(existing().prescriberId, existing().unit)) && 
                     isValidAntimicrobialReq(request.resource.data) && (
-        (isWardStaffOrOwner(existing().prescriberId, existing().unit) && (existing().status == 'PENDING' || existing().status == 'MODIFY') && incoming().diff(existing()).affectedKeys().hasOnly(['type', 'hospNo', 'location', 'firstName', 'middleName', 'lastName', 'patientName', 'date', 'drugAllergy', 'sex', 'dob', 'age', 'ageUnit', 'weight', 'height', 'serumCreatinine', 'creatinineClearance', 'sgpt', 'sgot', 'antimicrobialsRequested', 'drugDoses', 'dosingRegimen', 'indicationForUse', 'focusOfInfection', 'focusOther', 'infectiousDiagnosis', 'cultureSent', 'cultureDateSent', 'cultureOthers', 'immunocompromisingCondition', 'immunocompromisingOthers', 'microbiology', 'criticallyIll', 'unit', 'antibiotic', 'dose', 'diagnosis', 'justification', 'prescriberContact', 'requestingPhysician', 'durationRequested', 'status', 'updatedAt'])) ||
-        (isApprover() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewerId', 'reviewerEmail', 'reviewerName', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt', 'requestingPhysician'])) ||
+        (isWardStaffOrOwner(existing().prescriberId, existing().unit) && (existing().status == 'PENDING' || existing().status == 'MODIFY') && incoming().diff(existing()).affectedKeys().hasOnly(['type', 'hospNo', 'location', 'firstName', 'middleName', 'lastName', 'patientName', 'date', 'drugAllergy', 'sex', 'dob', 'age', 'ageUnit', 'weight', 'height', 'serumCreatinine', 'creatinineClearance', 'sgpt', 'sgot', 'antimicrobialsRequested', 'drugDoses', 'dosingRegimen', 'indicationForUse', 'focusOfInfection', 'focusOther', 'infectiousDiagnosis', 'cultureSent', 'cultureDateSent', 'cultureOthers', 'immunocompromisingCondition', 'immunocompromisingOthers', 'microbiology', 'microbiologyResults', 'previousAntibiotics', 'otherAntibiotic', 'criticallyIll', 'unit', 'antibiotic', 'dose', 'diagnosis', 'justification', 'prescriberContact', 'requestingPhysician', 'durationRequested', 'status', 'updatedAt', 'prescriberId'])) ||
+        (isApprover() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewerId', 'reviewerEmail', 'reviewerName', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt', 'requestingPhysician', 'durationRequested', 'daysApproved'])) ||
         (isIPCN() && incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'validationRemarks', 'date', 'time', 'updatedAt'])) ||
-        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'overrideReason', 'manualApproval', 'requestingPhysician', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reviewerId', 'reviewerEmail', 'reviewerName', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt', 'dispensedBy', 'dispensedAt', 'monitoringMethod', 'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'validationRemarks', 'date', 'time', 'notes', 'reason', 'decision'])) ||
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'overrideReason', 'manualApproval', 'requestingPhysician', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reviewerId', 'reviewerEmail', 'reviewerName', 'reviewedAt', 'remarks', 'dateTimeApproved', 'updatedAt', 'dispensedBy', 'dispensedAt', 'monitoringMethod', 'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'validationRemarks', 'date', 'time', 'notes', 'reason', 'decision', 'durationRequested', 'daysApproved'])) ||
         (isPharmacy() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'dispensedBy', 'dispensedAt']) && (existing().status == 'APPROVED' || existing().status == 'DISPENSED'))
       );
       allow delete: if isAdmin() || isIPCN();
@@ -202,7 +209,7 @@ service cloud.firestore {
            'monitoringDays', 'updatedAt', 'status', 'assignedDoctor', 'devices', 'surgery', 
            'hasUnverifiedDays', 'isValidated', 'validatedBy', 'validatorName', 'validatedAt',
            'endMonitoring', 'endMonitoringDateTime', 'endMonitoringReason', 'endedByAdmin',
-           'patientName', 'hospitalNo', 'unit', 'age', 'sex', 'roomWard', 'attendingPhysician', 
+           'patientName', 'hospitalNo', 'unit', 'bedNumber', 'age', 'sex', 'roomWard', 'attendingPhysician', 
            'assignedMonitor', 'staffName', 'staffId', 'createdAt',
            'isFlaggedPossibleHAI', 'latestTriggerReason', 'latestTriggerDateTime', 'latestTriggeredBy',
            'isVerifiedByIPCU', 'verifiedAtIPCU', 'verifiedByIPCUId', 'verifiedByIPCUName', 'verificationNote', 'clinicalAccuracy', 'complianceAccuracy'
