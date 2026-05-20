@@ -35,7 +35,9 @@ export interface Audit {
   total: number;
   isValidated?: boolean;
   validatedBy?: string;
+  validatorName?: string;
   validatedAt?: any;
+  validationStatus?: string;
   profession?: string;
   remarks?: string;
   details?: any;

@@ -579,16 +579,18 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                              >
                                 <ChevronRight className="w-5 h-5 text-slate-400 group-hover:translate-x-1 transition-transform" />
                              </button>
-                              <button 
-                               onClick={(e) => {
-                                  e.stopPropagation();
-                                  generateReport(report);
-                               }}
-                               className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl transition-colors"
-                               title="Generate Final Report"
-                             >
-                                <Download className="w-5 h-5" />
-                             </button>
+                              {user?.role !== 'USER' && (
+                               <button 
+                                onClick={(e) => {
+                                   e.stopPropagation();
+                                   generateReport(report);
+                                }}
+                                className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl transition-colors"
+                                title="Generate Final Report"
+                              >
+                                 <Download className="w-5 h-5" />
+                              </button>
+                              )}
                           </div>
                       </div>
                       
@@ -652,7 +654,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                       </div>
                    </div>
                    <div className="flex flex-wrap gap-2">
-                       {activeReport && (
+                       {activeReport && user?.role !== 'USER' && (
                           <button
                             type="button"
                             onClick={() => generateReport(activeReport as OutbreakReport)}

@@ -25,6 +25,7 @@ import { db } from '../lib/firebase';
 import { UserProfile, Role } from '../types';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { seedUserRoles } from '../lib/seed';
 
 interface MaintenanceProps {
   user: UserProfile | null;
@@ -388,6 +389,21 @@ export default function Maintenance({ user }: MaintenanceProps) {
                     Wipe All
                   </button>
                 </div>
+                <button 
+                  onClick={async () => {
+                    const originalText = staffSearch;
+                    setStaffSearch('Syncing...');
+                    try {
+                      await seedUserRoles();
+                    } finally {
+                      setStaffSearch(originalText);
+                    }
+                  }}
+                  className="flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 text-teal-400 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Sync Default Roles
+                </button>
                 <button 
                   onClick={() => {
                     setEditingStaff(null);

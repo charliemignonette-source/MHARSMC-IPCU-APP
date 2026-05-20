@@ -269,7 +269,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
     try {
       let rawData: any[] = [];
       
-      const isIPCU = user?.role === 'ADMIN' || user?.role === 'IPCN' || user?.role === 'APPROVER';
+      const isIPCU = user?.role === 'ADMIN' || user?.role === 'IPCN';
 
       const fetchCollectionData = async (collName: string, dateFld: string) => {
         const collRef = collection(db, collName);
@@ -315,8 +315,10 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           } else if (collName === 'boc_logs') {
             constraints.push(where('staffId', '==', user.uid));
           } else if (collName === 'ams_requests') {
-            constraints.push(where('prescriberId', '==', user.uid));
-          } else if (collName === 'nsi_reports' || collName === 'outbreaks') {
+            if (user?.role !== 'APPROVER' && user?.role !== 'PHARMACY') {
+              constraints.push(where('prescriberId', '==', user.uid));
+            }
+          } else if (collName === 'nsi_reports') {
             constraints.push(where('reporterId', '==', user.uid));
           }
         }
@@ -781,7 +783,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                  for (const coll of collectionsList) {
                    masterContent += `--- ${coll.label.toUpperCase()} ---\n`;
                    const collRef = collection(db, coll.id);
-                   const isIPCU = user?.role === 'ADMIN' || user?.role === 'IPCN' || user?.role === 'APPROVER';
+                   const isIPCU = user?.role === 'ADMIN' || user?.role === 'IPCN';
                    let constraints: any[] = [];
                    if (!isIPCU && user) {
                       if (coll.id === 'audits' || coll.id === 'hai_cases') {
@@ -789,8 +791,10 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                       } else if (coll.id === 'boc_logs') {
                         constraints.push(where('staffId', '==', user.uid));
                       } else if (coll.id === 'ams_requests') {
-                        constraints.push(where('prescriberId', '==', user.uid));
-                      } else if (coll.id === 'nsi_reports' || coll.id === 'outbreaks') {
+                        if (user?.role !== 'APPROVER' && user?.role !== 'PHARMACY') {
+                          constraints.push(where('prescriberId', '==', user.uid));
+                        }
+                      } else if (coll.id === 'nsi_reports') {
                         constraints.push(where('reporterId', '==', user.uid));
                       }
                    }

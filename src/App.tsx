@@ -37,6 +37,7 @@ import { auth, db } from './lib/firebase';
 import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { UserProfile, Role } from './types';
 import { cn } from './lib/utils';
+import { seedUserRoles } from './lib/seed';
 
 // Pages
 import Dashboard from './components/Dashboard';
@@ -87,7 +88,7 @@ export default function App() {
     { id: 'hai', label: 'HAI & Bundles', icon: Activity, roles: ['ADMIN', 'IPCN', 'USER'] },
     { id: 'nsi', label: 'NSI Reporting', icon: AlertTriangle, roles: ['ADMIN', 'IPCN', 'USER'] },
     { id: 'outbreak', label: 'Outbreak Mgmt', icon: ShieldAlert, roles: ['ADMIN', 'IPCN', 'USER'] },
-    { id: 'reports', label: 'System Reports', icon: FileBarChart, roles: ['ADMIN', 'IPCN', 'USER', 'PHYSICIAN', 'APPROVER'] },
+    { id: 'reports', label: 'System Reports', icon: FileBarChart, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER'] },
     { id: 'maintenance', label: 'System Maintenance', icon: Settings2, roles: ['ADMIN', 'IPCN'] },
   ];
 

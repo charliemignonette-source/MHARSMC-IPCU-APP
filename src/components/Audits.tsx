@@ -1592,7 +1592,8 @@ export default function Audits({ user }: { user: UserProfile | null }) {
   );
 }
 
-function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, auditorName, isValidated, validatedBy, validatorName, onValidate, isAdmin }: any) {
+function AuditEntry(props: any) {
+  const { id, type, unit, score, total, timestamp, auditorEmail, auditorName, isValidated, validatedBy, validatorName, validationStatus, validatedAt, onValidate, isAdmin } = props;
   const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
   const colorClass = percentage >= 90 ? 'text-emerald-600' : percentage >= 80 ? 'text-amber-600' : 'text-rose-600';
   const barClass = percentage >= 90 ? 'bg-emerald-500' : percentage >= 80 ? 'bg-amber-500' : 'bg-rose-500';
@@ -1632,9 +1633,16 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, aud
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{formatDate(timestamp)}</span>
            </div>
            {isValidated && (
-             <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 uppercase tracking-tight">
-                <CheckCircle2 className="w-2.5 h-2.5" />
-                <span>Validated by: {validatorName || validatedBy}</span>
+             <div className="flex flex-col gap-0.5 mt-1">
+               <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 uppercase tracking-tight">
+                  <CheckCircle2 className="w-2.5 h-2.5" />
+                  <span>Validated by: {validatorName || validatedBy}</span>
+               </div>
+               <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 uppercase tracking-tight">
+                  <span>Status: {props.validationStatus || 'VALIDATED'}</span>
+                  <span className="w-1 h-1 bg-emerald-200 rounded-full mx-1" />
+                  <span>On: {props.validatedAt?.toDate ? props.validatedAt.toDate().toLocaleDateString() : (props.validatedAt ? new Date(props.validatedAt).toLocaleDateString() : 'N/A')}</span>
+               </div>
              </div>
            )}
         </div>
@@ -1646,9 +1654,12 @@ function AuditEntry({ id, type, unit, score, total, timestamp, auditorEmail, aud
             <span className="text-[10px] font-bold text-slate-700 truncate max-w-[120px]">{auditorName || auditorEmail || 'System'}</span>
          </div>
          {isValidated && (
-             <div className="flex items-center gap-1 text-[8px] font-bold text-emerald-600 uppercase tracking-tight">
-                <CheckCircle2 className="w-2 h-2" />
-                <span>Validated</span>
+             <div className="flex flex-col items-end gap-0.5">
+                <div className="flex items-center gap-1 text-[8px] font-bold text-emerald-600 uppercase tracking-tight">
+                  <CheckCircle2 className="w-2 h-2" />
+                  <span>{props.validationStatus || 'Validated'}</span>
+                </div>
+                <span className="text-[8px] font-bold text-slate-500 uppercase">{validatorName || validatedBy}</span>
              </div>
            )}
       </div>

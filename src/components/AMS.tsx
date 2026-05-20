@@ -999,13 +999,15 @@ export default function AMS({ user }: { user: UserProfile | null }) {
               </div>
             )}
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <button 
-                onClick={exportToCSV}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-600 hover:bg-slate-50 transition-colors text-[9px] font-black uppercase tracking-widest"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Export</span>
-              </button>
+              {user?.role !== 'USER' && (
+                <button 
+                  onClick={exportToCSV}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-600 hover:bg-slate-50 transition-colors text-[9px] font-black uppercase tracking-widest"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Export</span>
+                </button>
+              )}
               <div className="flex-1 sm:flex-none flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl bg-white focus-within:ring-1 focus-within:ring-brand-primary">
                 <Search className="w-3.5 h-3.5 text-slate-400" />
                 <input 

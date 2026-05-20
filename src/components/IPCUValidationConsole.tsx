@@ -628,6 +628,7 @@ export default function IPCUValidationConsole({
       collectionName = selectedItem.originalData.bundleType
         ? "boc_logs"
         : "audits";
+      updateData.validationStatus = decision.status;
     } else if (type === "BUNDLE") {
       // Manual update for clinical bundle monitoring array
       const { patientId, dayIndex } = selectedItem.originalData;
