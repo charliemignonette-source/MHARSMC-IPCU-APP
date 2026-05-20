@@ -428,7 +428,7 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
           { id: 'validation', dashboardTab: 'IPCU', label: 'IPC Validation', color: 'bg-indigo-600', icon: ShieldCheck, desc: 'Daily Bundle Audits' },
           { id: 'antibiogram', dashboardTab: 'OVERALL', label: 'Antibiogram', color: 'bg-emerald-600', icon: Database, desc: 'Resistance Patterns 2025' },
           { id: 'ams', dashboardTab: 'AMS', label: 'Antimicrobial Stewardship', color: 'bg-teal-600', icon: FlaskConical, desc: 'Drug Request Console' },
-          { id: 'audits', dashboardTab: 'AUDITS', label: 'IPC Audits', color: 'bg-amber-600', icon: ClipboardCheck, desc: 'HH & PPE Compliance' }
+          { id: 'audits', dashboardTab: 'AUDITS', label: 'IPC Audits', color: 'bg-amber-600', icon: ClipboardCheck, desc: 'HH, PPE & ENV' }
         ].map((tile) => (
           <button
             key={tile.id}
@@ -511,8 +511,8 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
             </div>
 
             <div className="bento-card p-4 sm:p-6 bg-emerald-600 text-white">
-               <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-4 sm:mb-6">Hand Hygiene Compliance</h4>
-               <div className="text-3xl sm:text-4xl font-black tracking-tighter mb-2 sm:mb-4">{Math.round(stats.hhCompliance)}%</div>
+               <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-4 sm:mb-6">IPC Audits Compliance</h4>
+               <div className="text-3xl sm:text-4xl font-black tracking-tighter mb-2 sm:mb-4">{Math.round((stats.hhCompliance + stats.ppeCompliance + stats.envCompliance) / 3 || 0)}%</div>
                <div className="flex items-center justify-between pt-4 border-t border-white/10 text-[10px] font-bold">
                   <span className="text-emerald-200">AUDITS MTD</span>
                   <span>{stats.auditsCount}</span>
@@ -812,7 +812,7 @@ function AuditsDashboard({ stats }: any) {
 
   return (
     <div className="space-y-6">
-       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bento-card p-6 bg-emerald-600 text-white">
              <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-6">HH Compliance (HCW Performance)</h4>
              <div className="flex items-baseline gap-4 mb-8">
@@ -827,7 +827,7 @@ function AuditsDashboard({ stats }: any) {
                 </ResponsiveContainer>
              </div>
           </div>
-          <div className="bento-card p-6">
+          <div className="bento-card p-6 border border-slate-100">
              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">PPE Compliance (HCW Behavior)</h4>
              <div className="flex items-baseline gap-4 mb-8">
                 <span className="text-4xl font-black text-slate-900">{Math.round(stats.ppeCompliance)}%</span>
@@ -841,6 +841,20 @@ function AuditsDashboard({ stats }: any) {
                 </ResponsiveContainer>
              </div>
           </div>
+          <div className="bento-card p-6 border border-slate-100">
+             <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-6">Environmental Cleaning (Facilities)</h4>
+             <div className="flex items-baseline gap-4 mb-8">
+                <span className="text-4xl font-black text-slate-900">{Math.round(stats.envCompliance)}%</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Aggregate Adherence</span>
+             </div>
+             <div className="h-[150px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats.complianceTrends}>
+                    <Area type="monotone" dataKey="env" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.05} />
+                  </AreaChart>
+                </ResponsiveContainer>
+             </div>
+          </div>
        </div>
 
        {/* Unit Level Infrastructure & Standards */}
@@ -849,7 +863,7 @@ function AuditsDashboard({ stats }: any) {
              <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Institutional & Practice Standards (Unit Audits)</h3>
              <div className="h-px flex-1 bg-slate-200" />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
              <div className="bento-card p-6 bg-white border border-slate-100">
                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">HH Facilities</p>
                <div className="flex items-center justify-between">
@@ -882,6 +896,18 @@ function AuditsDashboard({ stats }: any) {
                     <span className="text-[10px] font-bold text-amber-600">Practice Adherence</span>
                   </div>
                   <div className="p-3 bg-amber-50 rounded-2xl text-amber-600">
+                     <Activity className="w-6 h-6" />
+                  </div>
+               </div>
+             </div>
+             <div className="bento-card p-6 bg-white border border-slate-100">
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Environmental</p>
+               <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-3xl font-black text-slate-900">{Math.round(stats.envCompliance)}%</span>
+                    <span className="text-[10px] font-bold text-sky-600">Cleaning Audits</span>
+                  </div>
+                  <div className="p-3 bg-sky-50 rounded-2xl text-sky-600">
                      <Activity className="w-6 h-6" />
                   </div>
                </div>

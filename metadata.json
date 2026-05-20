@@ -2,5 +2,5 @@
   "name": "MHARSMC IPCU Monitoring App",
   "description": "Daily monitoring tool for Link Nurses to track device bundles (CLABSI, CAUTI, VAP, SSI) and clinical criteria for HAI prevention.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
