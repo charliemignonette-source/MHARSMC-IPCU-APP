@@ -641,28 +641,28 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
                      <div className="bg-white/5 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10">
                         <div className="flex items-center gap-2 mb-2">
                            <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-rose-500 rounded-full" />
-                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">RED FLAGS</span>
+                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">HIGH RISK</span>
                         </div>
                         <div className="text-xl sm:text-2xl font-black">{stats.bundles.flags.red}</div>
                      </div>
                      <div className="bg-white/5 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10">
                         <div className="flex items-center gap-2 mb-2">
                            <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-amber-500 rounded-full" />
-                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">YELLOW</span>
+                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">MODERATE RISK</span>
                         </div>
                         <div className="text-xl sm:text-2xl font-black">{stats.bundles.flags.yellow}</div>
                      </div>
                      <div className="bg-white/5 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10">
                         <div className="flex items-center gap-2 mb-2">
                            <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-sky-500 rounded-full" />
-                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">BLUE</span>
+                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">LOW RISK</span>
                         </div>
                         <div className="text-xl sm:text-2xl font-black">{stats.bundles.flags.blue}</div>
                      </div>
                      <div className="bg-white/5 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10">
                         <div className="flex items-center gap-2 mb-2">
                            <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-slate-500 rounded-full" />
-                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">BLACK</span>
+                           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">NONE</span>
                         </div>
                         <div className="text-xl sm:text-2xl font-black">{stats.bundles.flags.black}</div>
                      </div>

@@ -2,10 +2,7 @@
   "name": "ipc-guard",
   "description": "MHARSMC Infection Prevention and Control (IPC) Guard App",
   "private": true,
-  "main": "dist/server.cjs",
-  "files": [
-    "dist"
-  ],
+  "main": "server.ts",
   "version": "0.0.0",
   "type": "module",
   "scripts": {

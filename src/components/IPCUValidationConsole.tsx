@@ -975,7 +975,7 @@ export default function IPCUValidationConsole({
                                 )}
                               />
                               <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                                {item.riskLevel || "Standard"}
+                                {item.riskLevel === 'RED' ? 'HIGH' : item.riskLevel === 'YELLOW' ? 'MODERATE' : item.riskLevel === 'BLUE' ? 'LOW' : (item.riskLevel || 'Standard')}
                               </span>
                             </div>
                           </td>

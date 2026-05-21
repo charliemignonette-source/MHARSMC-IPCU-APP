@@ -1,13 +1,122 @@
 export const UNITS = [
-  'ICU 1', 'ICU 2', 'NICU', 'PICU', 'Ward 1A', 'Ward 1B', 'Ward 1C', 'Ward 2A', 'Ward 2B', 
-  'Ward 3A', 'Ward 3B', 'Ward 4', 'Ward 5A', 'Ward 5B', 'Ward 5C', 'Ward 6', 
-  'C2', 'C3', 'C4', 'ER', 'OPD 1', 'OPD 2', 'OR', 'DR', 'OB Ward', 
-  'Surgical Ward', 'Medical Ward', 'Pedia Ward', 'IPCU', 'HDU 1', 'HDU 2', 'LABORATORY', 'RADIOLOGY',
-  'OBER', 'Dental Clinic', 'TB DOTS', 'NBS', '2D Echo', 'Blood Bank', 'Microbiology', 'CSR', 'CSSD', 'Housekeeping', 'Laundry and Linen', 'OPD Lab', 'Oncology', 'RTU', 'Dietary', 'Rehabilitation', 'Acute Stroke Unit'
+  '2D Echo', 'Acute Stroke Unit', 'Blood Bank', 'C2', 'C3', 'C4', 'CSR', 'CSSD',
+  'Dental Clinic', 'Dietary', 'DR', 'ER', 'HDU 1', 'HDU 2', 'Housekeeping',
+  'ICU 1', 'ICU 2', 'IPCU', 'Laboratory', 'Laundry and Linen', 'Medical Ward',
+  'Microbiology', 'MRI Unit', 'NBS', 'NICU', 'OB Ward', 'OBER', 'Oncology',
+  'OPD 1', 'OPD 2', 'OPD Lab', 'OR', 'Pedia Ward', 'PICU', 'Radiology',
+  'Rehabilitation', 'RTU', 'Surgical Ward', 'TB DOTS', 'Ward 1A', 'Ward 1B',
+  'Ward 1C', 'Ward 2A', 'Ward 2B', 'Ward 3A', 'Ward 3B', 'Ward 4',
+  'Ward 5A', 'Ward 5B', 'Ward 5C', 'Ward 6'
+];
+
+export const DEPARTMENTS = [
+  'Anesthesia',
+  'Emergency Medicine',
+  'Family Medicine',
+  'General Surgery',
+  'Internal Medicine',
+  'Obstetrics-Gynecology',
+  'Orthopedics',
+  'Pediatrics'
 ];
 
 export const STAFF_TYPES = [
   'Doctor', 'Nurse', 'Midwife', 'NA', 'RT', 'Housekeeping', 'Other'
+];
+
+export const CLABSI_RECOGNIZED_PATHOGENS = [
+  'Acinetobacter baumanii',
+  'Burkholderia cepacia',
+  'Citrobacter freundii',
+  'Citrobacter koseri',
+  'Enterobacter aerogenes',
+  'Enterobacter cloacae',
+  'Enterococcus faecalis',
+  'Enterococcus faecium',
+  'Escherichia coli',
+  'Klebsiella oxytoca',
+  'Klebsiella pneumoniae',
+  'Moraxella catarrhalis',
+  'Proteus spp.',
+  'Pseudomonas aeruginosa',
+  'Serratia marcescens',
+  'Streptococcus agalactiae',
+  'Staphylococcus aureus',
+  'Candida albicans',
+  'Candida spp.'
+];
+
+export const CLABSI_COMMON_COMMENSALS = [
+  'Actinomyces species',
+  'Aerococcus species',
+  'Bacillus species, not B. anthracis',
+  'Corynebacterium species, not C. diphtheriae',
+  'Diphtheroids species',
+  'Micrococcus species',
+  'Pediococcus urinaeequi',
+  'Peptococcus saccharolyticus',
+  'Propionibacterium species',
+  'Staphylococcus species, not S. aureus',
+  'Streptococcus anginosus',
+  'Streptococcus constellatus',
+  'Streptococcus milleri',
+  'Streptococcus mitis',
+  'Streptococcus mutans',
+  'Streptococcus oralis',
+  'Streptococcus salivarius',
+  'Streptococcus sanguis',
+  'Streptococcus viridans'
+];
+
+export const CAUTI_ORGANISMS = [
+  'Acinetobacter baumannii',
+  'Candida, specify species',
+  'Clostridium difficile (by toxin assay only)',
+  'Enterococcus faecium/ faecalis',
+  'Escherichia coli',
+  'Enterobacteriaceae other than E. coli, Klebsiella',
+  'Haemophilus influenzae',
+  'Klebsiella pneumoniae',
+  'Neisseria gonorrhoeae',
+  'Pseudomonas aeruginosa',
+  'Salmonella, non-typhoidal',
+  'Salmonella enterica (typhi)',
+  'Shigella spp.',
+  'Staphylococcus aureus',
+  'Streptococcus pneumoniae',
+  'Others, please specify'
+];
+
+export const CAUTI_RESISTANCE_PATTERNS = [
+  'None',
+  'MDR',
+  'XDR',
+  'PDR',
+  'Fluconazole-resistant',
+  'Vancomycin-resistant',
+  'ESBL',
+  'CRE',
+  'Ampicillin-resistant',
+  'Ceftriaxone-resistant',
+  'Ciprofloxacin-resistant',
+  'Methicillin-resistant',
+  'Penicillin-resistant'
+];
+
+export const VAE_ANTIMICROBIALS = [
+  'AMIKACIN', 'AMPHOTERICIN B', 'AMPHOTERICIN B LIPOSOMAL', 'AMPICILLIN', 'AMPICILLIN/SULBACTAM',
+  'ANIDULAFUNGIN', 'AZITHROMYCIN', 'AZTREONAM', 'BALOXAVIR MARBOXIL', 'CASPOFUNGIN', 'CEFAZOLIN',
+  'CEFEPIME', 'CEFIDEROCOL', 'CEFOTAXIME', 'CEFOTETAN', 'CEFOXITIN', 'CEFTAROLINE', 'CEFTAZIDIME',
+  'CEFTAZIDIME/AVIBACTAM', 'CEFTOLOZANE/TAZOBACTAM', 'CEFTRIAXONE', 'CEFUROXIME', 'CIPROFLOXACIN',
+  'CLARITHROMYCIN', 'CLINDAMYCIN', 'COLISTIMETHATE', 'DALBAVANCIN', 'DELAFLOXACIN', 'DOXYCYCLINE',
+  'ERAVACYCLINE', 'ERTAPENEM', 'FLUCONAZOLE', 'FOSFOMYCIN', 'GEMIFLOXACIN', 'GENTAMICIN',
+  'IMIPENEM/CILASTATIN', 'IMIPENEM/CILASTATIN/RELEBACTAM', 'ISAVUCONAZONIUM', 'ITRACONAZOLE',
+  'LEFAMULIN', 'LEVOFLOXACIN', 'LINEZOLID', 'MEROPENEM', 'MEROPENEM/VABORBACTAM', 'METRONIDAZOLE',
+  'MICAFUNGIN', 'MINOCYCLINE', 'MOXIFLOXACIN', 'NAFCILLIN', 'OMADACYCLINE', 'ORITAVANCIN',
+  'OSELTAMIVIR', 'OXACILLIN', 'PENICILLIN G', 'PERAMIVIR', 'PIPERACILLIN/TAZOBACTAM', 'PLAZOMICIN',
+  'POLYMYXIN B', 'POSACONAZOLE', 'QUINUPRISTIN/DALFOPRISTIN', 'REMDESIVIR', 'RIFAMPIN',
+  'SULFAMETHOXAZOLE/TRIMETHOPRIM', 'TEDIZOLID', 'TELAVANCIN', 'TETRACYCLINE', 'TIGECYCLINE',
+  'TOBRAMYCIN', 'VANCOMYCIN (IV ONLY)', 'VORICONAZOLE', 'ZANAMIVIR'
 ];
 
 export const ANTIBIOTICS = {
@@ -45,7 +154,7 @@ export const DEVICES = [
 
 export const BUNDLE_ELEMENTS = {
   CENTRAL_LINE: [
-    'Review of line necessity',
+    'Documented review of line necessity',
     'Hand hygiene before access',
     'New clean gloves worn',
     'Hub scrubbed with alcohol/CHG',
@@ -65,7 +174,7 @@ export const BUNDLE_ELEMENTS = {
     'DVT prophylaxis (if ordered)'
   ],
   FOLEY: [
-    'Daily review of catheter necessity',
+    'Documented daily review of catheter necessity',
     'Hand hygiene before manipulation',
     'Closed drainage system intact',
     'Bag below bladder level',
@@ -97,7 +206,7 @@ export const CLABSI_DETAILED_BUNDLES = {
     "Did the inserter and assistant/s practise sterile barrier precautions (wearing a sterile gown, sterile gloves, cap and mask)? Was there full body drape for the patient?"
   ],
   MAINTENANCE_ADULT: [
-    "Review central line necessity",
+    "Documented daily review of line necessity",
     "Hand hygiene before/after maintenance or access",
     "Contact precautions (sterile gloves, mask, face shield, gown)",
     "Replace wet/soiled/dislodged dressing using aseptic technique",
@@ -107,7 +216,7 @@ export const CLABSI_DETAILED_BUNDLES = {
     "Sterile gauze or sterile transparent dressing over insertion site"
   ],
   MAINTENANCE_PEDIA: [
-    "Review done for central line necessity (to confer with resident-in-charge or attending physician)",
+    "Documented review of central line necessity (with resident/attending)",
     "Hand hygiene practiced before all maintenance/ access procedures",
     "New clean gloves worn",
     "70% Alcohol used to disinfect the hub least 30 sec then allowed to dry 2 mins",
@@ -120,7 +229,7 @@ export const CLABSI_DETAILED_BUNDLES = {
 
 export const CAUTI_BUNDLES = {
   ADULT: [
-    "Daily review of catheter necessity",
+    "Documented daily review of catheter necessity",
     "Daily perineal care with 2% chlorhexidine",
     "Closed drainage system with proper securement",
     "Drainage bag below bladder level",
@@ -128,7 +237,7 @@ export const CAUTI_BUNDLES = {
   ],
   PEDIA: [
     "Hand hygiene before/after procedure",
-    "Daily review of catheter necessity",
+    "Documented daily review of catheter necessity",
     "Standard precautions",
     "Daily perineal care",
     "Closed drainage system with proper securement",

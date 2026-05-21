@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './lib/firebase';
-import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { UserProfile, Role } from './types';
 import { cn } from './lib/utils';
 import { seedUserRoles } from './lib/seed';
@@ -69,6 +69,8 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [hasPendingAMS, setHasPendingAMS] = useState(false);
+  const [pendingAMSCount, setPendingAMSCount] = useState(0);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -199,6 +201,51 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!profile) {
+      setHasPendingAMS(false);
+      setPendingAMSCount(0);
+      return;
+    }
+
+    const baseQuery = collection(db, 'ams_requests');
+    let unsubscribe: () => void = () => {};
+
+    try {
+      if (profile.role === 'ADMIN' || profile.role === 'IPCN' || profile.role === 'APPROVER' || profile.role === 'PHARMACY') {
+        const q = query(baseQuery);
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          const reqs = snapshot.docs.map(doc => doc.data() as any);
+          let count = 0;
+          if (profile.role === 'ADMIN' || profile.role === 'IPCN' || profile.role === 'APPROVER') {
+            count += reqs.filter(r => r.status === 'PENDING').length;
+          }
+          if (profile.role === 'PHARMACY' || profile.role === 'ADMIN' || profile.role === 'IPCN') {
+            count += reqs.filter(r => r.status === 'APPROVED').length;
+          }
+          setPendingAMSCount(count);
+          setHasPendingAMS(count > 0);
+        }, (err) => {
+          console.error("Pending AMS query error:", err);
+        });
+      } else {
+        const q = query(baseQuery, where('prescriberId', '==', profile.uid));
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          const reqs = snapshot.docs.map(doc => doc.data() as any);
+          const count = reqs.filter(r => r.status === 'MODIFY').length;
+          setPendingAMSCount(count);
+          setHasPendingAMS(count > 0);
+        }, (err) => {
+          console.error("Physician pending ams error:", err);
+        });
+      }
+    } catch (err) {
+      console.error("Failed to establish real-time ams listener:", err);
+    }
+
+    return () => unsubscribe();
+  }, [profile]);
+
   const loginWithGoogle = async () => {
     if (isLoggingIn) return;
     const provider = new GoogleAuthProvider();
@@ -209,7 +256,8 @@ export default function App() {
     } catch (error: any) {
       console.error("Login failed:", error);
       if (error.code === 'auth/popup-closed-by-user') {
-        setLoginError('Login cancelled by user');
+        // Silently ignore when the user closes the popup
+        setLoginError('');
       } else if (error.code === 'auth/cancelled-popup-request') {
         setLoginError('Login already in progress. Please check for an open popup window.');
       } else if (error.code === 'auth/unauthorized-domain') {
@@ -503,14 +551,27 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
                         setIsSidebarOpen(false);
                       }}
                       className={cn(
-                        "flex items-center gap-4 w-full px-4 py-3 text-sm font-bold rounded-2xl transition-all",
+                        "flex items-center gap-4 w-full px-4 py-3 text-sm font-bold rounded-2xl transition-all relative group",
                         activeTab === tab.id 
                           ? "bg-slate-900 text-white shadow-xl shadow-slate-900/20" 
                           : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
                       )}
                     >
-                      <Icon className={cn("w-5 h-5", activeTab === tab.id ? "text-white" : "text-slate-400")} />
+                      <div className="relative">
+                        <Icon className={cn("w-5 h-5", activeTab === tab.id ? "text-white" : "text-slate-400")} />
+                        {tab.id === 'ams' && hasPendingAMS && (
+                          <span className="absolute -top-1.5 -right-1.5 flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                          </span>
+                        )}
+                      </div>
                       <span className="flex-1 text-left">{tab.label}</span>
+                      {tab.id === 'ams' && hasPendingAMS && (
+                        <span className="px-2 py-0.5 text-[9px] font-black text-white bg-rose-500 rounded-full animate-pulse">
+                          {pendingAMSCount}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -566,15 +627,31 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
                   setIsSidebarOpen(false);
                 }}
                 className={cn(
-                  "flex items-center gap-3 w-full px-4 py-2.5 text-xs font-bold rounded-xl transition-all group",
+                  "flex items-center gap-3 w-full px-4 py-2.5 text-xs font-bold rounded-xl transition-all group relative",
                   activeTab === tab.id 
                     ? "bg-brand-primary text-white shadow-lg shadow-teal-900/20" 
                     : "text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm"
                 )}
               >
-                <Icon className={cn("w-4 h-4", activeTab === tab.id ? "text-white" : "text-slate-400 group-hover:text-slate-600")} />
+                <div className="relative">
+                  <Icon className={cn("w-4 h-4", activeTab === tab.id ? "text-white" : "text-slate-400 group-hover:text-slate-600")} />
+                  {tab.id === 'ams' && hasPendingAMS && (
+                    <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                    </span>
+                  )}
+                </div>
                 <span className="flex-1 text-left">{tab.label}</span>
-                {activeTab === tab.id && <div className="w-1.5 h-1.5 rounded-full bg-white/50" />}
+                {tab.id === 'ams' && hasPendingAMS && (
+                  <span className={cn(
+                    "px-1.5 py-0.5 text-[8px] font-black rounded-full animate-pulse shrink-0",
+                    activeTab === tab.id ? "bg-white text-brand-primary" : "bg-rose-500 text-white"
+                  )}>
+                    {pendingAMSCount}
+                  </span>
+                )}
+                {activeTab === tab.id && <div className="w-1.5 h-1.5 rounded-full bg-white/50 shrink-0" />}
               </button>
             );
           })}
@@ -606,10 +683,16 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
         <header className="h-16 bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 flex items-center justify-between px-4 lg:px-8">
           <div className="flex items-center gap-2 lg:gap-4">
             <button 
-              className="lg:hidden p-2 rounded-lg hover:bg-slate-100"
+              className="lg:hidden p-2 rounded-lg hover:bg-slate-100 relative"
               onClick={() => setIsSidebarOpen(true)}
             >
               <Menu className="w-5 h-5" />
+              {hasPendingAMS && (
+                <span className="absolute top-1 right-1 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                </span>
+              )}
             </button>
             
             <div className="flex items-center gap-3">

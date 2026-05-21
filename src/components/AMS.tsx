@@ -38,7 +38,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy, or } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, AMSRequest, AMSStatus } from '../types';
-import { UNITS, ANTIBIOTICS, CULTURE_SPECIMENS } from '../constants';
+import { UNITS, DEPARTMENTS, ANTIBIOTICS, CULTURE_SPECIMENS } from '../constants';
 import { cn, formatDate } from '../lib/utils';
 
 const getAwareStyles = (drugName: string) => {
@@ -511,7 +511,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
               drugName: req.antibiotic,
               patientName: req.patientName,
               patientHrn: req.hospNo || '',
-              ward: req.unit,
+              department: req.unit,
               justification: req.justification || remarks,
               prescriberName: req.prescriberName || 'Physician',
             })
@@ -543,7 +543,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
 
   const exportToCSV = () => {
     const headers = [
-      'Date Requested', 'Patient Name', 'Hospital No', 'Unit', 'Antibiotic', 
+      'Date Requested', 'Patient Name', 'Hospital No', 'Department', 'Antibiotic', 
       'Dose', 'Status', 'Indication', 'Physician', 'Approved Date'
     ];
     
@@ -711,7 +711,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         body: [
           ['Full Name', `${req.lastName}, ${req.firstName} ${req.middleName || ''}`.trim()],
           ['Hospital Number', req.hospNo || 'N/A'],
-          ['Location / Ward', `${req.unit || 'N/A'} / ${req.location || 'N/A'}`],
+          ['Department / Location', `${req.unit || 'N/A'} / ${req.location || 'N/A'}`],
           ['Sex / Age', `${req.sex || 'N/A'} / ${req.age || 'N/A'} ${req.ageUnit || 'N/A'}`],
           ['Date of Birth', req.dob || 'N/A'],
           ['Drug Allergy', req.drugAllergy?.hasAllergy ? `YES: ${req.drugAllergy.specify}` : 'No known drug allergies'],
@@ -908,10 +908,10 @@ export default function AMS({ user }: { user: UserProfile | null }) {
             animate={{ scale: 1, opacity: 1 }}
             className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl"
           >
-            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight mb-6">Switch Active ward</h3>
-            <p className="text-xs text-slate-500 mb-6 font-medium">Select your current ward to see all relevant antimicrobial requests. This is useful for ward staff to track approvals collectively.</p>
+            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight mb-6">Switch Active Department</h3>
+            <p className="text-xs text-slate-500 mb-6 font-medium">Select your current department to see all relevant antimicrobial requests. This is useful for tracking approvals across your department.</p>
             <div className="grid grid-cols-2 gap-3 mb-8 max-h-[300px] overflow-y-auto pr-2 no-scrollbar">
-              {UNITS.map(u => (
+              {DEPARTMENTS.map(u => (
                 <button
                   key={u}
                   onClick={() => handleWardSwitch(u)}
@@ -946,7 +946,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                 className="px-2 py-0.5 bg-brand-primary/10 hover:bg-brand-primary/20 text-brand-primary rounded-full text-[8px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5"
               >
                 <div className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse" />
-                Ward: {user.unit || 'General'}
+                Department: {user.unit || 'General'}
               </button>
             )}
           </div>
@@ -1576,16 +1576,16 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                           />
                        </div>
                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ward / Unit <span className="text-rose-500">*</span></label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Department <span className="text-rose-500">*</span></label>
                           <select 
                             required
                             className="text-input" 
                             value={formData.unit}
                             onChange={e => setFormData({...formData, unit: e.target.value})}
                           >
-                            <option value="">Select Ward...</option>
-                            {UNITS.map(u => (
-                              <option key={u} value={u}>{u}</option>
+                            <option value="">Select Department...</option>
+                            {DEPARTMENTS.map(d => (
+                              <option key={d} value={d}>{d}</option>
                             ))}
                           </select>
                        </div>
@@ -2488,7 +2488,7 @@ function AMSDashboard({ stats }: { stats: any }) {
           { label: 'Common Indication', value: stats.commonIndication, sub: 'Top Driver', icon: Fingerprint, color: 'text-indigo-500' },
           { label: 'Primary Infection Focus', value: stats.commonFocus, sub: 'Clinical Target', icon: Target, color: 'text-rose-500' },
           { label: 'Top Restricted Drug', value: stats.commonAntibiotic, sub: 'Most Prescribed', icon: FlaskConical, color: 'text-amber-500' },
-          { label: 'Top Unit', value: stats.wardWithMostRequests, sub: 'By Volume', icon: BarChart, color: 'text-teal-500' },
+          { label: 'Top Department', value: stats.deptWithMostRequests, sub: 'By Volume', icon: BarChart, color: 'text-teal-500' },
           { label: 'Top Dept', value: stats.deptWithMostRequests, sub: 'By Volume', icon: LayoutDashboard, color: 'text-blue-500' },
         ].map((item, idx) => (
           <div key={idx} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-start gap-3">
@@ -2507,18 +2507,18 @@ function AMSDashboard({ stats }: { stats: any }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Request Distribution by Ward</h4>
+            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Request Distribution by Department</h4>
             <FileText className="w-4 h-4 text-slate-300" />
           </div>
           <div className="space-y-3">
-            {stats.wardRequests.slice(0, 8).map((ward: any) => {
-              const total = stats.wardRequests.reduce((acc: number, curr: any) => acc + curr.count, 0);
-              const percent = total > 0 ? Math.round((ward.count / total) * 100) : 0;
+            {stats.deptRequests.slice(0, 8).map((dept: any) => {
+              const total = stats.deptRequests.reduce((acc: number, curr: any) => acc + curr.count, 0);
+              const percent = total > 0 ? Math.round((dept.count / total) * 100) : 0;
               return (
-                <div key={ward.name}>
+                <div key={dept.name}>
                   <div className="flex justify-between text-[11px] font-bold mb-1">
-                    <span className="text-slate-600">{ward.name}</span>
-                    <span className="text-slate-900">{ward.count} ({percent}%)</span>
+                    <span className="text-slate-600">{dept.name}</span>
+                    <span className="text-slate-900">{dept.count} ({percent}%)</span>
                   </div>
                   <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
                     <div className="h-full bg-teal-500 rounded-full" style={{ width: `${percent}%` }} />
@@ -2526,7 +2526,7 @@ function AMSDashboard({ stats }: { stats: any }) {
                 </div>
               );
             })}
-            {stats.wardRequests.length === 0 && <p className="text-[10px] text-slate-400 italic">No request data found.</p>}
+            {stats.deptRequests.length === 0 && <p className="text-[10px] text-slate-400 italic">No request data found.</p>}
           </div>
         </div>
 

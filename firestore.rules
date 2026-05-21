@@ -84,9 +84,9 @@ service cloud.firestore {
     }
 
     function isValidHAICase(data) {
-      return data.keys().hasAll(['type', 'patientName', 'hospitalNo', 'unit', 'triggerDate', 'status']) &&
+      return data.keys().hasAll(['type', 'patientName', 'hospNo', 'unit', 'triggerDate', 'status']) &&
              isValidString(data.patientName, 100) &&
-             isValidString(data.hospitalNo, 128);
+             isValidString(data.hospNo, 128);
     }
 
     function isValidBOCLog(data) {
@@ -185,7 +185,7 @@ service cloud.firestore {
                      'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 
                      'classification', 'validationResult', 'monitoringMethod', 'monitoringStatus', 'date', 
                      'time', 'updatedAt', 'deviceDays', 'riskLevel', 'clinicalAccuracy', 'complianceAccuracy', 
-                     'validationRemarks', 'correctedDeviceDays', 'correctedRiskLevel'
+                     'validationRemarks', 'correctedDeviceDays', 'correctedRiskLevel', 'clabsiValidationDetails', 'cautiValidationDetails', 'ssiValidationDetails', 'vaeValidationDetails'
                    ])));
       allow delete: if isAdmin() || isIPCN();
     }

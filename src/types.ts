@@ -1,4 +1,10 @@
-export type Role = 'ADMIN' | 'IPCN' | 'PHYSICIAN' | 'PHARMACY' | 'APPROVER' | 'USER';
+export type Role =
+  | "ADMIN"
+  | "IPCN"
+  | "PHYSICIAN"
+  | "PHARMACY"
+  | "APPROVER"
+  | "USER";
 
 export interface UserProfile {
   uid: string;
@@ -14,13 +20,13 @@ export interface UserProfile {
   createdAt: string;
 }
 
-export type AuditType = 
-  | 'HH_AVAILABILITY' 
-  | 'HH_COMPLIANCE' 
-  | 'PPE_AVAILABILITY' 
-  | 'PPE_COMPLIANCE' 
-  | 'SAFE_INJECTION' 
-  | 'ENV_CLEANING';
+export type AuditType =
+  | "HH_AVAILABILITY"
+  | "HH_COMPLIANCE"
+  | "PPE_AVAILABILITY"
+  | "PPE_COMPLIANCE"
+  | "SAFE_INJECTION"
+  | "ENV_CLEANING";
 
 export interface Audit {
   id: string;
@@ -43,10 +49,25 @@ export interface Audit {
   details?: any;
 }
 
-export type NSIStatus = 'PENDING' | 'VALIDATED' | 'NOT_NSI' | 'NEEDS_MORE_DATA';
-export type NSIExposureType = 'Needle-stick' | 'Sharp injury' | 'Splash to mucous membrane' | 'Splash to non-intact skin';
-export type NSIDevice = 'Hollow-bore needle' | 'Suture needle' | 'Scalpel' | 'Lancet' | 'Other';
-export type NSIActivity = 'Recapping' | 'Disposal' | 'Procedure' | 'Cleaning' | 'Handling sharps tray' | 'Other';
+export type NSIStatus = "PENDING" | "VALIDATED" | "NOT_NSI" | "NEEDS_MORE_DATA";
+export type NSIExposureType =
+  | "Needle-stick"
+  | "Sharp injury"
+  | "Splash to mucous membrane"
+  | "Splash to non-intact skin";
+export type NSIDevice =
+  | "Hollow-bore needle"
+  | "Suture needle"
+  | "Scalpel"
+  | "Lancet"
+  | "Other";
+export type NSIActivity =
+  | "Recapping"
+  | "Disposal"
+  | "Procedure"
+  | "Cleaning"
+  | "Handling sharps tray"
+  | "Other";
 
 export interface NSIReport {
   id?: string;
@@ -71,8 +92,8 @@ export interface NSIReport {
   staff: {
     name: string;
     position: string;
-    employmentStatus: 'Regular' | 'Contractual' | 'Trainee';
-    hepBStatus: 'Complete' | 'Incomplete' | 'Unknown';
+    employmentStatus: "Regular" | "Contractual" | "Trainee";
+    hepBStatus: "Complete" | "Incomplete" | "Unknown";
   };
   source?: {
     name: string;
@@ -85,17 +106,17 @@ export interface NSIReport {
     narrative: string;
     ppeWorn: boolean;
     properDisposal: boolean;
-    safetyDeviceActivated: 'Yes' | 'No' | 'N/A';
+    safetyDeviceActivated: "Yes" | "No" | "N/A";
   };
   actions: {
     firstAid: string[];
     reportedTo: string[];
-    pep: 'Initiated' | 'Not indicated' | 'Declined' | 'Unknown';
+    pep: "Initiated" | "Not indicated" | "Declined" | "Unknown";
   };
 
   // Section 2: Validation (Validator Only)
   validation?: {
-    classification: 'Significant Exposure' | 'Non-significant Exposure';
+    classification: "Significant Exposure" | "Non-significant Exposure";
     rootCauses: string[];
     contributingFactors: string[];
     decision: NSIStatus;
@@ -107,8 +128,14 @@ export interface NSIReport {
   };
 }
 
-export type AMSRequestType = 'RESTRICTED_USE' | 'EXTENSION_7D';
-export type AMSStatus = 'PENDING' | 'APPROVED' | 'DENIED' | 'OVERRIDDEN' | 'DISPENSED' | 'MODIFY';
+export type AMSRequestType = "RESTRICTED_USE" | "EXTENSION_7D";
+export type AMSStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "DENIED"
+  | "OVERRIDDEN"
+  | "DISPENSED"
+  | "MODIFY";
 
 export interface PreviousAntibiotic {
   name: string;
@@ -144,10 +171,10 @@ export interface AMSRequest {
     hasAllergy: boolean;
     specify?: string;
   };
-  sex: 'Male' | 'Female';
+  sex: "Male" | "Female";
   dob: string;
   age: string;
-  ageUnit: 'Days' | 'Months' | 'Years';
+  ageUnit: "Days" | "Months" | "Years";
   weight: string;
   height: string;
   serumCreatinine: string;
@@ -160,7 +187,7 @@ export interface AMSRequest {
   antimicrobialsRequested: string[];
   drugDoses?: Record<string, string>;
   dosingRegimen: string;
-  indicationForUse: 'Prophylactic' | 'Empiric' | 'Definitive';
+  indicationForUse: "Prophylactic" | "Empiric" | "Definitive";
   focusOfInfection: string[];
   focusOther?: string;
   infectiousDiagnosis?: string;
@@ -190,7 +217,7 @@ export interface AMSRequest {
   dose: string;
   diagnosis: string;
   justification: string;
-  
+
   prescriberId: string;
   prescriberEmail?: string;
   prescriberContact?: string;
@@ -213,8 +240,8 @@ export interface AMSRequest {
   dispensedAt?: any;
 }
 
-export type HAIType = 'CLABSI' | 'VAP' | 'CAUTI' | 'SSI' | 'VAP/VAE';
-export type HAIStatus = 'PENDING' | 'CONFIRMED' | 'NOT_HAI' | 'NEEDS_MORE_DATA';
+export type HAIType = "CLABSI" | "VAP" | "CAUTI" | "SSI" | "VAP/VAE";
+export type HAIStatus = "PENDING" | "CONFIRMED" | "NOT_HAI" | "NEEDS_MORE_DATA";
 
 export interface HAICase {
   id?: string;
@@ -232,27 +259,113 @@ export interface HAICase {
   labOther?: string;
   triggerDate: string;
   status: HAIStatus;
-  riskLevel: 'RED' | 'YELLOW' | 'BLUE' | 'BLACK';
+  riskLevel: "RED" | "YELLOW" | "BLUE" | "BLACK";
   deviceDays: number;
   repeatedDays?: number;
-  
+
   // Validation
   validatedBy?: string;
   validatorName?: string;
   validatedAt?: string;
   decisionNote?: string;
-  
+
   // Root cause flags
   bundleIssues?: string;
   clinicalIssues?: string;
   labIssues?: string;
+
+  clabsiValidationDetails?: {
+    specificEvent?:
+      | "Recognized pathogen"
+      | "Common commensal (from >= 2 blood cultures)";
+    signsAndSymptoms?: string[];
+    secondaryBSI?: "Yes" | "No";
+    died?: "Yes" | "No";
+    bsiContributedToDeath?: "Yes" | "No";
+    dischargeDate?: string;
+    pathogensIdentified?: "Yes" | "No";
+    pathogens?: {
+      organism: string;
+      resistancePattern?: string;
+      collectionDate: string;
+    }[];
+  };
+
+  cautiValidationDetails?: {
+    urinaryCatheterStatus?:
+      | "In place > 2 days"
+      | "In place <= 2 days"
+      | "Neither";
+    specificEvent?:
+      | "Symptomatic UTI (SUTI)"
+      | "Asymptomatic Bacteremic UTI (ABUTI)";
+    signsAndSymptoms?: string[];
+    laboratoryDiagnosticTesting?: string[];
+    secondaryBSI?: "Yes" | "No";
+    died?: "Yes" | "No";
+    utiContributedToDeath?: "Yes" | "No";
+    dischargeDate?: string;
+    pathogensIdentified?: "Yes" | "No";
+    pathogens?: {
+      organism: string;
+      resistancePattern: string;
+      collectionDate: string;
+    }[];
+  };
+
+  ssiValidationDetails?: {
+    infectionDetected?:
+      | "During initial admission"
+      | "Readmission from this facility"
+      | "Readmission from other facility"
+      | "Out-patient follow-up";
+    typeOfSSI?:
+      | "Superficial Incisional Primary"
+      | "Superficial Incisional Secondary"
+      | "Deep Incisional Primary"
+      | "Deep Incisional Secondary"
+      | "Organ/Space";
+    organSpaceSpecific?: string;
+    patos?: "Yes" | "No";
+    dateOfSymptomOnset?: string;
+    signsAndSymptoms?: string[];
+    laboratory?: string[];
+    clinicalDiagnosis?: string[];
+    cultureObtained?: "Yes" | "No";
+    organismMDRO?: "Yes" | "No";
+    secondaryBSI?: "Yes" | "No";
+    dischargeDate?: string;
+    disposition?: "Recovered" | "Improved" | "Unimproved" | "Died";
+    ssiContributedToDeath?: "Yes" | "No";
+    pathogensIdentified?: "Yes" | "No";
+    pathogens?: {
+      organism: string;
+      resistancePattern?: string;
+      collectionDate: string;
+    }[];
+  };
+
+  vaeValidationDetails?: {
+    eventDate?: string;
+    criteriaMet?: string[];
+    vacIndicators?: string[];
+    ivacIndicators?: string[];
+    pvapIndicators?: string[];
+    antimicrobials?: string[];
+    pathogensIdentified?: "Yes" | "No";
+    pathogens?: {
+      organism: string;
+      resistancePattern?: string;
+      collectionDate: string;
+    }[];
+  };
 }
 
 export interface IPCUAction {
   id?: string;
   patientName: string;
   hospNo: string;
-  haiType: HAIType | 'Bundle' | 'AMS' | 'Audit' | string;
+  haiType: HAIType | "Bundle" | "AMS" | "Audit" | string;
   action: string;
   date: string;
   staffName: string;
@@ -271,14 +384,17 @@ export interface BundleAssessment {
 }
 
 export interface FormCompletionDetail {
-  section: 'Physician-in-Charge (PIC)' | 'Nurse-in-Charge (NIC)' | 'Clinical Criteria Section';
-  status: 'Complete' | 'Incomplete' | 'N/A';
+  section:
+    | "Physician-in-Charge (PIC)"
+    | "Nurse-in-Charge (NIC)"
+    | "Clinical Criteria Section";
+  status: "Complete" | "Incomplete" | "N/A";
   isSigned: boolean;
   remarks?: string;
   physicianName?: string;
 }
 
-export type Population = 'Adult' | 'Pediatric';
+export type Population = "Adult" | "Pediatric";
 
 export interface AssignedMonitor {
   name: string;
@@ -287,10 +403,10 @@ export interface AssignedMonitor {
 export interface MonitoringDay {
   date: string;
   dayNumber: number;
-  bundleType: 'CLABSI' | 'CAUTI' | 'VAP' | 'SSI';
+  bundleType: "CLABSI" | "CAUTI" | "VAP" | "SSI";
   bundleSubtype?: string;
   isPedia: boolean;
-  bundleChecklist: Record<string, 'Done' | 'Not Done' | 'N/A'>;
+  bundleChecklist: Record<string, "Done" | "Not Done" | "N/A">;
   clinicalCriteria: Record<string, boolean | string>;
   complianceScores: {
     bundle: number;
@@ -313,7 +429,7 @@ export interface BundleMonitoring {
   hospitalNo: string;
   patientName: string;
   age: string;
-  sex: 'Male' | 'Female';
+  sex: "Male" | "Female";
   unit: string;
   bedNumber?: string;
   roomWard: string;
@@ -329,11 +445,11 @@ export interface BundleMonitoring {
     type: string;
     startDate: string;
     endDate?: string;
-    preOpBundle?: Record<string, 'Done' | 'Not Done' | 'N/A'>;
-    intraOpBundle?: Record<string, 'Done' | 'Not Done' | 'N/A'>;
+    preOpBundle?: Record<string, "Done" | "Not Done" | "N/A">;
+    intraOpBundle?: Record<string, "Done" | "Not Done" | "N/A">;
   };
   monitoringDays: MonitoringDay[];
-  status: 'ACTIVE' | 'ARCHIVED';
+  status: "ACTIVE" | "ARCHIVED";
   endMonitoring?: boolean;
   endMonitoringDateTime?: any;
   endMonitoringReason?: string;
@@ -357,7 +473,7 @@ export interface BOCLog {
   patientName: string;
   hospNo: string;
   age: string;
-  sex: 'Male' | 'Female';
+  sex: "Male" | "Female";
   devicesPresent: string[];
   bundles: Record<string, BundleAssessment>;
   bundleType?: string;
@@ -369,17 +485,20 @@ export interface BOCLog {
   staffId: string;
   staffEmail?: string;
   createdAt?: any;
-  
+
   formMonitoring?: FormCompletionDetail[];
-  
+
   isValidated?: boolean;
   verification?: {
     date: string;
     time: string;
-    completeness: { status: 'Complete' | 'Incomplete'; details: string };
-    accuracy: { status: 'Accurate' | 'Inaccurate'; details: string };
-    independentAssessment: Record<string, { isCompliant: boolean; notes: string }>;
-    finalDecision: 'Compliant' | 'Non-compliant';
+    completeness: { status: "Complete" | "Incomplete"; details: string };
+    accuracy: { status: "Accurate" | "Inaccurate"; details: string };
+    independentAssessment: Record<
+      string,
+      { isCompliant: boolean; notes: string }
+    >;
+    finalDecision: "Compliant" | "Non-compliant";
     reason: string;
     correctiveAction: string[];
     validatorName: string;
@@ -388,20 +507,28 @@ export interface BOCLog {
   };
 }
 
-export type OutbreakStatus = 'Suspected' | 'Under Investigation' | 'Confirmed' | 'Controlled' | 'Closed';
+export type OutbreakStatus =
+  | "Suspected"
+  | "Under Investigation"
+  | "Confirmed"
+  | "Controlled"
+  | "Closed";
 
 export interface OutbreakCase {
   patientName: string;
   hospNo: string;
+  ageService?: string;
   unit: string;
-  bedNumber?: string;
+  roomBed?: string;
   onSetDate: string;
   symptoms: string;
   labResults: string;
-  deviceProcedure: string;
+  devices?: string;
+  fluids?: string;
+  nurseAssignment?: string;
   outcome: string;
-  
-  // Detailed Case Investigation (integrated for MHARSMC)
+
+  // Detailed Case Investigation
   dob?: string;
   admissionDate?: string;
   wardUnitBed?: string;
@@ -473,51 +600,95 @@ export interface OutbreakReport {
   detectedAt: string;
   detectedTime: string;
   reportedBy: string;
-  reportingSrc: string[]; 
+  reportingSrc: string[];
   reportingSrcOther?: string;
-  type: string[]; 
+  type: string[];
   typeOther?: string;
-  triggerCriteria: string[]; 
+  triggerCriteria: string[];
   triggerCriteriaOther?: string;
   lineList: OutbreakCase[];
-  
+
+  unitLevelInfo?: {
+    recentChanges: string[];
+    sharedEquipment: string[];
+    sharedEquipmentOther?: string;
+    lastTerminalCleaning?: string;
+    missedCleaningLogs?: "Yes" | "No";
+    malfunctioningEquipment?: "Yes" | "No";
+  };
+
+  staffingPatterns?: {
+    nursesAssigned?: string;
+    staffWithSymptoms?: "Yes" | "No";
+    staffSymptomsDescription?: string;
+  };
+
+  initialObservations?: {
+    clustering?: string;
+    sharedEquipmentRepeatedlyUsed?: string;
+    cleaningConcerns?: string;
+    unusualEvents?: string;
+  };
+
+  personnelNotified?: {
+    chargeNurse?: string;
+    unitManager?: string;
+    ipcNurse?: string;
+    physician?: string;
+    laboratory?: string;
+  };
+
+  attachments?: string[];
+  attachmentsOther?: string;
+
   epidemiology: {
     indexCase: string;
     totalCases: number;
+    populationAtRisk?: number;
     attackRate: string;
     unitsAffected: string;
     possibleSource: string;
-    transmissionMode: string[]; 
+    transmissionMode: string[];
     transmissionModeOther?: string;
   };
-  
+
   findings: {
-    envSwabbing: { done: boolean; results: string };
-    waterTesting: { done: boolean; results: string };
+    envSwabbing: {
+      status: "Done" | "Not Done" | "Pending" | "Not Indicated";
+      results: string;
+      organism?: string;
+      collectionDate?: string;
+    };
+    waterTesting: {
+      status: "Done" | "Not Done" | "Pending" | "Not Indicated";
+      results: string;
+      organism?: string;
+      collectionDate?: string;
+    };
     labAlerts: { organism: string; resistancePattern: string };
   };
-  
+
   controlMeasures: {
-    actions: string[]; 
+    actions: string[];
     actionsOther?: string;
     dateImplemented: string;
     responsibleUnit: string;
   };
-  
+
   investigationTeam?: string[];
   conclusion?: string;
   recommendations?: string;
-  
+
   status: OutbreakStatus;
   dateClosed?: string;
   closureReason?: string;
-  
+
   reporterId: string;
   reporterEmail?: string;
   createdAt: any;
-  
+
   validation?: {
-    decision: 'Confirmed Outbreak' | 'Not an Outbreak' | 'Needs More Data';
+    decision: "Confirmed Outbreak" | "Not an Outbreak" | "Needs More Data";
     basis: string[];
     notes: string;
     validatorName: string;

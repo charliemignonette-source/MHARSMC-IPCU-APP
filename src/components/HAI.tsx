@@ -12,14 +12,109 @@ import {
   Microscope,
   Calendar,
   XCircle,
-  Trash2
+  Trash2,
+  Calculator,
+  FileDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, orderBy, doc, updateDoc, deleteDoc, limit, getDocs } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, HAICase, BOCLog, HAIType, IPCUAction, BundleMonitoring, Population, MonitoringDay } from '../types';
-import { UNITS, DEVICES, BUNDLE_ELEMENTS, IPCU_CORRECTIVE_ACTIONS, CLABSI_DETAILED_BUNDLES, CAUTI_BUNDLES, VAP_BUNDLES, SSI_BUNDLES as SSI_BUNDLES_CONST, CLINICAL_CRITERIA_DETAILED } from '../constants';
+import { UNITS, DEVICES, BUNDLE_ELEMENTS, IPCU_CORRECTIVE_ACTIONS, CLABSI_DETAILED_BUNDLES, CAUTI_BUNDLES, VAP_BUNDLES, SSI_BUNDLES as SSI_BUNDLES_CONST, CLINICAL_CRITERIA_DETAILED, CLABSI_RECOGNIZED_PATHOGENS, CLABSI_COMMON_COMMENSALS, CAUTI_ORGANISMS, VAE_ANTIMICROBIALS } from '../constants';
 import { cn, formatDate } from '../lib/utils';
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+
+const downloadCasePDF = (c: HAICase) => {
+  const doc = new jsPDF();
+  
+  doc.setFillColor(15, 118, 110);
+  doc.rect(0, 0, 220, 25, "F");
+  
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text("HAI CASE INVESTIGATION SUMMARY", 15, 12);
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.text("Infection Prevention & Control Unit (IPCU)", 15, 18);
+  
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.text("1. PATIENT DEMOGRAPHICS & BASIC INFO", 15, 35);
+  
+  autoTable(doc, {
+    startY: 40,
+    head: [["Field", "Value"]],
+    body: [
+      ["Patient Name", c.patientName || "N/A"],
+      ["Hospital No (UR)", c.hospNo || "N/A"],
+      ["Unit/Ward", c.unit || "N/A"],
+      ["Validation Status", c.status || "N/A"],
+      ["HAI Type", c.type || "N/A"],
+    ],
+    theme: "grid",
+    styles: { fontSize: 10 },
+    headStyles: { fillColor: [15, 118, 110] },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 65 } }
+  });
+
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.text("2. CLINICAL & DEVICE INFORMATION", 15, (doc as any).lastAutoTable.finalY + 15);
+  
+  autoTable(doc, {
+    startY: (doc as any).lastAutoTable.finalY + 20,
+    head: [["Field", "Value"]],
+    body: [
+      ["Trigger Date", c.triggerDate ? (typeof c.triggerDate === 'string' ? c.triggerDate : 'N/A') : "N/A"],
+      ["Device Type", c.deviceType || c.procedureType || "N/A"],
+      ["Device Days", c.deviceDays?.toString() || "N/A"],
+      ["Clinical Signs (Criteria met)", c.triggeredCriteria?.join(", ") || "None"],
+      ["Lab Results (Flagged)", c.triggeredLabs?.join(", ") || "None"],
+    ],
+    theme: "grid",
+    styles: { fontSize: 10 },
+    headStyles: { fillColor: [15, 118, 110] },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 65 } }
+  });
+
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.text("3. VALIDATION DETAILS", 15, (doc as any).lastAutoTable.finalY + 15);
+  
+  const valDate = c.validatedAt && (c.validatedAt as any).toDate ? (c.validatedAt as any).toDate().toLocaleDateString() : (c.validatedAt ? new Date(c.validatedAt).toLocaleDateString() : 'N/A');
+
+  let validationBody: string[][] = [
+      ["Validated By", c.validatorName || "IPCU Administrator"],
+      ["Validation Date", valDate],
+      ["Decision Note (Conclusion)", c.decisionNote || "N/A"],
+      ["Risk Level Flag", c.riskLevel || "N/A"],
+  ];
+  
+  if (c.type === 'CLABSI' && c.clabsiValidationDetails) {
+      validationBody.push(["Specific Event", c.clabsiValidationDetails.specificEvent || "N/A"]);
+      validationBody.push(["Secondary BSI", c.clabsiValidationDetails.secondaryBSI || "N/A"]);
+      validationBody.push(["Pathogens Identified", c.clabsiValidationDetails.pathogensIdentified || "N/A"]);
+  }
+  
+  if (c.type === 'CAUTI' && (c as any).cautiValidationDetails) {
+      validationBody.push(["Organism Identified", (c as any).cautiValidationDetails.organismIdentified?.join(", ") || "N/A"]);
+  }
+  
+  autoTable(doc, {
+    startY: (doc as any).lastAutoTable.finalY + 20,
+    head: [["Field", "Value"]],
+    body: validationBody,
+    theme: "grid",
+    styles: { fontSize: 10 },
+    headStyles: { fillColor: [15, 118, 110] },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 65 } }
+  });
+  
+  doc.save(`IPCU_HAI_Report_${c.hospNo || 'patient'}.pdf`);
+};
 
 const SS_BUNDLES = [
   'Hand Hygiene',
@@ -74,12 +169,14 @@ export default function HAI({ user }: { user: UserProfile | null }) {
     const doneItems = Object.values(day.bundleChecklist || {}).filter(v => v === 'Done');
     const notDoneItems = Object.values(day.bundleChecklist || {}).filter(v => v === 'Not Done');
     const totalRequired = doneItems.length + notDoneItems.length;
-    const bundleScore = totalRequired > 0 ? (doneItems.length / totalRequired) * 100 : 100;
+    
+    // All-or-Nothing Measurement Standard
+    const bundleScore = (totalRequired > 0 && doneItems.length === totalRequired) ? 100 : 0;
 
     return {
-      bundle: parseFloat(bundleScore.toFixed(2)),
+      bundle: bundleScore,
       clinical: 100, // Not part of compliance
-      overall: parseFloat(bundleScore.toFixed(2))
+      overall: bundleScore
     };
   };
 
@@ -310,7 +407,8 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       }
     });
 
-    const finalPct = totalElements > 0 ? (compliantElements / totalElements) * 100 : 0;
+    // All-or-Nothing Measurement Standard for the entire log
+    const finalPct = (totalElements > 0 && compliantElements === totalElements) ? 100 : 0;
 
     try {
       await addDoc(collection(db, 'boc_logs'), removeUndefined({
@@ -521,13 +619,22 @@ export default function HAI({ user }: { user: UserProfile | null }) {
               </button>
             )}
             {isIPCU && activeView === 'surveillance' && (
-              <button 
-                onClick={() => setIsAddingCase(true)}
-                className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2"
-              >
-                <AlertTriangle className="w-4 h-4" />
-                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">Report Case</span>
-              </button>
+              <>
+                <button 
+                  onClick={() => setIsManagingDenominators(true)}
+                  className="flex-1 sm:flex-none px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 flex items-center justify-center gap-2 rounded-xl transition-all shadow-sm"
+                >
+                  <Calculator className="w-4 h-4 text-slate-400" />
+                  <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">Denominators</span>
+                </button>
+                <button 
+                  onClick={() => setIsAddingCase(true)}
+                  className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2"
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">Report Case</span>
+                </button>
+              </>
             )}
         </div>
       </div>
@@ -686,7 +793,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                                  "w-3 h-3 rounded-full block shadow-sm",
                                  c.riskLevel === 'RED' ? "bg-rose-500" : c.riskLevel === 'YELLOW' ? "bg-amber-400" : c.riskLevel === 'BLUE' ? "bg-blue-500" : "bg-slate-900"
                                )} />
-                               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{c.riskLevel}</span>
+                               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{c.riskLevel === 'RED' ? 'HIGH' : c.riskLevel === 'YELLOW' ? 'MODERATE' : c.riskLevel === 'BLUE' ? 'LOW' : c.riskLevel}</span>
                              </div>
                           </td>
                           <td className="px-6 py-4 text-right">
@@ -708,12 +815,21 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                                    Validate
                                  </button>
                                ) : (
-                                 <button 
-                                   onClick={() => { setSelectedCase(c); setIsValidating(true); }}
-                                   className="text-[9px] font-black uppercase tracking-widest text-slate-400 p-2 hover:bg-slate-100 rounded-lg"
-                                 >
-                                   View
-                                 </button>
+                                 <div className="flex items-center gap-1">
+                                    <button 
+                                      onClick={() => downloadCasePDF(c)}
+                                      className="p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-500 rounded-lg transition-colors"
+                                      title="Download PDF Report"
+                                    >
+                                      <FileDown className="w-4 h-4" />
+                                    </button>
+                                    <button 
+                                      onClick={() => { setSelectedCase(c); setIsValidating(true); }}
+                                      className="text-[9px] font-black uppercase tracking-widest text-slate-400 p-2 hover:bg-slate-100 rounded-lg"
+                                    >
+                                      View
+                                    </button>
+                                 </div>
                                )}
                              </div>
                           </td>
@@ -1884,6 +2000,7 @@ function SurveillanceModal({ onClose, formData, setFormData, onSubmit }: any) {
                        <button
                          key={risk}
                          type="button"
+                         title={risk === 'RED' ? 'High Risk' : risk === 'YELLOW' ? 'Moderate Risk' : 'Low Risk'}
                          onClick={() => setFormData({...formData, riskLevel: risk})}
                          className={cn(
                            "w-4 h-4 rounded-full border-2 border-white shadow-sm transition-transform",
@@ -2375,7 +2492,57 @@ function HAIValidationModal({ onClose, haiCase, onSubmit, user, loading }: any) 
     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
     // Allow corrections during validation
     correctedDeviceDays: haiCase.deviceDays || 0,
-    correctedRiskLevel: haiCase.riskLevel || 'BLUE'
+    correctedRiskLevel: haiCase.riskLevel || 'BLUE',
+    clabsiValidationDetails: haiCase.clabsiValidationDetails || {
+      specificEvent: null,
+      signsAndSymptoms: [],
+      secondaryBSI: null,
+      died: null,
+      bsiContributedToDeath: null,
+      dischargeDate: '',
+      pathogensIdentified: null,
+      pathogens: []
+    },
+    cautiValidationDetails: haiCase.cautiValidationDetails || {
+      urinaryCatheterStatus: null,
+      specificEvent: null,
+      signsAndSymptoms: [],
+      laboratoryDiagnosticTesting: [],
+      secondaryBSI: null,
+      died: null,
+      utiContributedToDeath: null,
+      dischargeDate: '',
+      pathogensIdentified: null,
+      pathogens: []
+    },
+    ssiValidationDetails: haiCase.ssiValidationDetails || {
+      infectionDetected: null,
+      typeOfSSI: null,
+      organSpaceSpecific: '',
+      patos: null,
+      dateOfSymptomOnset: '',
+      signsAndSymptoms: [],
+      laboratory: [],
+      clinicalDiagnosis: [],
+      cultureObtained: null,
+      organismMDRO: null,
+      secondaryBSI: null,
+      dischargeDate: '',
+      disposition: null,
+      ssiContributedToDeath: null,
+      pathogensIdentified: null,
+      pathogens: []
+    },
+    vaeValidationDetails: haiCase.vaeValidationDetails || {
+      eventDate: '',
+      criteriaMet: [],
+      vacIndicators: [],
+      ivacIndicators: [],
+      pvapIndicators: [],
+      antimicrobials: [],
+      pathogensIdentified: null,
+      pathogens: []
+    }
   });
 
   return (
@@ -2384,9 +2551,21 @@ function HAIValidationModal({ onClose, haiCase, onSubmit, user, loading }: any) 
         <div className="p-4 sm:p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center text-white shrink-0">
           <div className="flex items-center gap-3">
              <ShieldCheck className="w-5 h-5 text-brand-primary" />
-             <h3 className="text-sm sm:text-lg font-bold uppercase tracking-tight">IPCU HAI Validation Queue</h3>
+             <h3 className="text-sm sm:text-lg font-bold uppercase tracking-tight">IPCU HAI Validation {haiCase.status !== 'PENDING' ? 'Report' : 'Queue'}</h3>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-500"><XCircle className="w-6 h-6" /></button>
+          <div className="flex items-center gap-4">
+            {haiCase.status !== 'PENDING' && (
+              <button 
+                type="button" 
+                onClick={() => downloadCasePDF(haiCase)} 
+                className="text-[10px] font-black uppercase tracking-widest text-teal-400 p-2 hover:bg-white/10 rounded-lg flex items-center gap-2 transition-colors"
+                title="Download Comprehensive Summary PDF"
+              >
+                <FileDown className="w-4 h-4" /> Download PDF
+              </button>
+            )}
+            <button type="button" onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-500"><XCircle className="w-6 h-6" /></button>
+          </div>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); onSubmit(formData); }} className="flex-1 overflow-hidden flex flex-col">
           <div className="flex-1 p-4 sm:p-8 space-y-8 overflow-y-auto custom-scrollbar bg-slate-50/50">
@@ -2443,6 +2622,829 @@ function HAIValidationModal({ onClose, haiCase, onSubmit, user, loading }: any) 
 
             <div className="h-px bg-slate-200 w-full" />
 
+            {haiCase.type === 'CLABSI' && (
+              <div className="p-4 sm:p-6 bg-slate-50 rounded-2xl border border-slate-200 shadow-inner space-y-6">
+                <h4 className="text-sm font-black uppercase text-slate-800 tracking-tight flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-rose-500" /> CLABSI Case Report Data
+                </h4>
+                
+                {/* Specific Event */}
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Specific Event</label>
+                  <div className="space-y-2">
+                     <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                        <input type="radio" name="clabsi-event" checked={formData.clabsiValidationDetails.specificEvent === 'Recognized pathogen'} onChange={() => setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, specificEvent: 'Recognized pathogen'}})} className="w-4 h-4 text-brand-primary" />
+                        Recognized pathogen
+                     </label>
+                     <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                        <input type="radio" name="clabsi-event" checked={formData.clabsiValidationDetails.specificEvent === 'Common commensal (from >= 2 blood cultures)'} onChange={() => setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, specificEvent: 'Common commensal (from >= 2 blood cultures)'}})} className="w-4 h-4 text-brand-primary" />
+                        Common commensal (from &ge; 2 blood cultures)
+                     </label>
+                  </div>
+                </div>
+
+                {/* Signs & Symptoms */}
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Signs &amp; Symptoms (Check all that apply)</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['Fever', 'Chills', 'Hypotension', 'Hypothermia', 'Apnea', 'Bradycardia'].map(sym => (
+                      <label key={sym} className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                         <input type="checkbox" checked={formData.clabsiValidationDetails.signsAndSymptoms.includes(sym)} onChange={(e) => {
+                           const syms = new Set(formData.clabsiValidationDetails.signsAndSymptoms);
+                           e.target.checked ? syms.add(sym) : syms.delete(sym);
+                           setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, signsAndSymptoms: Array.from(syms)}});
+                         }} className="w-4 h-4 text-brand-primary rounded" />
+                         {sym}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Secondary BSI Tracker */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Secondary Bloodstream Infection</label>
+                    <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.clabsiValidationDetails.secondaryBSI || ''} onChange={e => setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, secondaryBSI: e.target.value as any}})}>
+                      <option value="">Select...</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Died</label>
+                    <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.clabsiValidationDetails.died || ''} onChange={e => setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, died: e.target.value as any, ...(e.target.value === 'No' ? {bsiContributedToDeath: null} : {})}})}>
+                      <option value="">Select...</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  
+                  {formData.clabsiValidationDetails.died === 'Yes' && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">BSI Contributed to Death</label>
+                      <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.clabsiValidationDetails.bsiContributedToDeath || ''} onChange={e => setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, bsiContributedToDeath: e.target.value as any}})}>
+                        <option value="">Select...</option>
+                        <option value="Yes">Yes</option>
+                        <option value="No">No</option>
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Discharge Date</label>
+                    <input type="date" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.clabsiValidationDetails.dischargeDate || ''} onChange={e => setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, dischargeDate: e.target.value}})} />
+                  </div>
+                </div>
+
+                {/* Pathogens */}
+                <div className="space-y-4 pt-4 border-t border-slate-200">
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block">Pathogens Identified?</label>
+                     <div className="flex gap-4">
+                       <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                          <input type="radio" checked={formData.clabsiValidationDetails.pathogensIdentified === 'Yes'} onChange={() => setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, pathogensIdentified: 'Yes'}})} className="w-4 h-4 text-brand-primary" /> Yes
+                       </label>
+                       <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                          <input type="radio" checked={formData.clabsiValidationDetails.pathogensIdentified === 'No'} onChange={() => setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, pathogensIdentified: 'No', pathogens: []}})} className="w-4 h-4 text-brand-primary" /> No
+                       </label>
+                     </div>
+                   </div>
+
+                   {formData.clabsiValidationDetails.pathogensIdentified === 'Yes' && (
+                     <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200">
+                        <div className="flex items-center justify-between">
+                           <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Specify Pathogens</label>
+                           <button type="button" onClick={() => setFormData({
+                             ...formData,
+                             clabsiValidationDetails: {
+                               ...formData.clabsiValidationDetails,
+                               pathogens: [...formData.clabsiValidationDetails.pathogens, { organism: '', resistancePattern: '', collectionDate: '' }]
+                             }
+                           })} className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-1 rounded flex items-center gap-1 hover:bg-teal-100 transition-colors">
+                             <Plus className="w-3 h-3" /> Add Organism
+                           </button>
+                        </div>
+                        {formData.clabsiValidationDetails.pathogens.map((pathogen: any, i: number) => (
+                           <div key={i} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
+                             <div className="flex-1 w-full space-y-1">
+                               <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Organism</label>
+                               <select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.organism} onChange={(e) => {
+                                  const paths = [...formData.clabsiValidationDetails.pathogens];
+                                  paths[i].organism = e.target.value;
+                                  setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, pathogens: paths}});
+                               }}>
+                                  <option value="">Select Organism...</option>
+                                  <optgroup label="Recognized Pathogens">
+                                    {CLABSI_RECOGNIZED_PATHOGENS.map(o => <option key={o} value={o}>{o}</option>)}
+                                  </optgroup>
+                                  <optgroup label="Common Commensals">
+                                    {CLABSI_COMMON_COMMENSALS.map(o => <option key={o} value={o}>{o}</option>)}
+                                  </optgroup>
+                                  <option value="Other">Other (Type below)</option>
+                               </select>
+                             </div>
+                             <div className="flex-[0.8] w-full space-y-1">
+                               <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Resistance Pattern</label>
+                               <input type="text" placeholder="e.g., MRSA, ESBL" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.resistancePattern || ''} onChange={(e) => {
+                                  const paths = [...formData.clabsiValidationDetails.pathogens];
+                                  paths[i].resistancePattern = e.target.value;
+                                  setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, pathogens: paths}});
+                               }} />
+                             </div>
+                             <div className="flex-[0.7] w-full space-y-1">
+                               <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Collection Date</label>
+                               <input type="date" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.collectionDate} onChange={(e) => {
+                                  const paths = [...formData.clabsiValidationDetails.pathogens];
+                                  paths[i].collectionDate = e.target.value;
+                                  setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, pathogens: paths}});
+                               }} />
+                             </div>
+                             <button type="button" onClick={() => {
+                                const paths = [...formData.clabsiValidationDetails.pathogens];
+                                paths.splice(i, 1);
+                                setFormData({...formData, clabsiValidationDetails: {...formData.clabsiValidationDetails, pathogens: paths}});
+                             }} className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition-colors mt-auto mb-0.5">
+                               <Trash2 className="w-4 h-4" />
+                             </button>
+                           </div>
+                        ))}
+                        {formData.clabsiValidationDetails.pathogens.length === 0 && (
+                          <div className="text-center p-4 border border-dashed border-slate-200 rounded-lg text-xs text-slate-400 font-medium">
+                            No organisms added. Click "Add Organism" to record pathogens.
+                          </div>
+                        )}
+                     </div>
+                   )}
+                </div>
+              </div>
+            )}
+
+            {haiCase.type === 'CAUTI' && (
+              <div className="p-4 sm:p-6 bg-slate-50 rounded-2xl border border-slate-200 shadow-inner space-y-6">
+                <h4 className="text-sm font-black uppercase text-slate-800 tracking-tight flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-orange-500" /> CAUTI Case Report Data
+                </h4>
+
+                {/* Urinary Catheter Status */}
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Urinary Catheter Status</label>
+                  <div className="flex flex-col gap-2">
+                     <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                        <input type="radio" checked={formData.cautiValidationDetails.urinaryCatheterStatus === 'In place > 2 days'} onChange={() => setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, urinaryCatheterStatus: 'In place > 2 days'}})} className="w-4 h-4 text-brand-primary" />
+                        In place - Urinary catheter in place &gt; 2 days
+                     </label>
+                     <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                        <input type="radio" checked={formData.cautiValidationDetails.urinaryCatheterStatus === 'In place <= 2 days'} onChange={() => setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, urinaryCatheterStatus: 'In place <= 2 days'}})} className="w-4 h-4 text-brand-primary" />
+                        In place - Urinary catheter in place &lt;= 2 days
+                     </label>
+                     <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                        <input type="radio" checked={formData.cautiValidationDetails.urinaryCatheterStatus === 'Neither'} onChange={() => setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, urinaryCatheterStatus: 'Neither'}})} className="w-4 h-4 text-brand-primary" />
+                        Neither - Not catheter associated
+                     </label>
+                  </div>
+                </div>
+                
+                {/* Specific Event */}
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Specific Event</label>
+                  <div className="flex flex-col gap-2">
+                     <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                        <input type="radio" checked={formData.cautiValidationDetails.specificEvent === 'Symptomatic UTI (SUTI)'} onChange={() => setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, specificEvent: 'Symptomatic UTI (SUTI)'}})} className="w-4 h-4 text-brand-primary" />
+                        Symptomatic UTI (SUTI)
+                     </label>
+                     <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                        <input type="radio" checked={formData.cautiValidationDetails.specificEvent === 'Asymptomatic Bacteremic UTI (ABUTI)'} onChange={() => setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, specificEvent: 'Asymptomatic Bacteremic UTI (ABUTI)'}})} className="w-4 h-4 text-brand-primary" />
+                        Asymptomatic Bacteremic UTI (ABUTI)
+                     </label>
+                  </div>
+                </div>
+
+                {/* Signs & Symptoms */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Signs &amp; Symptoms (Any Patient)</label>
+                    <div className="flex flex-col gap-2">
+                      {['Fever', 'Frequency', 'Urgency', 'Dysuria', 'Suprapubic tenderness', 'Costovertebral angle pain or tenderness'].map(sym => (
+                        <label key={sym} className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                           <input type="checkbox" checked={formData.cautiValidationDetails.signsAndSymptoms.includes(sym)} onChange={(e) => {
+                             const syms = new Set(formData.cautiValidationDetails.signsAndSymptoms);
+                             e.target.checked ? syms.add(sym) : syms.delete(sym);
+                             setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, signsAndSymptoms: Array.from(syms)}});
+                           }} className="w-4 h-4 text-brand-primary rounded" />
+                           {sym}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Signs &amp; Symptoms (&le; 1 year old)</label>
+                    <div className="flex flex-col gap-2">
+                      {['Fever (<=1yr)', 'Hypothermia', 'Apnea', 'Bradycardia', 'Lethargy', 'Vomiting', 'Suprapubic tenderness (<=1yr)'].map(sym => (
+                        <label key={sym} className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                           <input type="checkbox" checked={formData.cautiValidationDetails.signsAndSymptoms.includes(sym)} onChange={(e) => {
+                             const syms = new Set(formData.cautiValidationDetails.signsAndSymptoms);
+                             e.target.checked ? syms.add(sym) : syms.delete(sym);
+                             setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, signsAndSymptoms: Array.from(syms)}});
+                           }} className="w-4 h-4 text-brand-primary rounded" />
+                           {sym.replace(' (<=1yr)', '')}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Laboratory & Diagnostic Testing */}
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Laboratory &amp; Diagnostic Testing</label>
+                  <div className="flex flex-col gap-2">
+                     <label className="flex items-start gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                        <input type="checkbox" checked={formData.cautiValidationDetails.laboratoryDiagnosticTesting.includes('Positive culture with no more than 2 species of organisms, at least one of which is a bacterium of >= 10^5 CFU/ml')} onChange={(e) => {
+                          const labs = new Set(formData.cautiValidationDetails.laboratoryDiagnosticTesting);
+                          e.target.checked ? labs.add('Positive culture with no more than 2 species of organisms, at least one of which is a bacterium of >= 10^5 CFU/ml') : labs.delete('Positive culture with no more than 2 species of organisms, at least one of which is a bacterium of >= 10^5 CFU/ml');
+                          setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, laboratoryDiagnosticTesting: Array.from(labs)}});
+                        }} className="w-4 h-4 mt-1 text-brand-primary rounded shrink-0" />
+                        <span>Positive culture with no more than 2 species of organisms, at least one of which is a bacterium of &ge; 10⁵ CFU/ml</span>
+                     </label>
+                     <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                        <input type="checkbox" checked={formData.cautiValidationDetails.laboratoryDiagnosticTesting.includes('Organism(s) identified from blood specimen')} onChange={(e) => {
+                          const labs = new Set(formData.cautiValidationDetails.laboratoryDiagnosticTesting);
+                          e.target.checked ? labs.add('Organism(s) identified from blood specimen') : labs.delete('Organism(s) identified from blood specimen');
+                          setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, laboratoryDiagnosticTesting: Array.from(labs)}});
+                        }} className="w-4 h-4 text-brand-primary rounded" />
+                        Organism(s) identified from blood specimen
+                     </label>
+                  </div>
+                </div>
+
+                {/* Secondary BSI, Died, Contributed to Death */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Secondary BSI</label>
+                    <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.cautiValidationDetails.secondaryBSI || ''} onChange={e => setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, secondaryBSI: e.target.value as any}})}>
+                      <option value="">Select...</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Died</label>
+                    <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.cautiValidationDetails.died || ''} onChange={e => setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, died: e.target.value as any, ...(e.target.value === 'No' ? {utiContributedToDeath: null} : {})}})}>
+                      <option value="">Select...</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  
+                  {formData.cautiValidationDetails.died === 'Yes' && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">UTI Contributed to Death</label>
+                      <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.cautiValidationDetails.utiContributedToDeath || ''} onChange={e => setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, utiContributedToDeath: e.target.value as any}})}>
+                        <option value="">Select...</option>
+                        <option value="Yes">Yes</option>
+                        <option value="No">No</option>
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Discharge Date</label>
+                    <input type="date" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.cautiValidationDetails.dischargeDate || ''} onChange={e => setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, dischargeDate: e.target.value}})} />
+                  </div>
+                </div>
+
+                {/* Pathogens */}
+                <div className="space-y-4 pt-4 border-t border-slate-200">
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block">Pathogens Identified?</label>
+                     <div className="flex gap-4">
+                       <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                          <input type="radio" checked={formData.cautiValidationDetails.pathogensIdentified === 'Yes'} onChange={() => setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, pathogensIdentified: 'Yes'}})} className="w-4 h-4 text-brand-primary" /> Yes
+                       </label>
+                       <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                          <input type="radio" checked={formData.cautiValidationDetails.pathogensIdentified === 'No'} onChange={() => setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, pathogensIdentified: 'No', pathogens: []}})} className="w-4 h-4 text-brand-primary" /> No
+                       </label>
+                     </div>
+                   </div>
+
+                   {formData.cautiValidationDetails.pathogensIdentified === 'Yes' && (
+                     <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200">
+                        <div className="flex items-center justify-between">
+                           <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Specify Pathogens</label>
+                           <button type="button" onClick={() => setFormData({
+                             ...formData,
+                             cautiValidationDetails: {
+                               ...formData.cautiValidationDetails,
+                               pathogens: [...formData.cautiValidationDetails.pathogens, { organism: '', resistancePattern: '', collectionDate: '' }]
+                             }
+                           })} className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-1 rounded flex items-center gap-1 hover:bg-teal-100 transition-colors">
+                             <Plus className="w-3 h-3" /> Add Organism
+                           </button>
+                        </div>
+                        {formData.cautiValidationDetails.pathogens.map((pathogen: any, i: number) => (
+                           <div key={i} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
+                             <div className="flex-1 w-full space-y-1">
+                               <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Organism</label>
+                               <select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.organism} onChange={(e) => {
+                                  const paths = [...formData.cautiValidationDetails.pathogens];
+                                  paths[i].organism = e.target.value;
+                                  setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, pathogens: paths}});
+                               }}>
+                                  <option value="">Select Organism...</option>
+                                  {CAUTI_ORGANISMS.map(o => <option key={o} value={o}>{o}</option>)}
+                               </select>
+                             </div>
+                             <div className="flex-[0.8] w-full space-y-1">
+                               <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Resistance Pattern</label>
+                               <input type="text" placeholder="e.g., MDR" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.resistancePattern} onChange={(e) => {
+                                  const paths = [...formData.cautiValidationDetails.pathogens];
+                                  paths[i].resistancePattern = e.target.value;
+                                  setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, pathogens: paths}});
+                               }} />
+                             </div>
+                             <div className="flex-[0.7] w-full space-y-1">
+                               <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Date</label>
+                               <input type="date" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.collectionDate} onChange={(e) => {
+                                  const paths = [...formData.cautiValidationDetails.pathogens];
+                                  paths[i].collectionDate = e.target.value;
+                                  setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, pathogens: paths}});
+                               }} />
+                             </div>
+                             <button type="button" onClick={() => {
+                                const paths = [...formData.cautiValidationDetails.pathogens];
+                                paths.splice(i, 1);
+                                setFormData({...formData, cautiValidationDetails: {...formData.cautiValidationDetails, pathogens: paths}});
+                             }} className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition-colors mt-auto mb-1">
+                               <Trash2 className="w-4 h-4" />
+                             </button>
+                           </div>
+                        ))}
+                        {formData.cautiValidationDetails.pathogens.length === 0 && (
+                          <div className="text-center p-4 border border-dashed border-slate-200 rounded-lg text-xs text-slate-400 font-medium">
+                            No organisms added. Click "Add Organism" to record pathogens.
+                          </div>
+                        )}
+                     </div>
+                   )}
+                </div>
+              </div>
+            )}
+
+            {haiCase.type === 'SSI' && (
+              <div className="p-4 sm:p-6 bg-slate-50 rounded-2xl border border-slate-200 shadow-inner space-y-6">
+                <h4 className="text-sm font-black uppercase text-slate-800 tracking-tight flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-rose-600" /> SSI Case Report Data
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Infection Detected */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">When Infection Detected</label>
+                    <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.ssiValidationDetails.infectionDetected || ''} onChange={e => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, infectionDetected: e.target.value as any}})}>
+                      <option value="">Select...</option>
+                      <option value="During initial admission">During initial admission</option>
+                      <option value="Readmission from this facility">Readmission from this facility</option>
+                      <option value="Readmission from other facility">Readmission from other facility</option>
+                      <option value="Out-patient follow-up">Out-patient follow-up</option>
+                    </select>
+                  </div>
+                  
+                  {/* Type of SSI */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Type of SSI</label>
+                    <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.ssiValidationDetails.typeOfSSI || ''} onChange={e => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, typeOfSSI: e.target.value as any, ...(e.target.value !== 'Organ/Space' ? {organSpaceSpecific: ''} : {})}})}>
+                      <option value="">Select...</option>
+                      <option value="Superficial Incisional Primary">Superficial Incisional Primary</option>
+                      <option value="Superficial Incisional Secondary">Superficial Incisional Secondary</option>
+                      <option value="Deep Incisional Primary">Deep Incisional Primary</option>
+                      <option value="Deep Incisional Secondary">Deep Incisional Secondary</option>
+                      <option value="Organ/Space">Organ/Space</option>
+                    </select>
+                  </div>
+                  
+                  {formData.ssiValidationDetails.typeOfSSI === 'Organ/Space' && (
+                    <div className="space-y-2 col-span-1 md:col-span-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Specify Organ/Space</label>
+                      <input type="text" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.ssiValidationDetails.organSpaceSpecific || ''} onChange={e => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, organSpaceSpecific: e.target.value}})} placeholder="Specify..." />
+                    </div>
+                  )}
+
+                  {/* PATOS & Symptom Onset */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Infection Present at time of Surgery (PATOS)</label>
+                    <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.ssiValidationDetails.patos || ''} onChange={e => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, patos: e.target.value as any}})}>
+                      <option value="">Select...</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Date of symptom onset</label>
+                    <input type="date" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.ssiValidationDetails.dateOfSymptomOnset || ''} onChange={e => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, dateOfSymptomOnset: e.target.value}})} />
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-slate-200">
+                  <h5 className="text-[11px] font-bold uppercase tracking-widest text-slate-500">Specify Criteria Used</h5>
+                  
+                  {/* Signs and Symptoms */}
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Signs and Symptoms (check all that apply)</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {[
+                        'Drainage or material', 'Pain or tenderness', 'Swelling or inflammation', 'Erythema or redness', 'Heat', 'Fever',
+                        'Incision deliberately opened/drained', 'Abscess', 'Other evidence of infection found on invasive procedure', 'Other signs & symptoms',
+                        'Sinus tract', 'Hypothermia', 'Apnea', 'Bradycardia', 'Lethargy', 'Cough', 'Nausea', 'Vomiting', 'Dysuria'
+                      ].map(sym => (
+                        <label key={sym} className="flex items-start gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                           <input type="checkbox" checked={formData.ssiValidationDetails.signsAndSymptoms.includes(sym)} onChange={(e) => {
+                             const syms = new Set(formData.ssiValidationDetails.signsAndSymptoms);
+                             e.target.checked ? syms.add(sym) : syms.delete(sym);
+                             setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, signsAndSymptoms: Array.from(syms)}});
+                           }} className="w-4 h-4 mt-0.5 text-brand-primary rounded shrink-0" />
+                           <span className="leading-snug">{sym}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Laboratory */}
+                  <div className="space-y-3 mt-4">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Laboratory Details (check all that apply)</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {[
+                        'Organism(s) identified', 'Culture or testing not performed', 'Organism(s) identified from blood specimen',
+                        'Organism(s) identified from >= 2 periprosthetic specimens', 'Other positive laboratory test', 'Imaging test evidence of infection'
+                      ].map(lab => (
+                        <label key={lab} className="flex items-start gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                           <input type="checkbox" checked={formData.ssiValidationDetails.laboratory.includes(lab)} onChange={(e) => {
+                             const labs = new Set(formData.ssiValidationDetails.laboratory);
+                             e.target.checked ? labs.add(lab) : labs.delete(lab);
+                             setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, laboratory: Array.from(labs)}});
+                           }} className="w-4 h-4 mt-0.5 text-brand-primary rounded shrink-0" />
+                           <span className="leading-snug">{lab}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Clinical Diagnosis */}
+                  <div className="space-y-3 mt-4">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Clinical Diagnosis (check all that apply)</label>
+                    <div className="flex flex-col gap-2">
+                      {['Physician diagnosis of this event type', 'Physician institutes appropriate antimicrobial therapy'].map(clin => (
+                        <label key={clin} className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                           <input type="checkbox" checked={formData.ssiValidationDetails.clinicalDiagnosis.includes(clin)} onChange={(e) => {
+                             const clins = new Set(formData.ssiValidationDetails.clinicalDiagnosis);
+                             e.target.checked ? clins.add(clin) : clins.delete(clin);
+                             setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, clinicalDiagnosis: Array.from(clins)}});
+                           }} className="w-4 h-4 text-brand-primary rounded shrink-0" />
+                           {clin}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Culture & Organism Form fields */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Culture Obtained</label>
+                    <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.ssiValidationDetails.cultureObtained || ''} onChange={e => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, cultureObtained: e.target.value as any}})}>
+                      <option value="">Select...</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Organism MDRO</label>
+                    <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.ssiValidationDetails.organismMDRO || ''} onChange={e => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, organismMDRO: e.target.value as any}})}>
+                      <option value="">Select...</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Secondary Bloodstream Infection</label>
+                    <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.ssiValidationDetails.secondaryBSI || ''} onChange={e => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, secondaryBSI: e.target.value as any}})}>
+                      <option value="">Select...</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Pathogens (SSI) */}
+                <div className="space-y-4 pt-4 border-t border-slate-200">
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block">Pathogens Identified?</label>
+                     <div className="flex gap-4">
+                       <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                          <input type="radio" checked={formData.ssiValidationDetails.pathogensIdentified === 'Yes'} onChange={() => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, pathogensIdentified: 'Yes'}})} className="w-4 h-4 text-brand-primary" /> Yes
+                       </label>
+                       <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                          <input type="radio" checked={formData.ssiValidationDetails.pathogensIdentified === 'No'} onChange={() => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, pathogensIdentified: 'No', pathogens: []}})} className="w-4 h-4 text-brand-primary" /> No
+                       </label>
+                     </div>
+                   </div>
+
+                   {formData.ssiValidationDetails.pathogensIdentified === 'Yes' && (
+                     <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200">
+                        <div className="flex items-center justify-between">
+                           <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Specify Pathogens</label>
+                           <button type="button" onClick={() => setFormData({
+                             ...formData,
+                             ssiValidationDetails: {
+                               ...formData.ssiValidationDetails,
+                               pathogens: [...formData.ssiValidationDetails.pathogens, { organism: '', resistancePattern: '', collectionDate: '' }]
+                             }
+                           })} className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-1 rounded flex items-center gap-1 hover:bg-teal-100 transition-colors">
+                             <Plus className="w-3 h-3" /> Add Organism
+                           </button>
+                        </div>
+                        {formData.ssiValidationDetails.pathogens.map((pathogen: any, i: number) => (
+                           <div key={i} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
+                             <div className="flex-1 w-full space-y-1">
+                               <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Organism</label>
+                               <select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.organism} onChange={(e) => {
+                                  const paths = [...formData.ssiValidationDetails.pathogens];
+                                  paths[i].organism = e.target.value;
+                                  setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, pathogens: paths}});
+                               }}>
+                                  <option value="">Select Organism...</option>
+                                  {CAUTI_ORGANISMS.map(o => <option key={o} value={o}>{o}</option>)}
+                               </select>
+                             </div>
+                             <div className="flex-[0.8] w-full space-y-1">
+                               <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Resistance Pattern</label>
+                               <input type="text" placeholder="e.g., MDR" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.resistancePattern || ''} onChange={(e) => {
+                                  const paths = [...formData.ssiValidationDetails.pathogens];
+                                  paths[i].resistancePattern = e.target.value;
+                                  setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, pathogens: paths}});
+                               }} />
+                             </div>
+                             <div className="flex-[0.7] w-full space-y-1">
+                               <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Date Collected</label>
+                               <input type="date" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.collectionDate} onChange={(e) => {
+                                  const paths = [...formData.ssiValidationDetails.pathogens];
+                                  paths[i].collectionDate = e.target.value;
+                                  setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, pathogens: paths}});
+                               }} />
+                             </div>
+                             <button type="button" onClick={() => {
+                                const paths = [...formData.ssiValidationDetails.pathogens];
+                                paths.splice(i, 1);
+                                setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, pathogens: paths}});
+                             }} className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition-colors mt-auto mb-1">
+                               <Trash2 className="w-4 h-4" />
+                             </button>
+                           </div>
+                        ))}
+                        {formData.ssiValidationDetails.pathogens.length === 0 && (
+                          <div className="text-center p-4 border border-dashed border-slate-200 rounded-lg text-xs text-slate-400 font-medium">
+                            No organisms added. Click "Add Organism" to record pathogens.
+                          </div>
+                        )}
+                     </div>
+                   )}
+                </div>
+
+                {/* Outcome */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4 border-t border-slate-200">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Discharge Date</label>
+                    <input type="date" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.ssiValidationDetails.dischargeDate || ''} onChange={e => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, dischargeDate: e.target.value}})} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Disposition</label>
+                    <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.ssiValidationDetails.disposition || ''} onChange={e => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, disposition: e.target.value as any}})}>
+                      <option value="">Select...</option>
+                      <option value="Recovered">Recovered</option>
+                      <option value="Improved">Improved</option>
+                      <option value="Unimproved">Unimproved</option>
+                      <option value="Died">Died</option>
+                    </select>
+                  </div>
+                  {formData.ssiValidationDetails.disposition === 'Died' && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">SSI Contributed to Death</label>
+                      <select className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none" value={formData.ssiValidationDetails.ssiContributedToDeath || ''} onChange={e => setFormData({...formData, ssiValidationDetails: {...formData.ssiValidationDetails, ssiContributedToDeath: e.target.value as any}})}>
+                        <option value="">Select...</option>
+                        <option value="Yes">Yes</option>
+                        <option value="No">No</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            )}
+
+            {(haiCase.type === 'VAP' || haiCase.type === 'VAP/VAE') && (
+              <div className="p-4 sm:p-6 bg-slate-50 rounded-2xl border border-slate-200 shadow-inner space-y-6">
+                <h4 className="text-sm font-black uppercase text-slate-800 tracking-tight flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-rose-600" /> VAE Case Report Data
+                </h4>
+
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Date of Event (DOE)</label>
+                    <input type="date" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none max-w-sm" value={formData.vaeValidationDetails.eventDate || ''} onChange={e => setFormData({...formData, vaeValidationDetails: {...formData.vaeValidationDetails, eventDate: e.target.value}})} />
+                  </div>
+
+                  <div className="space-y-3 pt-4 border-t border-slate-200">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criteria Met (check all that apply)</label>
+                    <div className="flex flex-col gap-2">
+                      {['VAC', 'IVAC', 'PVAP'].map(crit => (
+                        <label key={crit} className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer w-fit">
+                           <input type="checkbox" checked={formData.vaeValidationDetails.criteriaMet.includes(crit)} onChange={(e) => {
+                             const crits = new Set(formData.vaeValidationDetails.criteriaMet);
+                             e.target.checked ? crits.add(crit) : crits.delete(crit);
+                             setFormData({...formData, vaeValidationDetails: {...formData.vaeValidationDetails, criteriaMet: Array.from(crits)}});
+                           }} className="w-4 h-4 text-brand-primary rounded" />
+                           {crit}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-4 border-t border-slate-200">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">VAC Indicators</label>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        'Baseline period of stability or improvement (>= 2 days)',
+                        'Increase in daily minimum FiO2 >= 0.20 for >= 2 days',
+                        'Increase in daily minimum PEEP >= 3 cmH2O for >= 2 days'
+                      ].map(ind => (
+                        <label key={ind} className="flex items-start gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                           <input type="checkbox" checked={formData.vaeValidationDetails.vacIndicators.includes(ind)} onChange={(e) => {
+                             const inds = new Set(formData.vaeValidationDetails.vacIndicators);
+                             e.target.checked ? inds.add(ind) : inds.delete(ind);
+                             setFormData({...formData, vaeValidationDetails: {...formData.vaeValidationDetails, vacIndicators: Array.from(inds)}});
+                           }} className="w-4 h-4 mt-0.5 text-brand-primary rounded shrink-0" />
+                           <span className="leading-snug">{ind}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-4 border-t border-slate-200">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">IVAC Indicators</label>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        'Temperature > 38°C or < 36°C',
+                        'WBC >= 12,000 cells/mm3 or <= 4,000 cells/mm3',
+                        'New antimicrobial agent(s) started & continued for >= 4 days'
+                      ].map(ind => (
+                        <label key={ind} className="flex items-start gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                           <input type="checkbox" checked={formData.vaeValidationDetails.ivacIndicators.includes(ind)} onChange={(e) => {
+                             const inds = new Set(formData.vaeValidationDetails.ivacIndicators);
+                             e.target.checked ? inds.add(ind) : inds.delete(ind);
+                             setFormData({...formData, vaeValidationDetails: {...formData.vaeValidationDetails, ivacIndicators: Array.from(inds)}});
+                           }} className="w-4 h-4 mt-0.5 text-brand-primary rounded shrink-0" />
+                           <span className="leading-snug">{ind}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-4 border-t border-slate-200">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Antimicrobials (if applicable)</label>
+                    <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+                       <div className="flex items-center justify-between pointer-events-auto">
+                         <select className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none max-w-sm flex-1" onChange={(e) => {
+                            if (e.target.value && !formData.vaeValidationDetails.antimicrobials.includes(e.target.value)) {
+                               setFormData({...formData, vaeValidationDetails: {
+                                  ...formData.vaeValidationDetails,
+                                  antimicrobials: [...formData.vaeValidationDetails.antimicrobials, e.target.value]
+                               }});
+                            }
+                            e.target.value = '';
+                         }}>
+                            <option value="">Add antimicrobial...</option>
+                            {VAE_ANTIMICROBIALS.map(a => <option key={a} value={a}>{a}</option>)}
+                         </select>
+                       </div>
+                       <div className="flex flex-wrap gap-2">
+                          {formData.vaeValidationDetails.antimicrobials.map((anti: string) => (
+                             <div key={anti} className="bg-slate-100 border border-slate-200 text-xs text-slate-700 px-3 py-1 flex items-center gap-2 rounded-lg font-medium">
+                               {anti}
+                               <button type="button" onClick={() => {
+                                  setFormData({...formData, vaeValidationDetails: {
+                                    ...formData.vaeValidationDetails,
+                                    antimicrobials: formData.vaeValidationDetails.antimicrobials.filter((a: string) => a !== anti)
+                                  }});
+                               }} className="text-slate-400 hover:text-rose-500">
+                                 <Trash2 className="w-3 h-3" />
+                               </button>
+                             </div>
+                          ))}
+                          {formData.vaeValidationDetails.antimicrobials.length === 0 && (
+                            <span className="text-xs text-slate-400 italic font-medium">No antimicrobials added</span>
+                          )}
+                       </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-4 border-t border-slate-200">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">PVAP Indicators</label>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        'Criterion 1: Positive culture (without purulent requirement)',
+                        'Criterion 2: Purulent respiratory secretions + positive culture',
+                        'Criterion 3: Positive tests (pleural fluid, lung histopathology, Legionella, viral)'
+                      ].map(ind => (
+                        <label key={ind} className="flex items-start gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                           <input type="checkbox" checked={formData.vaeValidationDetails.pvapIndicators.includes(ind)} onChange={(e) => {
+                             const inds = new Set(formData.vaeValidationDetails.pvapIndicators);
+                             e.target.checked ? inds.add(ind) : inds.delete(ind);
+                             setFormData({...formData, vaeValidationDetails: {...formData.vaeValidationDetails, pvapIndicators: Array.from(inds)}});
+                           }} className="w-4 h-4 mt-0.5 text-brand-primary rounded shrink-0" />
+                           <span className="leading-snug">{ind}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t border-slate-200">
+                     <div className="space-y-2">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block">Pathogens Identified?</label>
+                       <div className="flex gap-4">
+                         <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                            <input type="radio" checked={formData.vaeValidationDetails.pathogensIdentified === 'Yes'} onChange={() => setFormData({...formData, vaeValidationDetails: {...formData.vaeValidationDetails, pathogensIdentified: 'Yes'}})} className="w-4 h-4 text-brand-primary" /> Yes
+                         </label>
+                         <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                            <input type="radio" checked={formData.vaeValidationDetails.pathogensIdentified === 'No'} onChange={() => setFormData({...formData, vaeValidationDetails: {...formData.vaeValidationDetails, pathogensIdentified: 'No', pathogens: []}})} className="w-4 h-4 text-brand-primary" /> No
+                         </label>
+                       </div>
+                     </div>
+
+                     {formData.vaeValidationDetails.pathogensIdentified === 'Yes' && (
+                       <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200">
+                          <div className="flex items-center justify-between">
+                             <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Specify Pathogens</label>
+                             <button type="button" onClick={() => setFormData({
+                               ...formData,
+                               vaeValidationDetails: {
+                                 ...formData.vaeValidationDetails,
+                                 pathogens: [...formData.vaeValidationDetails.pathogens, { organism: '', resistancePattern: '', collectionDate: '' }]
+                               }
+                             })} className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-1 rounded flex items-center gap-1 hover:bg-teal-100 transition-colors">
+                               <Plus className="w-3 h-3" /> Add Organism
+                             </button>
+                          </div>
+                          {formData.vaeValidationDetails.pathogens.map((pathogen: any, i: number) => (
+                             <div key={i} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
+                               <div className="flex-1 w-full space-y-1">
+                                 <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Organism</label>
+                                 <select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.organism} onChange={(e) => {
+                                    const paths = [...formData.vaeValidationDetails.pathogens];
+                                    paths[i].organism = e.target.value;
+                                    setFormData({...formData, vaeValidationDetails: {...formData.vaeValidationDetails, pathogens: paths}});
+                                 }}>
+                                    <option value="">Select Organism...</option>
+                                    {CAUTI_ORGANISMS.map(o => <option key={o} value={o}>{o}</option>)}
+                                 </select>
+                               </div>
+                               <div className="flex-[0.8] w-full space-y-1">
+                                 <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Resistance Pattern</label>
+                                 <input type="text" placeholder="e.g., MDR" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.resistancePattern || ''} onChange={(e) => {
+                                    const paths = [...formData.vaeValidationDetails.pathogens];
+                                    paths[i].resistancePattern = e.target.value;
+                                    setFormData({...formData, vaeValidationDetails: {...formData.vaeValidationDetails, pathogens: paths}});
+                                 }} />
+                               </div>
+                               <div className="flex-[0.7] w-full space-y-1">
+                                 <label className="text-[9px] font-bold text-slate-500 uppercase px-1 focus:text-brand-primary">Date Collected</label>
+                                 <input type="date" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none" value={pathogen.collectionDate} onChange={(e) => {
+                                    const paths = [...formData.vaeValidationDetails.pathogens];
+                                    paths[i].collectionDate = e.target.value;
+                                    setFormData({...formData, vaeValidationDetails: {...formData.vaeValidationDetails, pathogens: paths}});
+                                 }} />
+                               </div>
+                               <button type="button" onClick={() => {
+                                  const paths = [...formData.vaeValidationDetails.pathogens];
+                                  paths.splice(i, 1);
+                                  setFormData({...formData, vaeValidationDetails: {...formData.vaeValidationDetails, pathogens: paths}});
+                               }} className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition-colors mt-auto mb-1">
+                                 <Trash2 className="w-4 h-4" />
+                               </button>
+                             </div>
+                          ))}
+                          {formData.vaeValidationDetails.pathogens.length === 0 && (
+                            <div className="text-center p-4 border border-dashed border-slate-200 rounded-lg text-xs text-slate-400 font-medium">
+                              No organisms added. Click "Add Organism" to record pathogens.
+                            </div>
+                          )}
+                       </div>
+                     )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Validation Inputs */}
             <div className="space-y-6">
               <div className="space-y-4">
@@ -2478,7 +3480,7 @@ function HAIValidationModal({ onClose, haiCase, onSubmit, user, loading }: any) 
                       onChange={e => setFormData({...formData, correctedRiskLevel: e.target.value as any})}
                     >
                        <option value="BLUE">Low</option>
-                       <option value="YELLOW">Medium</option>
+                       <option value="YELLOW">Moderate</option>
                        <option value="RED">High</option>
                     </select>
                  </div>
@@ -2939,12 +3941,14 @@ function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: Bundl
 
     const applicableItems = bundleItems.filter(item => bundleChecklist[item] && bundleChecklist[item] !== 'N/A');
     const doneItems = applicableItems.filter(item => bundleChecklist[item] === 'Done');
-    const bundleScore = applicableItems.length > 0 ? (doneItems.length / applicableItems.length) * 100 : 100;
+    
+    // All-or-Nothing Measurement Standard
+    const bundleScore = (applicableItems.length > 0 && doneItems.length === applicableItems.length) ? 100 : 0;
 
     return {
-      bundle: parseFloat(bundleScore.toFixed(2)),
+      bundle: bundleScore,
       clinical: 100, // Clinical findings don't affect compliance score per prompt
-      overall: parseFloat(bundleScore.toFixed(2))
+      overall: bundleScore
     };
   };
 

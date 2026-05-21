@@ -285,12 +285,88 @@ export default function Audits({ user }: { user: UserProfile | null }) {
     let totalOpp = 0;
     let totalPerf = 0;
 
-    Object.values(obs.moments || {}).forEach((m: any) => {
-      totalOpp += (m.opp || 0);
-      totalPerf += (m.perf || 0);
+    Object.values(obs?.entries || []).forEach((e: any) => {
+      totalOpp += 1;
+      if (e.action === 'rub' || e.action === 'wash') {
+        totalPerf += 1;
+      }
     });
     
     return { score: totalPerf, total: totalOpp };
+  };
+
+  const activeBatchHCWs = React.useMemo(() => {
+    return pendingHHObservations.map(obs => {
+      const name = obs.staffIdentifier?.trim();
+      return {
+        staffIdentifier: name || 'Anonymous HCW',
+        profession: obs.profession || '1',
+        role: obs.role || 'Registered Nurse',
+        source: 'buffer' as const,
+        entries: obs.entries || [],
+        bufferId: obs.id
+      };
+    }).filter(hcw => hcw.staffIdentifier);
+  }, [pendingHHObservations]);
+
+  const historicalHCWs = React.useMemo(() => {
+    const map = new Map<string, { staffIdentifier: string; profession: string; role: string; source: 'history'; entries: any[] }>();
+    const activeNames = new Set(activeBatchHCWs.map(h => h.staffIdentifier.toLowerCase()));
+
+    audits.forEach(audit => {
+      if (audit.type === 'HH_COMPLIANCE' && audit.staffIdentifier) {
+        const name = audit.staffIdentifier.trim();
+        if (name && !activeNames.has(name.toLowerCase()) && !map.has(name.toLowerCase())) {
+          map.set(name.toLowerCase(), {
+            staffIdentifier: name,
+            profession: audit.profession || '1',
+            role: audit.details?.hhObs?.role || 'Registered Nurse',
+            source: 'history' as const,
+            entries: audit.details?.hhObs?.entries || []
+          });
+        }
+      }
+    });
+
+    return Array.from(map.values());
+  }, [audits, activeBatchHCWs]);
+
+  const filteredActiveBatchHCWs = React.useMemo(() => {
+    return activeBatchHCWs.filter(hcw => {
+      const search = checklist.hhObs.staffIdentifier?.trim().toLowerCase();
+      if (!search) return true;
+      return hcw.staffIdentifier.toLowerCase().includes(search);
+    });
+  }, [activeBatchHCWs, checklist.hhObs.staffIdentifier]);
+
+  const filteredHistoricalHCWs = React.useMemo(() => {
+    return historicalHCWs.filter(hcw => {
+      const search = checklist.hhObs.staffIdentifier?.trim().toLowerCase();
+      if (!search) return false; // Only show historicalSuggestions when typing
+      return hcw.staffIdentifier.toLowerCase().includes(search);
+    });
+  }, [historicalHCWs, checklist.hhObs.staffIdentifier]);
+
+  const handleSelectPreviousHCW = (hcw: { staffIdentifier: string; profession: string; role: string; source: 'history' | 'buffer'; entries?: any[]; bufferId?: string | number }) => {
+    setFormData(prev => ({
+      ...prev,
+      profession: hcw.profession
+    }));
+    setChecklist(prev => ({
+      ...prev,
+      hhObs: {
+        ...prev.hhObs,
+        staffIdentifier: hcw.staffIdentifier,
+        role: hcw.role,
+        entries: hcw.source === 'buffer' ? [...(hcw.entries || [])] : []
+      }
+    }));
+
+    if (hcw.source === 'buffer' && hcw.bufferId) {
+      setPendingHHObservations(prev => prev.filter(p => p.id !== hcw.bufferId));
+    }
+    
+    showToast(`Loaded HCW: ${hcw.staffIdentifier}. Adding opportunities.`, 'success');
   };
 
   const handleAddHHObservation = () => {
@@ -1152,7 +1228,64 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                            </h5>
                            <div className="grid grid-cols-1 gap-4">
                               <div className="space-y-1.5">
-                                 <label className="text-[9px] font-black uppercase text-slate-400 ml-1">Healthcare Worker Name / ID</label>
+                                 <div className="flex flex-col gap-1.5 w-full">
+                                   <label className="text-[9px] font-black uppercase text-slate-400 ml-1">Healthcare Worker Name / ID</label>
+                                    {(activeBatchHCWs.length > 0 || filteredHistoricalHCWs.length > 0) && (
+                                     <div className="space-y-2">
+                                       {/* Active Batch HCWs (Always visible) */}
+                                       {activeBatchHCWs.length > 0 && (
+                                         <div className="space-y-1">
+                                           <span className="text-[8px] font-black uppercase tracking-widest text-emerald-600 block ml-1">
+                                             Currently in this Batch (Tap to resume & add opportunities)
+                                           </span>
+                                           <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto py-1">
+                                             {filteredActiveBatchHCWs.map((hcw) => (
+                                               <button
+                                                 key={`active-${hcw.staffIdentifier}`}
+                                                 type="button"
+                                                 onClick={() => handleSelectPreviousHCW({ ...hcw, source: 'buffer' })}
+                                                 className="px-2.5 py-1 rounded-xl text-[9px] font-extrabold transition-all border bg-emerald-50 border-emerald-200/60 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300 flex items-center gap-1.5 active:scale-[0.97] duration-100"
+                                                 title={`Resume logging for ${hcw.staffIdentifier}`}
+                                               >
+                                                 <span className="font-extrabold max-w-[120px] truncate">{hcw.staffIdentifier}</span>
+                                                 <span className="opacity-50">•</span>
+                                                 <span className="text-[8px] opacity-85 uppercase font-black">
+                                                   Active ({hcw.entries?.length || 0} Opportunities)
+                                                 </span>
+                                               </button>
+                                             ))}
+                                           </div>
+                                         </div>
+                                       )}
+
+                                       {/* Historical Suggestions (Show when user is typing) */}
+                                       {filteredHistoricalHCWs.length > 0 && checklist.hhObs.staffIdentifier?.trim() !== '' && (
+                                         <div className="space-y-1">
+                                           <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 block ml-1">
+                                             Suggestions from Historical Database
+                                           </span>
+                                           <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto py-1">
+                                             {filteredHistoricalHCWs.slice(0, 5).map((hcw) => (
+                                               <button
+                                                 key={`historical-${hcw.staffIdentifier}`}
+                                                 type="button"
+                                                 onClick={() => handleSelectPreviousHCW({ ...hcw, source: 'history' })}
+                                                 className="px-2.5 py-1 rounded-xl text-[9px] font-bold transition-all border bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center gap-1.5 active:scale-[0.97] duration-100"
+                                                 title={`Select ${hcw.staffIdentifier}`}
+                                               >
+                                                 <span className="font-medium max-w-[120px] truncate">{hcw.staffIdentifier}</span>
+                                                 <span className="opacity-50">•</span>
+                                                 <span className="text-[8px] opacity-85 uppercase font-black">
+                                                   {hcw.role}
+                                                 </span>
+                                               </button>
+                                             ))}
+                                           </div>
+                                         </div>
+                                       )}
+                                     </div>
+                                   )}
+                                 </div>
                                  <input 
                                    type="text"
                                    placeholder="e.g. Dr. Charlie Mignonette Bala"
@@ -1418,13 +1551,32 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                                        </span>
                                     </div>
                                   </div>
-                                  <button 
-                                    type="button" 
-                                    onClick={() => setPendingHHObservations(prev => prev.filter(p => p.id !== obs.id))}
-                                    className="p-1.5 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded-lg transition-colors"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
+                                  <div className="flex items-center gap-1">
+                                    <button 
+                                      type="button" 
+                                      onClick={() => handleSelectPreviousHCW({
+                                        staffIdentifier: obs.staffIdentifier,
+                                        profession: obs.profession,
+                                        role: obs.role,
+                                        source: 'buffer',
+                                        entries: obs.entries,
+                                        bufferId: obs.id
+                                      })}
+                                      className="py-1 px-2.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 border border-emerald-200/50 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1"
+                                      title="Resume logging and add more opportunities for this HCW"
+                                    >
+                                      <Plus className="w-3 h-3 text-emerald-600" />
+                                      Resume
+                                    </button>
+                                    <button 
+                                      type="button" 
+                                      onClick={() => setPendingHHObservations(prev => prev.filter(p => p.id !== obs.id))}
+                                      className="p-1.5 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded-lg transition-colors"
+                                      title="Remove from batch"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
                                 </div>
                               ))}
                             </div>

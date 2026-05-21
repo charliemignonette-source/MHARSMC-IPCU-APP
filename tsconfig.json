@@ -27,6 +27,7 @@
     "node_modules",
     "android",
     "ios",
-    "dist"
+    "dist",
+    "build"
   ]
 }
