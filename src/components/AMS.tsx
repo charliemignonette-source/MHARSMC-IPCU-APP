@@ -711,7 +711,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         body: [
           ['Full Name', `${req.lastName}, ${req.firstName} ${req.middleName || ''}`.trim()],
           ['Hospital Number', req.hospNo || 'N/A'],
-          ['Department / Location', `${req.unit || 'N/A'} / ${req.location || 'N/A'}`],
+          ['Department / Ward/Room/ Bed', `${req.unit || 'N/A'} / ${req.location || 'N/A'}`],
           ['Sex / Age', `${req.sex || 'N/A'} / ${req.age || 'N/A'} ${req.ageUnit || 'N/A'}`],
           ['Date of Birth', req.dob || 'N/A'],
           ['Drug Allergy', req.drugAllergy?.hasAllergy ? `YES: ${req.drugAllergy.specify}` : 'No known drug allergies'],
@@ -1309,7 +1309,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                <div className="space-y-1">
                                   <p className="text-xs font-bold text-slate-700">{req.sex}, {req.age} {req.ageUnit}</p>
                                   <p className="text-xs text-slate-600">DOB: {req.dob}</p>
-                                  <p className="text-xs text-slate-600">Loc: {req.location}</p>
+                                  <p className="text-xs text-slate-600">Loc (Ward/Room/ Bed): {req.location}</p>
                                </div>
                             </div>
                             <div>
@@ -1590,11 +1590,11 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                           </select>
                        </div>
                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Bed / Room Location <span className="text-rose-500">*</span></label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ward/Room/ Bed <span className="text-rose-500">*</span></label>
                           <input 
                             required
                             className="text-input" 
-                            placeholder="e.g. 1A, Bed 3"
+                            placeholder="e.g. Ward 2, Room 4, Bed 1"
                             value={formData.location}
                             onChange={e => setFormData({...formData, location: e.target.value})}
                           />
@@ -2418,7 +2418,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                          className="text-input h-32" 
                          placeholder="Document suspected pathogen, culture results, and failure of first-line therapies..."
                          value={formData.justification}
-                         onChange={e => setFormData({...formData, justification: e.target.value, diagnosis: e.target.value})}
+                         onChange={e => setFormData({...formData, justification: e.target.value})}
                        />
                     </div>
                     <div className="col-span-full border-b border-slate-100 pb-4 mt-8 mb-4">

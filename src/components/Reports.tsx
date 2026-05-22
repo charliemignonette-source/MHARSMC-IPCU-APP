@@ -10,7 +10,7 @@ import { collection, query, getDocs, where, orderBy, Timestamp } from 'firebase/
 import { db } from '../lib/firebase';
 import { UserProfile } from '../types';
 import { cn } from '../lib/utils';
-import { UNITS } from '../constants';
+import { UNITS, BUNDLE_ELEMENTS } from '../constants';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -386,7 +386,6 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           { metric: '   Environmental Cleaning', type: 'AUDIT_TYPE:ENV_CLEANING', isPercent: true },
           { metric: '   Safe Injections', type: 'AUDIT_TYPE:SAFE_INJECTION', isPercent: true },
           { metric: 'Device Bundle Compliance', type: 'BUNDLE', isPercent: true },
-          { metric: 'AMS Approvals / Requests', type: 'AMS', isPercent: false },
           { metric: 'Reported HAI Cases', type: 'HAI', isPercent: false },
           { metric: 'Reported NSI Cases', type: 'NSI', isPercent: false }
         ];
@@ -499,6 +498,243 @@ export default function Reports({ user }: { user: UserProfile | null }) {
              }
           }
         });
+
+        // Track and Calculate Comprehensive Issues
+        const allTargetAudits = audits.filter((d: any) => {
+           const u = d.unit || d.ward || (d.incident?.unit) || (d.epidemiology?.unitsAffected?.[0]) || '';
+           return u === selectedWard;
+        });
+
+        // 1. Hand Hygiene Missed Moments
+        const targetAudits = allTargetAudits.filter((d: any) => d.type === 'HH_COMPLIANCE');
+        let missedMomentsCount: Record<string, number> = {
+           'Before Touching Patient': 0,
+           'Before Clean/Aseptic Procedure': 0,
+           'After Body Fluid Exposure Risk': 0,
+           'After Touching Patient': 0,
+           'After Touching Patient Surroundings': 0
+        };
+        let hhHcwNonCompliance: Record<string, number> = {};
+
+        const mapIndication = (ind: string) => {
+           if (ind === 'M1' || ind === 'before-patient') return 'Before Touching Patient';
+           if (ind === 'M2' || ind === 'before-aseptic') return 'Before Clean/Aseptic Procedure';
+           if (ind === 'M3' || ind === 'after-fluid') return 'After Body Fluid Exposure Risk';
+           if (ind === 'M4' || ind === 'after-patient') return 'After Touching Patient';
+           if (ind === 'M5' || ind === 'after-surroundings') return 'After Touching Patient Surroundings';
+           return ind;
+        };
+
+        targetAudits.forEach((audit: any) => {
+           let missedForHcw = 0;
+           if (audit.details?.hhObs?.entries) {
+              audit.details.hhObs.entries.forEach((e: any) => {
+                 if (e.action === 'missed') {
+                    missedForHcw++;
+                    if (Array.isArray(e.indications)) {
+                       e.indications.forEach((ind: string) => {
+                          const key = mapIndication(ind);
+                          if (missedMomentsCount[key] !== undefined) {
+                             missedMomentsCount[key]++;
+                          } else {
+                             missedMomentsCount[key] = 1;
+                          }
+                       });
+                    }
+                 }
+              });
+           } else if (audit.details?.hhObs?.indications) {
+              // Legacy format
+              Object.entries(audit.details.hhObs.indications).forEach(([ind, active]) => {
+                 if (active && audit.details.hhObs.actions?.[ind] === 'missed') {
+                    missedForHcw++;
+                    const key = mapIndication(ind);
+                    if (missedMomentsCount[key] !== undefined) {
+                       missedMomentsCount[key]++;
+                    } else {
+                       missedMomentsCount[key] = 1;
+                    }
+                 }
+              });
+           }
+           if (missedForHcw > 0) {
+              const prof = audit.profession || audit.details?.hhObs?.staffType || 'Unknown';
+              hhHcwNonCompliance[prof] = (hhHcwNonCompliance[prof] || 0) + missedForHcw;
+           }
+        });
+
+        // 2. HH Availability Issues
+        let hhAvailIssues: Record<string, number> = {};
+        allTargetAudits.filter((d: any) => d.type === 'HH_AVAILABILITY').forEach((audit: any) => {
+           const details = audit.details;
+           if (!details) return;
+           if (details.abhr && !details.abhr.poc) hhAvailIssues['No ABHR at Point of Care'] = (hhAvailIssues['No ABHR at Point of Care'] || 0) + 1;
+           if (details.abhr && !details.abhr.notEmpty) hhAvailIssues['ABHR Empty'] = (hhAvailIssues['ABHR Empty'] || 0) + 1;
+           if (details.sink && !details.sink.sink) hhAvailIssues['No Functional Sink'] = (hhAvailIssues['No Functional Sink'] || 0) + 1;
+           if (details.sink && !details.sink.soap) hhAvailIssues['No Soap Available'] = (hhAvailIssues['No Soap Available'] || 0) + 1;
+           if (details.sink && !details.sink.towels) hhAvailIssues['No Paper Towels'] = (hhAvailIssues['No Paper Towels'] || 0) + 1;
+        });
+
+        // 3. PPE Compliance Issues
+        let ppeComplianceIssues: Record<string, number> = {};
+        let ppeHcwNonCompliance: Record<string, number> = {};
+        allTargetAudits.filter((d: any) => d.type === 'PPE_COMPLIANCE').forEach((audit: any) => {
+           const details = audit.details?.ppeCompliance;
+           if (!details) return;
+           let issues = 0;
+           if (!details.correctPPE) { ppeComplianceIssues['Incorrect PPE Worn'] = (ppeComplianceIssues['Incorrect PPE Worn'] || 0) + 1; issues++; }
+           if (details.properDonning === false) { ppeComplianceIssues['Improper Donning'] = (ppeComplianceIssues['Improper Donning'] || 0) + 1; issues++; }
+           if (details.properDoffing === false) { ppeComplianceIssues['Improper Doffing'] = (ppeComplianceIssues['Improper Doffing'] || 0) + 1; issues++; }
+           if (details.ppeIntact === false) { ppeComplianceIssues['PPE Not Intact/Damaged'] = (ppeComplianceIssues['PPE Not Intact/Damaged'] || 0) + 1; issues++; }
+           if (details.missingItems) {
+               const items = details.missingItems.split(',').map((s: string) => s.trim()).filter(Boolean);
+               items.forEach((item: string) => {
+                   const key = `Missing: ${item}`;
+                   ppeComplianceIssues[key] = (ppeComplianceIssues[key] || 0) + 1;
+               });
+               issues += items.length;
+           }
+           if (issues > 0) {
+               const prof = audit.profession || details.staffType || 'Unknown';
+               ppeHcwNonCompliance[prof] = (ppeHcwNonCompliance[prof] || 0) + issues;
+           }
+        });
+
+        // 4. PPE Availability Issues
+        let ppeAvailIssues: Record<string, number> = {};
+        allTargetAudits.filter((d: any) => d.type === 'PPE_AVAILABILITY').forEach((audit: any) => {
+           const ppe = audit.details?.ppe;
+           if (!ppe) return;
+           if (ppe.gloves && !ppe.gloves.avail) ppeAvailIssues['Gloves Unavailable'] = (ppeAvailIssues['Gloves Unavailable'] || 0) + 1;
+           if (ppe.masks && !ppe.masks.avail) ppeAvailIssues['Surgical Masks Unavailable'] = (ppeAvailIssues['Surgical Masks Unavailable'] || 0) + 1;
+           if (ppe.n95 && !ppe.n95.avail) ppeAvailIssues['N95 Respirators Unavailable'] = (ppeAvailIssues['N95 Respirators Unavailable'] || 0) + 1;
+           if (ppe.gowns && !ppe.gowns.avail) ppeAvailIssues['Isolation Gowns Unavailable'] = (ppeAvailIssues['Isolation Gowns Unavailable'] || 0) + 1;
+           if (ppe.shields && !ppe.shields.avail) ppeAvailIssues['Face Shields Unavailable'] = (ppeAvailIssues['Face Shields Unavailable'] || 0) + 1;
+        });
+
+        // 5. Environmental Cleaning Issues
+        let envCleaningIssues: Record<string, number> = {};
+        allTargetAudits.filter((d: any) => d.type === 'ENV_CLEANING').forEach((audit: any) => {
+            const surfaces = audit.details?.envCleaning?.surfaces;
+            if (!surfaces) return;
+            Object.entries(surfaces).forEach(([surface, status]) => {
+                if (status === 'notCleaned') {
+                    const name = surface.replace(/([A-Z])/g, ' $1').replace(/^./, (str: string) => str.toUpperCase());
+                    envCleaningIssues[name] = (envCleaningIssues[name] || 0) + 1;
+                }
+            });
+        });
+
+        // 6. Safe Injection Issues
+        let safeInjectionIssues: Record<string, number> = {};
+        let siHcwNonCompliance: Record<string, number> = {};
+        allTargetAudits.filter((d: any) => d.type === 'SAFE_INJECTION').forEach((audit: any) => {
+            const si = audit.details?.safeInjection;
+            if (!si) return;
+            const prof = audit.profession || 'Unknown';
+            let issues = 0;
+            if (si.hhBefore === false) { safeInjectionIssues['No Hand Hygiene Before'] = (safeInjectionIssues['No Hand Hygiene Before'] || 0) + 1; issues++; }
+            if (si.prepClean === false) { safeInjectionIssues['Prepared in Unclean Area'] = (safeInjectionIssues['Prepared in Unclean Area'] || 0) + 1; issues++; }
+            if (si.sterileSyringe === false) { safeInjectionIssues['Non-Sterile Syringe Used'] = (safeInjectionIssues['Non-Sterile Syringe Used'] || 0) + 1; issues++; }
+            if (si.sterileNeedle === false) { safeInjectionIssues['Non-Sterile Needle Used'] = (safeInjectionIssues['Non-Sterile Needle Used'] || 0) + 1; issues++; }
+            if (si.noRecapping === false) { safeInjectionIssues['Needle Recapping Observed'] = (safeInjectionIssues['Needle Recapping Observed'] || 0) + 1; issues++; }
+            if (si.needleNotReused === false) { safeInjectionIssues['Needle Reused'] = (safeInjectionIssues['Needle Reused'] || 0) + 1; issues++; }
+            if (si.singleDoseOnce === false) { safeInjectionIssues['Single-Dose Vial Reused'] = (safeInjectionIssues['Single-Dose Vial Reused'] || 0) + 1; issues++; }
+            if (si.disposedImmediately === false) { safeInjectionIssues['Not Disposed Immediately'] = (safeInjectionIssues['Not Disposed Immediately'] || 0) + 1; issues++; }
+            if (si.sharpsDisposed === false) { safeInjectionIssues['Not Disposed in Sharps Container'] = (safeInjectionIssues['Not Disposed in Sharps Container'] || 0) + 1; issues++; }
+            if (issues > 0) siHcwNonCompliance[prof] = (siHcwNonCompliance[prof] || 0) + issues;
+        });
+
+        // 7. Bundle Compliance Issues
+        let bundleMissedElements: Record<string, number> = {};
+        let bundleClinicalCriteria: Record<string, number> = {
+            'Complete': 0,
+            'Incomplete / Not Done': 0
+        };
+
+        const targetBundles = bocLogs.filter(d => {
+            const u = d.unit || d.ward || '';
+            return u === selectedWard;
+        });
+
+        targetBundles.forEach((log: any) => {
+            // Check bundles mapping
+            if (log.devicesPresent) {
+                log.devicesPresent.forEach((devId: string) => {
+                    const devName = devId.split('_').map((w: string) => w.toUpperCase()).join(' ');
+                    const bundleObj = log.bundles?.[devId];
+                    const requiredElements = BUNDLE_ELEMENTS[devId as keyof typeof BUNDLE_ELEMENTS] || [];
+                    
+                    requiredElements.forEach((el: string) => {
+                        const isChecked = bundleObj?.elements?.[el];
+                        if (!isChecked) {
+                            const key = `${devName}: ${el}`;
+                            bundleMissedElements[key] = (bundleMissedElements[key] || 0) + 1;
+                        }
+                    });
+                });
+            }
+
+            // Check clinical criteria
+            if (log.formMonitoring) {
+                const docSection = log.formMonitoring.find((m: any) => m.section === 'Clinical Criteria Section');
+                if (docSection) {
+                    if (docSection.status === 'Complete') {
+                        bundleClinicalCriteria['Complete']++;
+                    } else {
+                        bundleClinicalCriteria['Incomplete / Not Done']++;
+                    }
+                }
+            }
+        });
+
+        let currentY = (doc as any).lastAutoTable.finalY + 15;
+        
+        const renderIssueTable = (title: string, dataObj: Record<string, number>, emptyMsg: string, headObj: string[] = ['Identified Issue', 'Occurrences']) => {
+           const data = Object.entries(dataObj)
+              .filter(([_, count]) => count > 0)
+              .sort((a, b) => b[1] - a[1])
+              .map(([item, count]) => [item, count.toString()]);
+           
+           if (currentY > 250) {
+              doc.addPage();
+              currentY = 20;
+           }
+
+           doc.setFontSize(14);
+           doc.setTextColor(15, 23, 42); // slate-900
+           doc.text(`Analytical Breakdown: ${title}`, 14, currentY);
+
+           if (data.length > 0) {
+              autoTable(doc, {
+                startY: currentY + 6,
+                head: [headObj],
+                body: data,
+                headStyles: { fillColor: [244, 63, 94] }, // rose-500 for missing/issues
+                theme: 'grid',
+                styles: { fontSize: 10, cellPadding: 6 },
+                columnStyles: { 0: { cellWidth: 120 }, 1: { cellWidth: 60 } }
+              });
+              currentY = (doc as any).lastAutoTable.finalY + 15;
+           } else {
+              doc.setFontSize(11);
+              doc.setTextColor(100, 116, 139);
+              doc.text(emptyMsg, 14, currentY + 10);
+              currentY += 25;
+           }
+        };
+
+        renderIssueTable('Hand Hygiene Missed Moments', missedMomentsCount, 'No missed moments recorded.');
+        renderIssueTable('Non-Compliant HCWs: Hand Hygiene', hhHcwNonCompliance, 'No hand hygiene non-compliance recorded.', ['Profession', 'Missed Actions']);
+        renderIssueTable('Hand Hygiene Availability Issues', hhAvailIssues, 'No availability issues recorded.');
+        renderIssueTable('PPE Compliance Issues', ppeComplianceIssues, 'No PPE compliance issues recorded.');
+        renderIssueTable('Non-Compliant HCWs: PPE', ppeHcwNonCompliance, 'No PPE non-compliance recorded.', ['Profession', 'Issues Count']);
+        renderIssueTable('PPE Availability Issues', ppeAvailIssues, 'No PPE availability issues recorded.');
+        renderIssueTable('Safe Injection Issues', safeInjectionIssues, 'No safe injection issues recorded.');
+        renderIssueTable('Non-Compliant HCWs: Safe Injection', siHcwNonCompliance, 'No safe injection non-compliance recorded.', ['Profession', 'Issues Count']);
+        renderIssueTable('Environmental Cleaning Missed Surfaces', envCleaningIssues, 'No missed surfaces recorded.');
+        renderIssueTable('Device Bundles: Frequently Missed Elements', bundleMissedElements, 'No missed bundle elements recorded.');
+        renderIssueTable('Device Bundles: Clinical Criteria Checks', bundleClinicalCriteria, 'No clinical criteria checks recorded.', ['Documentation Status', 'Log Count']);
 
         doc.save(`${selectedWard.replace(/\s+/g, '_')}_Report_${periodStr}.pdf`);
         setMessage({ type: 'success', text: `Ward PDF Report for ${selectedWard} downloaded successfully.` });
