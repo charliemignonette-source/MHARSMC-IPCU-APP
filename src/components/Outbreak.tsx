@@ -48,6 +48,7 @@ import { cn } from "../lib/utils";
 import { format } from "date-fns";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { UNITS } from "../constants";
 
 const REPORTING_SOURCES = [
   "Unit Staff",
@@ -241,7 +242,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
       patientName: "",
       hospNo: "",
       ageService: "",
-      unit: "",
+      unit: UNITS[0],
       roomBed: "",
       onSetDate: format(new Date(), "yyyy-MM-dd"),
       symptoms: "",
@@ -667,6 +668,69 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
       { maxWidth: 180 },
     );
 
+    // Section 5: Validation
+    if (report.validation) {
+       doc.addPage();
+       doc.setFontSize(12);
+       doc.setTextColor(15, 118, 110);
+       doc.setFont("helvetica", "bold");
+       doc.text("5. VALIDATION & SIGN-OFF", 15, 20);
+
+       doc.setTextColor(0, 0, 0);
+       doc.setFontSize(10);
+       let currentY = 35;
+       doc.text(`Decision: ${report.validation.decision}`, 15, currentY);
+       currentY += 10;
+       
+       if (report.dateClosed) {
+         doc.setFont("helvetica", "bold");
+         doc.text(`Closure Date:`, 15, currentY);
+         doc.setFont("helvetica", "normal");
+         doc.text(`${format(new Date(report.dateClosed), "PPP")}`, 45, currentY);
+         currentY += 10;
+       }
+
+       doc.setFont("helvetica", "bold");
+       doc.text("Basis:", 15, currentY);
+       currentY += 5;
+       doc.setFont("helvetica", "normal");
+       const basisText = report.validation.basis?.join(", ") || "N/A";
+       const basisLines = doc.splitTextToSize(basisText, 180);
+       doc.text(basisLines, 15, currentY);
+       currentY += basisLines.length * 5 + 5;
+       
+       doc.setFont("helvetica", "bold");
+       doc.text("Narrative/Notes:", 15, currentY);
+       currentY += 6;
+       doc.setFont("helvetica", "normal");
+       const notesText = report.validation.notes || "No notes provided.";
+       const paragraphs = notesText.split(/\r?\n/);
+       paragraphs.forEach((p) => {
+         if (p.trim() === "") {
+           currentY += 5;
+           return;
+         }
+         // Clean non-breaking spaces that can break jsPDF word wrapping
+         const cleanP = p.replace(/\t/g, "    ").replace(/[\u200B-\u200D\uFEFF]/g, "").replace(/[\u00A0]/g, " ");
+         const lines = doc.splitTextToSize(cleanP, 180);
+         doc.text(lines, 15, currentY);
+         currentY += lines.length * 5;
+       });
+       currentY += 7;
+
+       doc.setFont("helvetica", "bold");
+       doc.text("Validated By:", 15, currentY);
+       currentY += 5;
+       doc.setFont("helvetica", "normal");
+       doc.text(report.validation.validatorName || "N/A", 15, currentY);
+       currentY += 5;
+       
+       if (report.validation.validatedAt) {
+          const vDate = report.validation.validatedAt.toDate ? report.validation.validatedAt.toDate() : new Date(report.validation.validatedAt);
+          doc.text(`Date Validated: ${format(vDate, "PPP")}`, 15, currentY);
+       }
+    }
+
     // Save
     doc.save(`MHARSMC_Outbreak_Report_${report.detectedAt}.pdf`);
   };
@@ -923,6 +987,16 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                         {report.validation?.decision || "PENDING"}
                       </p>
                     </div>
+                    {report.dateClosed && (
+                      <div className="space-y-1 sm:text-center">
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                          Closure Date
+                        </span>
+                        <p className="text-[10px] font-black uppercase text-slate-600">
+                          {format(new Date(report.dateClosed), "MMM d, yyyy")}
+                        </p>
+                      </div>
+                    )}
                     <div className="space-y-1 text-right">
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
                         Reporter
@@ -932,6 +1006,22 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                       </p>
                     </div>
                   </div>
+
+                  {report.validation?.notes && (
+                    <div className="mt-4 p-4 border border-slate-100 rounded-2xl bg-white shadow-sm">
+                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                        <FileText className="w-3 h-3 text-brand-primary" /> Validator Narrative Report
+                      </h4>
+                      <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                        {report.validation.notes}
+                      </p>
+                      {report.validation.validatorName && (
+                         <p className="text-[9px] font-bold text-slate-400 mt-2 uppercase">
+                           Verified By: {report.validation.validatorName}
+                         </p>
+                      )}
+                    </div>
+                  )}
                 </motion.div>
               ));
             })()}
@@ -1274,13 +1364,19 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                             />
                           </td>
                           <td className="px-4 py-3">
-                            <input
+                            <select
                               className="w-full bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:bg-white focus:ring-1 focus:ring-brand-primary group-hover:bg-white"
                               value={row.unit}
                               onChange={(e) =>
                                 handleCaseUpdate(idx, "unit", e.target.value)
                               }
-                            />
+                            >
+                              {UNITS.map((u) => (
+                                <option key={u} value={u}>
+                                  {u}
+                                </option>
+                              ))}
+                            </select>
                           </td>
                           <td className="px-4 py-3">
                             <input

@@ -1,12 +1,12 @@
 export const UNITS = [
-  '2D Echo', 'Acute Stroke Unit', 'Blood Bank', 'C2', 'C3', 'C4', 'CSR', 'CSSD',
-  'Dental Clinic', 'Dietary', 'DR', 'ER', 'HDU 1', 'HDU 2', 'Housekeeping',
-  'ICU 1', 'ICU 2', 'IPCU', 'Laboratory', 'Laundry and Linen', 'Medical Ward',
+  '2D Echo', 'Acute Stroke Unit', 'Ambulatory OR', 'Blood Bank', 'C2', 'C3', 'C4', 'CSR', 'CSSD',
+  'Delivery Room', 'Dental Clinic', 'Dietary', 'DR', 'Engineering & Maintenance', 'ER', 'HDU 1', 'HDU 2', 'Housekeeping',
+  'ICU 1', 'ICU 2', 'IPCU', 'Labor Room', 'Laboratory', 'Laundry and Linen', 'Medical Ward',
   'Microbiology', 'MRI Unit', 'NBS', 'NICU', 'OB Ward', 'OBER', 'Oncology',
   'OPD 1', 'OPD 2', 'OPD Lab', 'OR', 'Pedia Ward', 'PICU', 'Radiology',
   'Rehabilitation', 'RTU', 'Surgical Ward', 'TB DOTS', 'Ward 1A', 'Ward 1B',
   'Ward 1C', 'Ward 2A', 'Ward 2B', 'Ward 3A', 'Ward 3B', 'Ward 4',
-  'Ward 5A', 'Ward 5B', 'Ward 5C', 'Ward 6'
+  'Ward 5A', 'Ward 5B', 'Ward 5C', 'Ward 6', 'Wardman'
 ];
 
 export const DEPARTMENTS = [

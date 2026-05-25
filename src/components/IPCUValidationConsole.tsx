@@ -553,12 +553,21 @@ export default function IPCUValidationConsole({
           await updateDoc(docRef, { monitoringDays: updatedDays });
         }
       } else {
-        await updateDoc(doc(db, targetCollection, targetId), {
+        const updatePayload: any = {
           isValidated: false,
           status: "PENDING",
-          validation: null,
-          verification: null,
-        });
+        };
+
+        if (targetCollection === "outbreaks") {
+          updatePayload.status = "Suspected";
+          updatePayload.validation = null;
+        } else if (targetCollection === "nsi_reports") {
+          updatePayload.validation = null;
+        } else if (targetCollection === "boc_logs") {
+          updatePayload.verification = null;
+        }
+
+        await updateDoc(doc(db, targetCollection, targetId), updatePayload);
       }
       alert("Validation reset successfully.");
     } catch (e) {
@@ -707,6 +716,11 @@ export default function IPCUValidationConsole({
             : decision.status === "REJECTED"
               ? "Closed"
               : "Under Investigation",
+        dateClosed: decision.dateClosed || "",
+        epidemiology: {
+          ...(selectedItem.originalData.epidemiology || {}),
+          unitsAffected: decision.unitsAffected || "Multiple"
+        },
         validation: {
           decision:
             decision.status === "VALIDATED"
@@ -721,6 +735,8 @@ export default function IPCUValidationConsole({
           validatedAt: serverTimestamp(),
         },
       };
+      // Remove unitsAffected from root
+      delete updateData.unitsAffected;
     }
 
     try {
@@ -1522,6 +1538,8 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
     monitoringStatus: "", // 'PASS' | 'FAIL'
     clinicalAccuracy: "Accurate",
     complianceAccuracy: "Accurate",
+    unitsAffected: item.type === "OUTBREAK" ? item.originalData?.epidemiology?.unitsAffected || "Multiple" : "",
+    dateClosed: item.type === "OUTBREAK" ? item.originalData?.dateClosed || "" : "",
   });
 
   const [loading, setLoading] = useState(false);
@@ -2541,6 +2559,38 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                           ))}
                         </div>
                       </div>
+                      <div className="space-y-4 pt-4 border-t border-slate-100">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                          Affected Unit(s)
+                        </label>
+                        <select
+                          value={decision.unitsAffected}
+                          onChange={(e) =>
+                            setDecision({ ...decision, unitsAffected: e.target.value })
+                          }
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none"
+                        >
+                          <option value="Multiple">Multiple</option>
+                          {UNITS.map((u) => (
+                            <option key={u} value={u}>{u}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                          Closure Date (if applicable)
+                        </label>
+                        <input
+                          type="date"
+                          value={decision.dateClosed || ""}
+                          onChange={(e) =>
+                            setDecision({ ...decision, dateClosed: e.target.value })
+                          }
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none"
+                        />
+                      </div>
+
                       <div className="space-y-4">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
                           Validator Narrative

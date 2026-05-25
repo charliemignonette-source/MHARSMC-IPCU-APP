@@ -30,7 +30,8 @@ import {
   Microscope,
   Settings2,
   Download,
-  AlertCircle
+  AlertCircle,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './lib/firebase';
@@ -71,6 +72,7 @@ export default function App() {
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [hasPendingAMS, setHasPendingAMS] = useState(false);
   const [pendingAMSCount, setPendingAMSCount] = useState(0);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -588,8 +590,15 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
                   </div>
                 </div>
                 <button 
+                  onClick={() => setIsAboutOpen(true)}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-xs font-black text-slate-500 hover:bg-slate-50 hover:text-slate-800 rounded-2xl transition-all uppercase tracking-widest"
+                >
+                  <Info className="w-4 h-4 text-slate-400 mb-0.5" />
+                  About IPC Guard (ISO)
+                </button>
+                <button 
                   onClick={logout}
-                  className="flex items-center gap-3 w-full px-4 py-3 text-xs font-black text-rose-500 hover:bg-rose-50 rounded-2xl transition-all uppercase tracking-widest"
+                  className="flex items-center gap-3 w-full px-4 py-3 mt-1 text-xs font-black text-rose-500 hover:bg-rose-50 rounded-2xl transition-all uppercase tracking-widest"
                 >
                   <LogOut className="w-4 h-4" />
                   Terminate Session
@@ -667,6 +676,13 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
               <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tight">{profile?.role}</p>
             </div>
           </div>
+          <button 
+            onClick={() => setIsAboutOpen(true)}
+            className="flex items-center gap-3 w-full px-4 py-2 mb-1 text-xs font-bold text-slate-400 hover:text-teal-600 transition-colors"
+          >
+            <Info className="w-4 h-4" />
+            About IPC Guard (ISO)
+          </button>
           <button 
             onClick={logout}
             className="flex items-center gap-3 w-full px-4 py-2 text-xs font-bold text-slate-400 hover:text-rose-600 transition-colors"
@@ -764,6 +780,71 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
           </AnimatePresence>
         </div>
       </main>
+
+      {/* About App / ISO Compliance Modal */}
+      <AnimatePresence>
+        {isAboutOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAboutOpen(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden p-8 border border-slate-100 z-10"
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-teal-100">
+                  <ShieldAlert className="w-8 h-8" />
+                </div>
+                <h3 className="text-lg font-black uppercase tracking-tight text-slate-900">About IPC Guard</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Infection Prevention & Control Guard</p>
+              </div>
+
+              <div className="space-y-4 text-xs">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                    <span className="font-bold text-slate-500 uppercase text-[9px] tracking-wider">Document Control No.</span>
+                    <span className="font-mono font-black text-teal-600 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-100 text-[10px]/none">HIPC-FM-040/Rev.0/1June2026</span>
+                  </div>
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                    <span className="font-bold text-slate-500 uppercase text-[9px] tracking-wider">System Standard</span>
+                    <span className="font-bold text-slate-800 text-[10px]">ISO 9001:2015 Compliant</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-slate-500 uppercase text-[9px] tracking-wider">Version Code</span>
+                    <span className="font-mono text-slate-600 font-bold">v1.4.2-Release</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 text-slate-600 leading-relaxed text-[11px] px-1">
+                  <p>
+                    <strong>IPC Guard</strong> is an integrated hospital digital ecosystem engineered for real-time 
+                    surveillance of healthcare-associated infections (HAIs), antimicrobial stewardship (AMS), bundle 
+                    compliance verifications, and Infection Prevention and Control (IPC) audits.
+                  </p>
+                  <p>
+                    This platform operates under strict document control protocols in compliance with quality management system (QMS) 
+                    ISO certification standards, facilitating continuous clinical audit trails and administrative verification logs.
+                  </p>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setIsAboutOpen(false)}
+                className="w-full mt-6 py-3.5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 active:scale-95"
+              >
+                Acknowledge & Close
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (

@@ -599,6 +599,7 @@ export interface OutbreakReport {
   id?: string;
   detectedAt: string;
   detectedTime: string;
+  dateClosed?: string;
   reportedBy: string;
   reportingSrc: string[];
   reportingSrcOther?: string;

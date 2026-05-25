@@ -63,13 +63,14 @@ export default function AMS({ user }: { user: UserProfile | null }) {
   const [isSwitchingWard, setIsSwitchingWard] = useState(false);
 
   const getDepartment = (unit: string) => {
-    if (['ICU 1', 'ICU 2', 'NICU', 'PICU', 'HDU 1', 'HDU 2'].includes(unit)) return 'Critical Care';
-    if (['Ward 1A', 'Ward 1B', 'Ward 1C', 'Medical Ward', 'Acute Stroke Unit', 'RTU', 'Oncology'].includes(unit)) return 'Medicine';
-    if (['Ward 2A', 'Ward 2B', 'Surgical Ward', 'OR'].includes(unit)) return 'Surgery';
-    if (['OB Ward', 'DR', 'OBER'].includes(unit)) return 'OB-GYN';
+    if (DEPARTMENTS.includes(unit)) return unit;
+    if (['ICU 1', 'ICU 2', 'NICU', 'PICU', 'HDU 1', 'HDU 2'].includes(unit)) return 'Internal Medicine';
+    if (['Ward 1A', 'Ward 1B', 'Ward 1C', 'Medical Ward', 'Acute Stroke Unit', 'RTU', 'Oncology', 'Ward 4', 'C2', 'C3', 'C4', 'TB DOTS'].includes(unit)) return 'Internal Medicine';
+    if (['Ward 2A', 'Ward 2B', 'Surgical Ward', 'OR', 'Ambulatory OR'].includes(unit)) return 'General Surgery';
+    if (['OB Ward', 'DR', 'OBER', 'Ward 5A', 'Ward 5B', 'Ward 5C', 'Ward 6', 'Labor Room', 'Delivery Room'].includes(unit)) return 'Obstetrics-Gynecology';
     if (['Ward 3A', 'Ward 3B', 'Pedia Ward', 'NBS'].includes(unit)) return 'Pediatrics';
-    if (['ER', 'OPD 1', 'OPD 2', 'OPD Lab', '2D Echo'].includes(unit)) return 'Emergency/Outpatient';
-    return 'Ancillary/Other';
+    if (['ER', 'OPD 1', 'OPD 2', 'OPD Lab', '2D Echo'].includes(unit)) return 'Emergency Medicine';
+    return unit || 'Other';
   };
 
   const getStats = () => {
@@ -83,6 +84,8 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       antibioticUsage: [] as { name: string, count: number }[],
       wardRequests: [] as { name: string, count: number }[],
       deptRequests: [] as { name: string, count: number }[],
+      extensionsAntibiotics: [] as { name: string, count: number }[],
+      recentExtensions: [] as any[],
       commonIndication: 'N/A',
       commonFocus: 'N/A',
     };
@@ -92,11 +95,16 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     const abUsage: Record<string, number> = {};
     const wRequests: Record<string, number> = {};
     const dRequests: Record<string, number> = {};
+    const extAbUsage: Record<string, number> = {};
 
     requests.forEach(req => {
       req.antimicrobialsRequested?.forEach(ab => {
         abUsage[ab] = (abUsage[ab] || 0) + 1;
       });
+      // also count primary antibiotic if array missing
+      if (!req.antimicrobialsRequested?.length && req.antibiotic) {
+         abUsage[req.antibiotic] = (abUsage[req.antibiotic] || 0) + 1;
+      }
 
       wRequests[req.unit] = (wRequests[req.unit] || 0) + 1;
 
@@ -105,6 +113,10 @@ export default function AMS({ user }: { user: UserProfile | null }) {
 
       if (req.type === 'EXTENSION_7D') {
         stats.extensionsPerWard[req.unit] = (stats.extensionsPerWard[req.unit] || 0) + 1;
+        if (req.antibiotic) {
+           extAbUsage[req.antibiotic] = (extAbUsage[req.antibiotic] || 0) + 1;
+        }
+        stats.recentExtensions.push(req);
       }
 
       if (req.indicationForUse) {
@@ -120,6 +132,17 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count);
     
+    stats.extensionsAntibiotics = Object.entries(extAbUsage)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+      
+    // Sort recent extensions specifically
+    stats.recentExtensions.sort((a, b) => {
+      const aTime = a.dateTimeRequested ? new Date(a.dateTimeRequested).getTime() : 0;
+      const bTime = b.dateTimeRequested ? new Date(b.dateTimeRequested).getTime() : 0;
+      return bTime - aTime;
+    });
+
     stats.wardRequests = Object.entries(wRequests)
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count);
@@ -1238,10 +1261,14 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                   </div>
                 </div>
 
-                  <div className="flex items-center gap-8 pl-16">
+                  <div className="flex flex-col md:flex-row md:items-center gap-8 pl-16">
+                     <div className="flex-1">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Infectious Diagnosis</p>
+                        <p className="text-xs font-bold text-teal-800 uppercase truncate max-w-sm">{req.infectiousDiagnosis || req.diagnosis || 'None Specified'}</p>
+                     </div>
                      <div className="flex-1">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 opacity-50">Justification Summary</p>
-                        <p className="text-xs text-slate-700 font-medium italic truncate max-w-md">"{req.justification || req.diagnosis}"</p>
+                        <p className="text-xs text-slate-700 font-medium italic truncate max-w-md">"{req.justification || 'No detailed justification provided.'}"</p>
                      </div>
                      <div className="flex items-center gap-4 text-[10px] font-bold text-slate-400 border-l border-slate-100 pl-8">
                         <div className="flex flex-col items-end">
@@ -1311,6 +1338,10 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                   <p className="text-xs text-slate-600">DOB: {req.dob}</p>
                                   <p className="text-xs text-slate-600">Loc (Ward/Room/ Bed): {req.location}</p>
                                </div>
+                            </div>
+                            <div>
+                               <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Infectious Diagnosis</p>
+                               <p className="text-xs font-bold text-teal-800 uppercase bg-teal-50 px-3 py-2 rounded-xl border border-teal-100">{req.infectiousDiagnosis || req.diagnosis || 'None Specified'}</p>
                             </div>
                             <div>
                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Drug Allergy</p>
@@ -2488,8 +2519,7 @@ function AMSDashboard({ stats }: { stats: any }) {
           { label: 'Common Indication', value: stats.commonIndication, sub: 'Top Driver', icon: Fingerprint, color: 'text-indigo-500' },
           { label: 'Primary Infection Focus', value: stats.commonFocus, sub: 'Clinical Target', icon: Target, color: 'text-rose-500' },
           { label: 'Top Restricted Drug', value: stats.commonAntibiotic, sub: 'Most Prescribed', icon: FlaskConical, color: 'text-amber-500' },
-          { label: 'Top Department', value: stats.deptWithMostRequests, sub: 'By Volume', icon: BarChart, color: 'text-teal-500' },
-          { label: 'Top Dept', value: stats.deptWithMostRequests, sub: 'By Volume', icon: LayoutDashboard, color: 'text-blue-500' },
+          { label: 'Top Department', value: stats.deptWithMostRequests, sub: 'By Volume', icon: BarChart, color: 'text-teal-500' }
         ].map((item, idx) => (
           <div key={idx} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-start gap-3">
             <div className={cn("p-2 rounded-xl bg-white shadow-sm", item.color)}>
@@ -2584,6 +2614,38 @@ function AMSDashboard({ stats }: { stats: any }) {
             <p className="text-[10px] text-slate-400 leading-relaxed">
               Restricted antimicrobials require mandatory review within 72h. Document clinical justification for all manual overrides.
             </p>
+          </div>
+
+          <div className="space-y-4 pt-6 border-t border-slate-100">
+             <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Extension Summary</h4>
+             {stats.extensionsAntibiotics.length > 0 ? (
+               <div className="space-y-4">
+                 <div className="flex flex-wrap gap-2">
+                   {stats.extensionsAntibiotics.slice(0, 5).map((ab: any) => (
+                     <span key={ab.name} className="px-2 py-1 bg-amber-50 text-amber-700 rounded-lg text-[9px] font-bold border border-amber-100">
+                       {ab.name}: {ab.count} request{ab.count !== 1 && 's'}
+                     </span>
+                   ))}
+                 </div>
+                 <div className="space-y-2">
+                   <h5 className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Recent Reasons for Extension</h5>
+                   {stats.recentExtensions.slice(0, 3).map((ext: any, idx: number) => (
+                     <div key={idx} className="p-3 bg-slate-50 border border-slate-100 rounded-xl relative overflow-hidden">
+                       <div className="absolute top-0 left-0 w-1 h-full bg-amber-400" />
+                       <div className="flex justify-between items-start mb-1 gap-4 pl-1">
+                         <span className="text-[10px] font-bold text-slate-900 truncate">{ext.antibiotic} <span className="text-slate-400 font-medium">({ext.unit})</span></span>
+                         <span className="text-[8px] font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">
+                           {ext.dateTimeRequested ? new Date(ext.dateTimeRequested).toLocaleDateString() : 'N/A'}
+                         </span>
+                       </div>
+                       <p className="text-[10px] text-slate-600 italic line-clamp-2 pl-1">"{ext.justification || 'No reason provided'}"</p>
+                     </div>
+                   ))}
+                 </div>
+               </div>
+             ) : (
+               <p className="text-[9px] text-slate-400 italic">No extensions requested yet.</p>
+             )}
           </div>
         </div>
       </div>
