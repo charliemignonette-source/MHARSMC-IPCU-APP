@@ -44,6 +44,7 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
     outbreaks: any[];
     hais: any[];
   }>({ boc: [], ams: [], nsi: [], audits: [], outbreaks: [], hais: [] });
+  const [confirmPurge, setConfirmPurge] = useState(false);
   const [stats, setStats] = useState({
     hhCompliance: 91.2,
     ppeCompliance: 88.5,
@@ -95,12 +96,12 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
         const currentMonth = now.getMonth();
         const currentYear = now.getFullYear();
 
-        const bocData = boc.docs.map(d => ({ id: d.id, ...d.data() } as BOCLog));
-        const amsData = ams.docs.map(d => ({ id: d.id, ...d.data() } as any));
-        const nsiData = nsi.docs.map(d => ({ id: d.id, ...d.data() } as any));
-        const auditData = audits.docs.map(d => ({ id: d.id, ...d.data() } as any));
-        const outbreakData = outbreaks.docs.map(d => ({ id: d.id, ...d.data() } as any));
-        const haiData = hais.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        const bocData = boc.docs.map(d => ({ ...d.data(), id: d.id } as BOCLog));
+        const amsData = ams.docs.map(d => ({ ...d.data(), id: d.id } as any));
+        const nsiData = nsi.docs.map(d => ({ ...d.data(), id: d.id } as any));
+        const auditData = audits.docs.map(d => ({ ...d.data(), id: d.id } as any));
+        const outbreakData = outbreaks.docs.map(d => ({ ...d.data(), id: d.id } as any));
+        const haiData = hais.docs.map(d => ({ ...d.data(), id: d.id } as any));
         
         setRawLogs({ 
           boc: bocData, 
@@ -142,8 +143,8 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
             ppe: calcMonthAvg(ppe),
             env: calcMonthAvg(env),
             ams: amsData.filter(a => {
-              const date = a.createdAt?.toDate?.() || new Date(a.dateTimeRequested);
-              return date.getMonth() === m && date.getFullYear() === y;
+              const date = a.createdAt?.toDate?.() || (a.dateTimeRequested ? new Date(a.dateTimeRequested) : null);
+              return date && !isNaN(date.getTime()) && date.getMonth() === m && date.getFullYear() === y;
             }).length * 10 // scale for visualization
           });
         }
@@ -155,8 +156,8 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
           d.setDate(d.getDate() - i);
           const dateStr = d.toLocaleDateString();
           const count = amsData.filter(a => {
-            const date = a.createdAt?.toDate?.() || new Date(a.dateTimeRequested);
-            return date.toLocaleDateString() === dateStr;
+            const date = a.createdAt?.toDate?.() || (a.dateTimeRequested ? new Date(a.dateTimeRequested) : null);
+            return date && !isNaN(date.getTime()) && date.toLocaleDateString() === dateStr;
           }).length;
           last7Days.push({ name: `Day ${7-i}`, requests: count });
         }
@@ -386,9 +387,7 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
   }, []);
 
   const purgeData = async () => {
-    if (!window.confirm('CRITICAL: This will purge ALL reports, audits, and cases from the system. This is intended only for resetting the beta environment. PROCEED?')) return;
-    
-    const collections = ['ams_requests', 'audits', 'boc_logs', 'hai_cases', 'nsi_reports', 'outbreaks'];
+    const collections = ['ams_requests', 'audits', 'boc_logs', 'hai_cases', 'nsi_reports', 'outbreaks', 'bundle_monitorings'];
     let count = 0;
 
     try {
@@ -413,11 +412,19 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
          <div className="hidden md:block" />
          {(user?.role === 'ADMIN' || user?.role === 'IPCN') && (
             <button 
-              onClick={purgeData} 
-              className="flex items-center gap-2 px-4 py-2 bg-rose-50 border border-rose-100 rounded-xl text-[10px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-100 transition-all shadow-sm"
+              onClick={() => {
+                if (confirmPurge) {
+                  setConfirmPurge(false);
+                  purgeData();
+                } else {
+                  setConfirmPurge(true);
+                }
+              }} 
+              onMouseLeave={() => setConfirmPurge(false)}
+              className={`flex items-center gap-2 px-4 py-2 border rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm ${confirmPurge ? "bg-rose-600 border-rose-700 text-white" : "bg-rose-50 border-rose-100 text-rose-600 hover:bg-rose-100"}`}
             >
               <Trash2 className="w-3.5 h-3.5" />
-              Reset All Beta Data
+              {confirmPurge ? "Click again to confirm" : "Reset All Beta Data"}
             </button>
          )}
       </div>

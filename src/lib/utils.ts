@@ -6,13 +6,16 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatDate(date: string | Date | number) {
+  if (!date) return 'N/A';
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return 'N/A';
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(date));
+  }).format(d);
 }
 
 export function getComplianceColor(rate: number) {

@@ -57,7 +57,7 @@ export default function NSI({ user }: NSIProps) {
 
   const isValidator = useMemo(() => {
     return user?.role === 'ADMIN' || user?.role === 'IPCN' || 
-           user?.email === 'mharmc.hipc@gmail.com' || user?.email === 'alleiagurl@gmail.com';
+           user?.email === 'mharmc.hipc@gmail.com' || user?.email === 'mharsmc.hipc@gmail.com' || user?.email === 'alleiagurl@gmail.com';
   }, [user]);
 
   // Form State
@@ -128,7 +128,7 @@ export default function NSI({ user }: NSIProps) {
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NSIReport));
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as NSIReport));
       const sortedData = data.sort((a, b) => {
         const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
         const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();

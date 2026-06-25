@@ -26,6 +26,18 @@ export default function Reports({ user }: { user: UserProfile | null }) {
   const [isExporting, setIsExporting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
+  const [selectedAuditType, setSelectedAuditType] = useState<string>('ALL');
+
+  const auditTypeOptions = [
+    { id: 'ALL', label: 'All Audits' },
+    { id: 'HH_COMPLIANCE', label: 'Hand Hygiene Compliance' },
+    { id: 'HH_AVAILABILITY', label: 'Hand Hygiene Availability' },
+    { id: 'PPE_COMPLIANCE', label: 'PPE Compliance' },
+    { id: 'PPE_AVAILABILITY', label: 'PPE Availability' },
+    { id: 'ENV_CLEANING', label: 'Environmental Cleaning' },
+    { id: 'SAFE_INJECTION', label: 'Safe Injection' }
+  ];
+
   const reportOptions = [
     { id: 'CLINICAL_SYSTEMS', label: 'Systems Integrity Report', icon: FileSpreadsheet, description: 'Consolidated Audits, Bundles, & HAI Cases for holistic oversight' },
     { id: 'WARD_SUMMARY', label: 'Ward/Location Monthly Summary', icon: Building2, description: 'Comparative monthly scorecard per unit (PDF)' },
@@ -69,7 +81,32 @@ export default function Reports({ user }: { user: UserProfile | null }) {
     setMessage({ type: 'success', text: `Successfully exported ${data.length} records.` });
   };
 
-  const mapDataRecord = (d: any, type: string) => {
+  const flattenObject = (ob: any, prefix = ''): any => {
+    let toReturn: any = {};
+    for (let i in ob) {
+        if (!ob.hasOwnProperty(i)) continue;
+        
+        let keyName = i.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()); // CamelCase to Title Case
+        if (prefix) keyName = `${prefix} - ${keyName}`;
+
+        if ((typeof ob[i]) === 'object' && ob[i] !== null && !Array.isArray(ob[i]) && !(ob[i] instanceof Date) && typeof ob[i]?.toDate !== 'function') {
+            let flatObject = flattenObject(ob[i], keyName);
+            for (let x in flatObject) {
+                if (!flatObject.hasOwnProperty(x)) continue;
+                toReturn[x] = flatObject[x];
+            }
+        } else if (Array.isArray(ob[i])) {
+            toReturn[keyName] = JSON.stringify(ob[i]);
+        } else if (ob[i]?.toDate) {
+            toReturn[keyName] = ob[i].toDate().toLocaleString();
+        } else {
+            toReturn[keyName] = ob[i];
+        }
+    }
+    return toReturn;
+  };
+
+  const mapDataRecord = (d: any, type: string, subType: string = 'ALL') => {
     const common = {
       'System ID': d.id,
       'Source Collection': d.__source || type
@@ -78,27 +115,179 @@ export default function Reports({ user }: { user: UserProfile | null }) {
     switch (type) {
       case 'AUDITS':
         const auditDetails = d.details || {};
+        
+        const dateVal = d.createdAt?.toDate ? d.createdAt.toDate().toLocaleString() : (d.timestamp && !isNaN(new Date(d.timestamp).getTime()) ? new Date(d.timestamp).toLocaleString() : '');
+        const commonAuditFields = {
+          ...common,
+          'Date': dateVal,
+          'Auditor': d.auditorName || d.auditorEmail || d.auditorId,
+          'Unit': d.unit,
+          'Audit Type': (d.type || '').replace(/_/g, ' '),
+          'Staff Observed': d.staffIdentifier || 'N/A'
+        };
+
+        if (subType === 'HH_COMPLIANCE' && d.type === 'HH_COMPLIANCE' && auditDetails.hhObs) {
+          const obs = auditDetails.hhObs;
+          let missedMoments: string[] = [];
+          let missedWithGlovesCount = 0;
+          let reasonsList: string[] = [];
+
+          if (obs.entries && Array.isArray(obs.entries)) {
+             obs.entries.forEach((e: any) => {
+                if (e.action === 'missed') {
+                   missedMoments.push(e.indications?.join(', ') || 'Unknown');
+                   if (e.gloves) {
+                      missedWithGlovesCount++;
+                      reasonsList.push(`Gloves used instead of HH for [${e.indications?.join(', ') || '?'}]`);
+                   }
+                }
+             });
+          }
+
+          const prepList = [];
+          if (obs.shortNaturalNails === false) prepList.push('Long/Non-Natural Nails');
+          if (obs.noArtificialNails === false) prepList.push('Artificial Nails Used');
+          if (obs.noNailPolish === false) prepList.push('Nail Polish Present');
+          if (obs.noJewelry === false) prepList.push('Wrist/Finger Jewelry Present');
+          if (obs.bareBelowElbow === false) prepList.push('Not Bare Below Elbow');
+          
+          return {
+             ...commonAuditFields,
+             'Staff Category': d.profession || obs.profession || obs.role || 'N/A',
+             'Total Opportunities': d.total || obs.total || 0,
+             'Total Actions Performed': d.score || obs.score || 0,
+             'Compliance %': (d.total > 0 ? (d.score / d.total) * 100 : 0).toFixed(1) + '%',
+             'Missed Moments': missedMoments.length > 0 ? missedMoments.join('; ') : 'None',
+             'Reasons for missed HH': reasonsList.length > 0 ? reasonsList.join('; ') : 'N/A',
+             'Missed HH was gloves use': missedWithGlovesCount > 0 ? 'Yes' : 'No',
+             'Nail & Hand Prep Pre-Requisites compliance': prepList.length === 0 ? "PASS" : `FAIL (${prepList.join(', ')})`,
+             'Is Validated': d.isValidated ? 'YES' : 'NO',
+             'Validator': d.validatorName || d.validatedBy || 'Pending'
+          };
+        } else if (subType === 'PPE_COMPLIANCE' && d.type === 'PPE_COMPLIANCE' && auditDetails.ppeCompliance) {
+          const ppe = auditDetails.ppeCompliance;
+          return {
+             ...commonAuditFields,
+             'Staff Category': d.profession || ppe.staffType || 'N/A',
+             'Correct PPE for Zone (Yes/No)': ppe.correctPPE ? 'Yes' : 'No',
+             'Wearing Correct PPE (Yes/No)': ppe.correctPPE ? 'Yes' : 'No',
+             'Wearing Incorrect PPE (Yes/No)': ppe.incorrectPPE ? 'Yes' : 'No',
+             'Appropriate PPE per Transmission-Based Isolation (Yes/No)': ppe.appropriatePPEPerIsolation ? 'Yes' : 'No',
+             'Missing PPE Item (Specify item or write “None”)': ppe.missingItems ? ppe.missingItems : 'None',
+             'Proper Donning Observed (Yes/No)': ppe.properDonning ? 'Yes' : 'No',
+             'Proper Doffing Observed (Yes/No)': ppe.properDoffing ? 'Yes' : 'No',
+             'PPE Intact (Yes/No)': ppe.ppeIntact ? 'Yes' : 'No',
+             'PPE Fits Properly (Yes/No)': ppe.ppeFits ? 'Yes' : 'No',
+             'Reason for Non-Compliance (Free text)': ppe.nonComplianceReason || 'N/A',
+             'Is Validated': d.isValidated ? 'YES' : 'NO',
+             'Validator': d.validatorName || d.validatedBy || 'Pending'
+          };
+        } else if (subType === 'HH_AVAILABILITY' && d.type === 'HH_AVAILABILITY' && auditDetails) {
+          const abhr = auditDetails.abhr || {};
+          const sink = auditDetails.sink || {};
+          const posters = auditDetails.posters || {};
+          const inventory = auditDetails.inventory || {};
+          
+          return {
+             'Unit/Area': d.unit || 'N/A',
+             'Date': dateVal,
+             'ABHR at Point of Care (Yes/No)': abhr.poc ? 'Yes' : 'No',
+             'Personnel Equipped with Portable ABHR (Yes/No)': abhr.personnelHasPortableABHR ? 'Yes' : 'No',
+             'Bottle Not Empty (Yes/No)': abhr.notEmpty ? 'Yes' : 'No',
+             'ABHR Expiry Date': abhr.expiry || 'N/I',
+             'ABHR Expiry N/I (Yes/No)': abhr.notIndicated ? 'Yes' : 'No',
+             'Pump Functional (Yes/No)': abhr.functional ? 'Yes' : 'No',
+             'Alternative Delivery Method Used (Specify or “None”)': abhr.alternativeDeliveryMethod || 'None',
+             'Properly Mounted/Placed (Yes/No)': abhr.mounted ? 'Yes' : 'No',
+             'Functional Sink (Yes/No)': sink.sink ? 'Yes' : 'No',
+             'Running Water (Yes/No)': sink.water ? 'Yes' : 'No',
+             'Soap Available (Yes/No)': sink.soap ? 'Yes' : 'No',
+             'Soap Expiry Date': sink.expiry || 'N/I',
+             'Soap Expiry N/I (Yes/No)': sink.notIndicated ? 'Yes' : 'No',
+             'Paper Towels Available (Yes/No)': sink.towels ? 'Yes' : 'No',
+             'Sink Not Clogged (Yes/No)': sink.notClogged ? 'Yes' : 'No',
+             'Posters Visible (Yes/No)': posters.visible ? 'Yes' : 'No',
+             'Posters Clean/Readable (Yes/No)': posters.clean ? 'Yes' : 'No',
+             'Inventory Audited (Yes/No)': inventory.audited ? 'Yes' : 'No',
+             'Inventory Status (Adequate / Low / Critical)': inventory.status === 'OutOfStock' ? 'Critical' : (inventory.status || 'Adequate'),
+             'Replenishment Action (Replenished / Not Needed / Pending)': inventory.replenished === 'Yes' ? 'Replenished' : (inventory.replenished === 'NotNeeded' ? 'Not Needed' : 'Pending'),
+             'Assigned Personnel (Name/Role)': inventory.assignedPersonnel || 'N/A'
+          };
+        } else if (subType === 'PPE_AVAILABILITY' && d.type === 'PPE_AVAILABILITY' && auditDetails) {
+          const ppe = auditDetails.ppe || {};
+          const gloves = ppe.gloves || {};
+          const masks = ppe.masks || {};
+          const n95 = ppe.n95 || {};
+          const gowns = ppe.gowns || {};
+          const shields = ppe.shields || {};
+          const signage = ppe.signage || {};
+          const inventory = auditDetails.inventory || {};
+          
+          return {
+             'Unit/Area': d.unit || 'N/A',
+             'Date': dateVal,
+             'Gloves Available (Yes/No)': gloves.avail ? 'Yes' : 'No',
+             'Gloves Correct Sizes Available (Yes/No)': gloves.sizes ? 'Yes' : 'No',
+             'Gloves Expiry Date': gloves.expiry || 'N/I',
+             'Gloves Expiry N/I (Yes/No)': gloves.notIndicated ? 'Yes' : 'No',
+             'Surgical Masks Available (Yes/No)': masks.avail ? 'Yes' : 'No',
+             'Box Not Empty (Yes/No)': masks.notEmpty ? 'Yes' : 'No',
+             'Surgical Mask Expiry Date': masks.expiry || 'N/I',
+             'Surgical Mask Expiry N/I (Yes/No)': masks.notIndicated ? 'Yes' : 'No',
+             'N95 Available (Yes/No)': n95.avail ? 'Yes' : 'No',
+             'N95 Correct Sizes Available (Yes/No)': n95.sizes ? 'Yes' : 'No',
+             'N95 Expiry Date': n95.expiry || 'N/I',
+             'N95 Expiry N/I (Yes/No)': n95.notIndicated ? 'Yes' : 'No',
+             'Gowns Available (Yes/No)': gowns.avail ? 'Yes' : 'No',
+             'Sizes Appropriate for Staff (Yes/No)': gowns.appropriate ? 'Yes' : 'No',
+             'Gown Expiry Date': gowns.expiry || 'N/I',
+             'Gown Expiry N/I (Yes/No)': gowns.notIndicated ? 'Yes' : 'No',
+             'Face Shields Available (Yes/No)': shields.avail ? 'Yes' : 'No',
+             'Not Cracked/Damaged (Yes/No)': shields.notDamaged ? 'Yes' : 'No',
+             'Transmission Isolation Signages Posted (Yes/No)': signage.posted ? 'Yes' : 'No',
+             'Inventory Audited (Yes/No)': inventory.audited ? 'Yes' : 'No',
+             'Inventory Status (Adequate / Low / Critical)': inventory.status === 'OutOfStock' ? 'Critical' : (inventory.status || 'Adequate'),
+             'Replenishment Action (Replenished / Not Needed / Pending)': inventory.replenished === 'Yes' ? 'Replenished' : (inventory.replenished === 'NotNeeded' ? 'Not Needed' : 'Pending'),
+             'Assigned Personnel (Name/Role)': inventory.assignedPersonnel || 'N/A'
+          };
+        } else if (subType === 'SAFE_INJECTION' && d.type === 'SAFE_INJECTION' && auditDetails.safeInjection) {
+          const si = auditDetails.safeInjection;
+          return {
+             'Unit/Area': d.unit || 'N/A',
+             'Date': dateVal,
+             'HCW Category': d.profession || 'N/A',
+             'Staff Name (Optional)': d.staffIdentifier || 'N/A',
+             'Injection Prepared in Clean Area (Yes/No)': si.prepClean ? 'Yes' : 'No',
+             'Alcohol Pad Available (Yes/No)': si.alcoholAvail ? 'Yes' : 'No',
+             'Alcohol Pad Expiry Date': si.alcoholExpiry || 'N/I',
+             'Alcohol Pad Expiry N/I (Yes/No)': si.alcoholNotIndicated ? 'Yes' : 'No',
+             'Hand Hygiene Performed (Yes/No)': si.hhBefore ? 'Yes' : 'No',
+             'Skin Disinfected (Yes/No)': si.skinDisinfected ? 'Yes' : 'No',
+             'Allowed to Dry Completely (Yes/No)': si.allowedToDry ? 'Yes' : 'No',
+             'No Touching of Site (Yes/No)': si.noTouchSite ? 'Yes' : 'No',
+             'Single‑Dose Vial Used Once (Yes/No)': si.singleDoseOnce ? 'Yes' : 'No',
+             'Multi‑Dose Vial Used Correctly (Yes/No)': si.multiDoseCorrect ? 'Yes' : 'No',
+             'Vial Expiry Date': si.vialExpiry || 'N/I',
+             'Vial Expiry N/I (Yes/No)': si.vialNotIndicated ? 'Yes' : 'No',
+             'Vial Not Contaminated (Yes/No)': si.vialNotContaminated ? 'Yes' : 'No',
+             'Sterile Syringe Used (Yes/No)': si.sterileSyringe ? 'Yes' : 'No',
+             'Sterile Needle Used (Yes/No)': si.sterileNeedle ? 'Yes' : 'No',
+             'No Recapping After Use (Yes/No)': si.noRecapping ? 'Yes' : 'No',
+             'Needle Not Reused (Yes/No)': si.needleNotReused ? 'Yes' : 'No',
+             'Correct Route Followed (Yes/No)': si.correctRoute ? 'Yes' : 'No',
+             'Correct Dose Administered (Yes/No)': si.correctDose ? 'Yes' : 'No',
+             'No Reuse Between Patients (Yes/No)': si.noReuse ? 'Yes' : 'No',
+             'Used Syringe Disposed Immediately (Yes/No)': si.disposeImmediate ? 'Yes' : 'No',
+             'Disposed Into Sharps Container (Yes/No)': si.disposeSharps ? 'Yes' : 'No',
+             'Sharps Container ≤ 3/4 Full (Yes/No)': si.sharpsNotFull ? 'Yes' : 'No',
+             'Sharps Container Properly Mounted (Yes/No)': si.sharpsMounted ? 'Yes' : 'No',
+             'General Remarks / Notes': si.notes || 'N/A'
+          };
+        }
+
         let findings = '';
         
-        if (d.type === 'HH_COMPLIANCE' && auditDetails.hhObs) {
-          const obs = auditDetails.hhObs;
-          if (obs.entries && Array.isArray(obs.entries)) {
-            findings = obs.entries.map((e: any, i: number) => 
-               `Opp ${i+1}: [${e.indications.join(',')}] -> ${e.action}${e.gloves ? ' (G)' : ''}`
-            ).join(' | ');
-          } else {
-            findings = Object.entries(obs.indications || {})
-              .filter(([_, active]) => active)
-              .map(([moment, _]) => `${moment}: ${obs.actions?.[moment] || 'missed'}`)
-              .join('; ');
-          }
-        } else if (d.type === 'HH_AVAILABILITY') {
-          const missings = [];
-          if (!auditDetails.abhr?.poc) missings.push('No ABHR at POC');
-          if (!auditDetails.sink?.sink) missings.push('No Sink');
-          if (!auditDetails.sink?.soap) missings.push('No Soap');
-          findings = missings.length > 0 ? `Missing: ${missings.join(', ')}` : 'Full Availability';
-        } else if (d.type === 'ENV_CLEANING' && auditDetails.envCleaning?.surfaces) {
+        if (d.type === 'ENV_CLEANING' && auditDetails.envCleaning?.surfaces) {
           const missed = Object.entries(auditDetails.envCleaning?.surfaces || {})
             .filter(([_, status]) => status === 'notCleaned')
             .map(([surface, _]) => surface)
@@ -114,11 +303,25 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           if (!si.sterileNeedle) issues.push('Needle Reused');
           if (si.noRecapping === false) issues.push('Recapping Observed');
           findings = issues.length > 0 ? `Issues: ${issues.join(', ')}` : 'Perfect Technique';
+        } else if (d.type === 'HH_AVAILABILITY' && auditDetails) {
+          const missings = [];
+          if (!auditDetails.abhr?.poc) missings.push('No ABHR at POC');
+          if (!auditDetails.sink?.sink) missings.push('No Sink');
+          if (!auditDetails.sink?.soap) missings.push('No Soap');
+          findings = missings.length > 0 ? `Missing: ${missings.join(', ')}` : 'Full Availability';
+        } else if (d.type === 'PPE_AVAILABILITY' && auditDetails.ppe) {
+          const ppe = auditDetails.ppe;
+          const missings = [];
+          if (!ppe.gloves?.avail) missings.push('Gloves');
+          if (!ppe.masks?.avail) missings.push('Masks');
+          if (!ppe.n95?.avail) missings.push('N95');
+          if (!ppe.gowns?.avail) missings.push('Gowns');
+          findings = missings.length > 0 ? `Missing: ${missings.join(', ')}` : 'Full Availability';
         }
 
         return {
           ...common,
-          'Date': d.createdAt?.toDate ? d.createdAt.toDate().toLocaleString() : (d.timestamp ? new Date(d.timestamp).toLocaleString() : ''),
+          'Date': d.createdAt?.toDate ? d.createdAt.toDate().toLocaleString() : (d.timestamp && !isNaN(new Date(d.timestamp).getTime()) ? new Date(d.timestamp).toLocaleString() : ''),
           'Auditor': d.auditorName || d.auditorEmail || d.auditorId,
           'Unit': d.unit,
           'Audit Type': (d.type || '').replace(/_/g, ' '),
@@ -137,26 +340,59 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         };
 
       case 'COMPLIANCE':
+      case 'bundle_monitorings':
       case 'boc_logs':
-        return {
+        if (d.monitoringDays && Array.isArray(d.monitoringDays)) {
+          return d.monitoringDays.map((day: any) => {
+            const reqValues = Object.values(day.bundleChecklist || {});
+            const requiredCount = reqValues.length;
+            const compliantCount = reqValues.filter((v: any) => v === 'Done' || v === 'N/A').length;
+            const compPct = requiredCount > 0 ? ((compliantCount / requiredCount) * 100).toFixed(1) : '0';
+            
+            return {
+              ...common,
+              'Date': day.date,
+              'Time': 'N/A',
+              'Unit': d.unit,
+              'Patient Name': d.patientName,
+              'Hosp Number': d.hospitalNo || d.hospNo || '',
+              'Age/Sex': `${d.age || ''} / ${d.sex || ''}`,
+              'Physician in-charge': d.attendingPhysician || 'N/A',
+              'Devices': day.bundleType || '',
+              'Compliance %': (day.complianceScores?.overall || compPct) + '%',
+              'Staff Reporter': d.staffName || day.staffName || 'System',
+              'Designation': 'N/A',
+              'Clinical Criteria': day.clinicalCriteria ? Object.entries(day.clinicalCriteria).filter(([_, v]) => v === true || v === 'Present').map(([k]) => k).join(', ') : 'None',
+              'Verification Status': day.verification?.isValidated ? 'Validated' : 'Pending',
+              'Final Decision': day.verification?.isValidated ? 'Proceed' : 'N/A',
+              'Reasoning': day.verification?.validatorComment || '',
+              'Corrective Actions': '',
+              'Validator Name': day.verification?.validatorName || '',
+              'Validated At': day.verification?.validatedAt && !isNaN(new Date(day.verification.validatedAt).getTime()) ? new Date(day.verification.validatedAt).toLocaleString() : ''
+            };
+          });
+        }
+        return [{
           ...common,
-          'Date': d.date,
-          'Time': d.time,
-          'Unit': d.unit,
-          'Patient Name': d.patientName,
-          'Hosp Number': d.hospNo,
-          'Age/Sex': `${d.age} / ${d.sex}`,
-          'Devices': (d.devicesPresent || []).join(', '),
-          'Compliance %': d.compliancePercentage + '%',
-          'Staff Reporter': d.staffName,
-          'Designation': d.staffDesignation,
+          'Date': d.date || '',
+          'Time': d.time || '',
+          'Unit': d.unit || '',
+          'Patient Name': d.patientName || '',
+          'Hosp Number': d.hospNo || '',
+          'Age/Sex': `${d.age || ''} / ${d.sex || ''}`,
+          'Physician in-charge': d.attendingPhysician || 'N/A',
+          'Devices': (d.devicesPresent || d.devices || []).join(', '),
+          'Compliance %': (d.compliancePercentage || 0) + '%',
+          'Staff Reporter': d.staffName || '',
+          'Designation': d.staffDesignation || '',
+          'Clinical Criteria': 'N/A',
           'Verification Status': d.isValidated ? 'Validated' : 'Pending',
           'Final Decision': d.verification?.finalDecision || 'N/A',
           'Reasoning': d.verification?.reason || '',
           'Corrective Actions': (d.verification?.correctiveAction || []).join('; '),
           'Validator Name': d.verification?.validatorName || '',
           'Validated At': d.verification?.date || ''
-        };
+        }];
 
       case 'AMS':
       case 'ams_requests':
@@ -258,7 +494,10 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         };
 
       default:
-        return { ...common, ...d };
+        let rawD = { ...d };
+        delete rawD.id;
+        delete rawD.__source;
+        return { ...common, ...flattenObject(rawD) };
     }
   };
 
@@ -275,44 +514,51 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         const collRef = collection(db, collName);
         let constraints: any[] = [];
 
-        const start = timeFrame === 'DAILY' ? new Date(selectedDate) : (timeFrame === 'MONTHLY' ? new Date(selectedMonth.split('-')[0], parseInt(selectedMonth.split('-')[1]) - 1, 1) : null);
-        const end = timeFrame === 'DAILY' ? new Date(selectedDate) : (timeFrame === 'MONTHLY' ? new Date(selectedMonth.split('-')[0], parseInt(selectedMonth.split('-')[1]), 0) : null);
+        let start = timeFrame === 'DAILY' ? new Date(selectedDate) : (timeFrame === 'MONTHLY' ? new Date(Number(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]) - 1, 1) : null);
+        let end = timeFrame === 'DAILY' ? new Date(selectedDate) : (timeFrame === 'MONTHLY' ? new Date(Number(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]), 0) : null);
+        
+        if (start && isNaN(start.getTime())) start = null;
+        if (end && isNaN(end.getTime())) end = null;
         
         if (start) start.setHours(0, 0, 0, 0);
         if (end) end.setHours(23, 59, 59, 999);
 
         // Date Constraints
-        if (timeFrame === 'DAILY') {
-          if (dateFld === 'date') {
-            constraints.push(where(dateFld, '==', selectedDate));
-          } else if (dateFld === 'timestamp' || dateFld === 'dateTimeRequested' || dateFld === 'reportedAt') {
-            const startStr = start?.toISOString() || '';
-            const endStr = end?.toISOString() || '';
-            constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
+        const stringDateFields = ['date', 'triggerDate', 'detectedAt'];
+        
+        if (collName !== 'bundle_monitorings' && collName !== 'audits') {
+          if (timeFrame === 'DAILY') {
+            if (stringDateFields.includes(dateFld)) {
+              constraints.push(where(dateFld, '==', selectedDate));
+            } else if (dateFld === 'timestamp' || dateFld === 'dateTimeRequested' || dateFld === 'reportedAt') {
+              const startStr = start?.toISOString() || '';
+              const endStr = end?.toISOString() || '';
+              constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
+            } else {
+              constraints.push(where(dateFld, '>=', start), where(dateFld, '<=', end));
+            }
+          } else if (timeFrame === 'MONTHLY') {
+            if (stringDateFields.includes(dateFld)) {
+              const startStr = start?.toISOString().split('T')[0] || '';
+              const endStr = end?.toISOString().split('T')[0] || '';
+              constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
+            } else if (dateFld === 'timestamp' || dateFld === 'dateTimeRequested' || dateFld === 'reportedAt') {
+              const startStr = start?.toISOString() || '';
+              const endStr = end?.toISOString() || '';
+              constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
+            } else {
+              constraints.push(where(dateFld, '>=', start), where(dateFld, '<=', end));
+            }
           } else {
-            constraints.push(where(dateFld, '>=', start), where(dateFld, '<=', end));
+            constraints.push(orderBy(dateFld, 'desc'));
           }
-        } else if (timeFrame === 'MONTHLY') {
-          if (dateFld === 'date') {
-            const startStr = start?.toISOString().split('T')[0] || '';
-            const endStr = end?.toISOString().split('T')[0] || '';
-            constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
-          } else if (dateFld === 'timestamp' || dateFld === 'dateTimeRequested' || dateFld === 'reportedAt') {
-            const startStr = start?.toISOString() || '';
-            const endStr = end?.toISOString() || '';
-            constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
-          } else {
-            constraints.push(where(dateFld, '>=', start), where(dateFld, '<=', end));
-          }
-        } else {
-          constraints.push(orderBy(dateFld, 'desc'));
         }
 
         // User Constraints
         if (!isIPCU && user) {
           if (collName === 'audits' || collName === 'hai_cases') {
             constraints.push(where('auditorId', '==', user.uid));
-          } else if (collName === 'boc_logs') {
+          } else if (collName === 'bundle_monitorings' || collName === 'boc_logs') {
             constraints.push(where('staffId', '==', user.uid));
           } else if (collName === 'ams_requests') {
             if (user?.role !== 'APPROVER' && user?.role !== 'PHARMACY') {
@@ -325,17 +571,32 @@ export default function Reports({ user }: { user: UserProfile | null }) {
 
         const q = query(collRef, ...constraints);
         const querySnapshot = await getDocs(q);
-        return querySnapshot.docs.map(doc => ({ id: doc.id, __source: collName, ...doc.data() as any }));
+        return querySnapshot.docs.map(doc => ({ __source: collName, ...doc.data() as any, id: doc.id }));
       };
 
       if (reportType === 'WARD_SUMMARY') {
-        const [audits, bocLogs, amsRequests, haiCases, nsiReports] = await Promise.all([
+        const [audits, rawBocLogs, amsRequests, haiCases, nsiReports] = await Promise.all([
           fetchCollectionData('audits', 'createdAt'),
-          fetchCollectionData('boc_logs', 'date'),
-          fetchCollectionData('ams_requests', 'dateTimeRequested'),
+          fetchCollectionData('bundle_monitorings', 'createdAt'),
+          fetchCollectionData('ams_requests', 'createdAt'),
           fetchCollectionData('hai_cases', 'createdAt'),
-          fetchCollectionData('nsi_reports', 'reportedAt')
+          fetchCollectionData('nsi_reports', 'createdAt')
         ]);
+        
+        let bocLogs = rawBocLogs;
+        if (timeFrame !== 'ALL_TIME') {
+          bocLogs = rawBocLogs.map(log => {
+             if (log.monitoringDays && Array.isArray(log.monitoringDays)) {
+                 const filteredDays = log.monitoringDays.filter((day: any) => {
+                     if (timeFrame === 'DAILY') return day.date === selectedDate;
+                     if (timeFrame === 'MONTHLY') return day.date && day.date.startsWith(selectedMonth);
+                     return true;
+                 });
+                 return { ...log, monitoringDays: filteredDays };
+             }
+             return log;
+          });
+        }
         
         const calcStats = (data: any[], type: string, ward: string | null) => {
           let subset = data;
@@ -360,9 +621,27 @@ export default function Reports({ user }: { user: UserProfile | null }) {
             return { score: (avg * 100).toFixed(1) + '%', raw: avg * 100 };
           }
           if (type === 'BUNDLE') {
-            if (!subset.length) return { score: 'N/A', raw: -1 };
-            const avg = subset.reduce((acc, curr) => acc + (curr.compliancePercentage || 0), 0) / subset.length;
-            return { score: avg.toFixed(1) + '%', raw: avg };
+            let totalApplicable = 0;
+            let totalCompliant = 0;
+            subset.forEach(log => {
+               if (log.monitoringDays && Array.isArray(log.monitoringDays)) {
+                   log.monitoringDays.forEach((day: any) => {
+                       if (day.bundleChecklist && Object.keys(day.bundleChecklist).length > 0) {
+                           const reqValues = Object.values(day.bundleChecklist);
+                           const applicable = reqValues.filter((v: any) => v !== "N/A");
+                           totalApplicable += applicable.length;
+                           totalCompliant += applicable.filter((v: any) => v === "Done").length;
+                       } else if (day.elements) {
+                           const reqValues = Object.values(day.elements);
+                           totalApplicable += reqValues.length;
+                           totalCompliant += reqValues.filter(Boolean).length;
+                       }
+                   });
+               }
+            });
+            if (totalApplicable === 0) return { score: 'N/A', raw: -1 };
+            const pct = (totalCompliant / totalApplicable) * 100;
+            return { score: pct.toFixed(1) + '%', raw: pct };
           }
           if (type === 'AMS') {
             const approved = subset.filter(d => d.status === 'APPROVED');
@@ -454,11 +733,14 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         
         autoTable(doc, {
           startY: 40,
+          margin: { top: 20, right: 14, bottom: 20, left: 14 },
+          pageBreak: 'auto',
+          rowPageBreak: 'avoid',
           head: [['Metric', `Target (${selectedWard})`, 'Rest of Hospital', 'Comparison']],
           body: autoTableData,
           headStyles: { fillColor: [13, 148, 136] }, // brand-primary teal
           theme: 'grid',
-          styles: { fontSize: 10, cellPadding: 6 },
+          styles: { fontSize: 10, cellPadding: 6, overflow: 'linebreak' },
           columnStyles: {
             0: { cellWidth: 70 },
             1: { cellWidth: 35 },
@@ -515,6 +797,13 @@ export default function Reports({ user }: { user: UserProfile | null }) {
            'After Touching Patient Surroundings': 0
         };
         let hhHcwNonCompliance: Record<string, number> = {};
+        let hhnNailNonCompliance: Record<string, number> = {
+           'Long / Non-Natural Nails': 0,
+           'Artificial Nails / Extensions Used': 0,
+           'Nail Polish / Chipped Color Present': 0,
+           'Wrist & Finger Jewelry Present': 0,
+           'Not Bare Below the Elbow (BBE)': 0
+        };
 
         const mapIndication = (ind: string) => {
            if (ind === 'M1' || ind === 'before-patient') return 'Before Touching Patient';
@@ -560,6 +849,25 @@ export default function Reports({ user }: { user: UserProfile | null }) {
            if (missedForHcw > 0) {
               const prof = audit.profession || audit.details?.hhObs?.staffType || 'Unknown';
               hhHcwNonCompliance[prof] = (hhHcwNonCompliance[prof] || 0) + missedForHcw;
+           }
+
+           if (audit.details?.hhObs) {
+              const obs = audit.details.hhObs;
+              if (obs.shortNaturalNails === false) {
+                 hhnNailNonCompliance['Long / Non-Natural Nails'] = (hhnNailNonCompliance['Long / Non-Natural Nails'] || 0) + 1;
+              }
+              if (obs.noArtificialNails === false) {
+                 hhnNailNonCompliance['Artificial Nails / Extensions Used'] = (hhnNailNonCompliance['Artificial Nails / Extensions Used'] || 0) + 1;
+              }
+              if (obs.noNailPolish === false) {
+                 hhnNailNonCompliance['Nail Polish / Chipped Color Present'] = (hhnNailNonCompliance['Nail Polish / Chipped Color Present'] || 0) + 1;
+              }
+              if (obs.noJewelry === false) {
+                 hhnNailNonCompliance['Wrist & Finger Jewelry Present'] = (hhnNailNonCompliance['Wrist & Finger Jewelry Present'] || 0) + 1;
+              }
+              if (obs.bareBelowElbow === false) {
+                 hhnNailNonCompliance['Not Bare Below the Elbow (BBE)'] = (hhnNailNonCompliance['Not Bare Below the Elbow (BBE)'] || 0) + 1;
+              }
            }
         });
 
@@ -610,6 +918,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
            if (ppe.n95 && !ppe.n95.avail) ppeAvailIssues['N95 Respirators Unavailable'] = (ppeAvailIssues['N95 Respirators Unavailable'] || 0) + 1;
            if (ppe.gowns && !ppe.gowns.avail) ppeAvailIssues['Isolation Gowns Unavailable'] = (ppeAvailIssues['Isolation Gowns Unavailable'] || 0) + 1;
            if (ppe.shields && !ppe.shields.avail) ppeAvailIssues['Face Shields Unavailable'] = (ppeAvailIssues['Face Shields Unavailable'] || 0) + 1;
+            if (ppe.signage && !ppe.signage.posted) ppeAvailIssues['Transmission Isolation Signage Not Posted'] = (ppeAvailIssues['Transmission Isolation Signage Not Posted'] || 0) + 1;
         });
 
         // 5. Environmental Cleaning Issues
@@ -658,33 +967,29 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         });
 
         targetBundles.forEach((log: any) => {
-            // Check bundles mapping
-            if (log.devicesPresent) {
-                log.devicesPresent.forEach((devId: string) => {
-                    const devName = devId.split('_').map((w: string) => w.toUpperCase()).join(' ');
-                    const bundleObj = log.bundles?.[devId];
-                    const requiredElements = BUNDLE_ELEMENTS[devId as keyof typeof BUNDLE_ELEMENTS] || [];
-                    
-                    requiredElements.forEach((el: string) => {
-                        const isChecked = bundleObj?.elements?.[el];
-                        if (!isChecked) {
-                            const key = `${devName}: ${el}`;
-                            bundleMissedElements[key] = (bundleMissedElements[key] || 0) + 1;
-                        }
-                    });
-                });
-            }
-
-            // Check clinical criteria
-            if (log.formMonitoring) {
-                const docSection = log.formMonitoring.find((m: any) => m.section === 'Clinical Criteria Section');
-                if (docSection) {
-                    if (docSection.status === 'Complete') {
+            if (log.monitoringDays && Array.isArray(log.monitoringDays)) {
+                log.monitoringDays.forEach((day: any) => {
+                    if (day.isVerifiedByIPCU) {
                         bundleClinicalCriteria['Complete']++;
                     } else {
                         bundleClinicalCriteria['Incomplete / Not Done']++;
                     }
-                }
+                    if (day.bundleChecklist && Object.keys(day.bundleChecklist).length > 0) {
+                        Object.entries(day.bundleChecklist).forEach(([el, status]) => {
+                            if (status === "Not Done") {
+                                const key = `${day.bundleType || 'Bundle'}: ${el}`;
+                                bundleMissedElements[key] = (bundleMissedElements[key] || 0) + 1;
+                            }
+                        });
+                    } else if (day.elements && Object.keys(day.elements).length > 0) {
+                        Object.entries(day.elements).forEach(([el, isChecked]) => {
+                            if (!isChecked) {
+                                const key = `${day.bundleType || 'Bundle'}: ${el}`;
+                                bundleMissedElements[key] = (bundleMissedElements[key] || 0) + 1;
+                            }
+                        });
+                    }
+                });
             }
         });
 
@@ -696,7 +1001,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
               .sort((a, b) => b[1] - a[1])
               .map(([item, count]) => [item, count.toString()]);
            
-           if (currentY > 250) {
+           if (currentY > 260) {
               doc.addPage();
               currentY = 20;
            }
@@ -708,11 +1013,14 @@ export default function Reports({ user }: { user: UserProfile | null }) {
            if (data.length > 0) {
               autoTable(doc, {
                 startY: currentY + 6,
+                margin: { top: 20, right: 14, bottom: 20, left: 14 },
+                pageBreak: 'auto',
+                rowPageBreak: 'avoid',
                 head: [headObj],
                 body: data,
                 headStyles: { fillColor: [244, 63, 94] }, // rose-500 for missing/issues
                 theme: 'grid',
-                styles: { fontSize: 10, cellPadding: 6 },
+                styles: { fontSize: 10, cellPadding: 6, overflow: 'linebreak' },
                 columnStyles: { 0: { cellWidth: 120 }, 1: { cellWidth: 60 } }
               });
               currentY = (doc as any).lastAutoTable.finalY + 15;
@@ -726,6 +1034,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
 
         renderIssueTable('Hand Hygiene Missed Moments', missedMomentsCount, 'No missed moments recorded.');
         renderIssueTable('Non-Compliant HCWs: Hand Hygiene', hhHcwNonCompliance, 'No hand hygiene non-compliance recorded.', ['Profession', 'Missed Actions']);
+        renderIssueTable('HCW Hand & Wrist Prep Violations', hhnNailNonCompliance, 'No hand prep or nail hygiene non-compliance recorded.', ['Prep / Condition Issue', 'Violation Count']);
         renderIssueTable('Hand Hygiene Availability Issues', hhAvailIssues, 'No availability issues recorded.');
         renderIssueTable('PPE Compliance Issues', ppeComplianceIssues, 'No PPE compliance issues recorded.');
         renderIssueTable('Non-Compliant HCWs: PPE', ppeHcwNonCompliance, 'No PPE non-compliance recorded.', ['Profession', 'Issues Count']);
@@ -758,6 +1067,8 @@ export default function Reports({ user }: { user: UserProfile | null }) {
             'Assessment Type': '',
             'Performance Result': '',
             'Compliance %': 'N/A',
+            'Physician in-charge': 'N/A',
+            'Clinical Criteria': 'N/A',
             'Validation Status': d.isValidated ? 'Validated' : 'Pending',
             'IPCU Decision': 'N/A',
             'Validator/Reviewer': 'N/A',
@@ -765,7 +1076,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           };
 
           if (domain === 'AUDIT') {
-            base.Date = d.createdAt instanceof Timestamp ? d.createdAt.toDate().toLocaleString() : (d.timestamp ? new Date(d.timestamp).toLocaleString() : '');
+            base.Date = d.createdAt instanceof Timestamp ? d.createdAt.toDate().toLocaleString() : (d.timestamp && !isNaN(new Date(d.timestamp).getTime()) ? new Date(d.timestamp).toLocaleString() : '');
             base['Staff/Reporter'] = d.auditorName || d.auditorEmail || d.auditorId || 'N/A';
             base['Assessment Type'] = (d.type || '').replace(/_/g, ' ');
             base['Performance Result'] = `${d.score}/${d.total}`;
@@ -774,15 +1085,40 @@ export default function Reports({ user }: { user: UserProfile | null }) {
             base['Validator/Reviewer'] = d.validatorName || d.validatedBy || 'N/A';
             base['Clinical Rationale/Action'] = [d.remarks, d.reason, d.correctiveActions?.join('; ')].filter(Boolean).join(' | ');
           } else if (domain === 'BUNDLE') {
+            if (d.monitoringDays && Array.isArray(d.monitoringDays)) {
+              return d.monitoringDays.map((day: any) => {
+                 const reqValues = Object.values(day.bundleChecklist || {});
+                 const reqCount = reqValues.length;
+                 const compCount = reqValues.filter((v: any) => v === 'Done' || v === 'N/A').length;
+                 const compPct = reqCount > 0 ? ((compCount / reqCount) * 100).toFixed(1) + '%' : '0%';
+                 return {
+                    ...base,
+                    Date: day.date,
+                    'Patient/Subject': d.patientName || d.hospitalNo || 'N/A',
+                    'Staff/Reporter': d.staffName || day.staffName || 'N/A',
+                    'Physician in-charge': d.attendingPhysician || 'N/A',
+                    'Clinical Criteria': day.clinicalCriteria ? Object.entries(day.clinicalCriteria).filter(([_, v]) => v === true || v === 'Present').map(([k]) => k).join(', ') : 'None',
+                    'Assessment Type': day.bundleType || 'Bundle Assessment',
+                    'Performance Result': (day.complianceScores?.overall || compPct.replace('%', '')) + '%',
+                    'Compliance %': (day.complianceScores?.overall || compPct.replace('%', '')) + '%',
+                    'IPCU Decision': day.verification?.isValidated ? 'Proceed' : 'N/A',
+                    'Validator/Reviewer': day.verification?.validatorName || 'N/A',
+                    'Clinical Rationale/Action': day.verification?.validatorComment || ''
+                 };
+              });
+            }
             base.Date = d.date;
             base['Patient/Subject'] = d.patientName || d.hospNo || 'N/A';
             base['Staff/Reporter'] = d.staffName || 'N/A';
+            base['Physician in-charge'] = d.attendingPhysician || 'N/A';
+            base['Clinical Criteria'] = 'N/A';
             base['Assessment Type'] = (d.devicesPresent || []).join(', ') || 'Bundle Assessment';
-            base['Performance Result'] = d.compliancePercentage + '%';
-            base['Compliance %'] = d.compliancePercentage + '%';
+            base['Performance Result'] = (d.compliancePercentage || 0) + '%';
+            base['Compliance %'] = (d.compliancePercentage || 0) + '%';
             base['IPCU Decision'] = d.verification?.finalDecision || 'N/A';
             base['Validator/Reviewer'] = d.verification?.validatorName || 'N/A';
             base['Clinical Rationale/Action'] = [d.verification?.reason, d.verification?.correctiveAction?.join('; ')].filter(Boolean).join(' | ');
+            return [base];
           } else if (domain === 'HAI') {
             base.Date = d.triggerDate || (d.createdAt instanceof Timestamp ? d.createdAt.toDate().toISOString() : d.createdAt);
             base['Patient/Subject'] = d.patientName || d.hospNo || 'N/A';
@@ -797,8 +1133,21 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           return base;
         };
 
+        let bundleData = results[1].flatMap(d => unifiedMapper(d, 'BUNDLE'));
+        
+        if (timeFrame !== 'ALL_TIME') {
+            bundleData = bundleData.filter(row => {
+               if (timeFrame === 'DAILY') {
+                   return row.Date === selectedDate;
+               } else if (timeFrame === 'MONTHLY') {
+                   return row.Date && row.Date.startsWith(selectedMonth);
+               }
+               return true;
+            });
+        }
+
         const formattedData = results[0].map(d => unifiedMapper(d, 'AUDIT'))
-          .concat(results[1].map(d => unifiedMapper(d, 'BUNDLE')))
+          .concat(bundleData)
           .concat(results[2].map(d => unifiedMapper(d, 'HAI')));
           
         downloadCSV(formattedData, `Systems_Integrity_Consolidated_Report`);
@@ -807,15 +1156,46 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         let dateField = 'createdAt';
         
         switch (reportType) {
-          case 'COMPLIANCE': collectionName = 'boc_logs'; dateField = 'date'; break;
+          case 'COMPLIANCE': collectionName = 'bundle_monitorings'; dateField = 'createdAt'; break;
           case 'AUDITS': collectionName = 'audits'; dateField = 'timestamp'; break;
-          case 'AMS': collectionName = 'ams_requests'; dateField = 'dateTimeRequested'; break;
-          case 'HAI': collectionName = 'hai_cases'; dateField = 'triggerDate'; break;
-          case 'NSI': collectionName = 'nsi_reports'; dateField = 'reportedAt'; break;
-          case 'OUTBREAK': collectionName = 'outbreaks'; dateField = 'detectedAt'; break;
+          case 'AMS': collectionName = 'ams_requests'; dateField = 'createdAt'; break;
+          case 'HAI': collectionName = 'hai_cases'; dateField = 'createdAt'; break;
+          case 'NSI': collectionName = 'nsi_reports'; dateField = 'createdAt'; break;
+          case 'OUTBREAK': collectionName = 'outbreaks'; dateField = 'createdAt'; break;
         }
-        const data = await fetchCollectionData(collectionName, dateField);
-        const formattedData = data.map(d => mapDataRecord(d, reportType));
+        let data = await fetchCollectionData(collectionName, dateField);
+        
+        if (reportType === 'AUDITS' && selectedAuditType !== 'ALL') {
+            data = data.filter((d: any) => d.type === selectedAuditType);
+        }
+
+        if (reportType === 'AUDITS' && timeFrame !== 'ALL_TIME') {
+            const start = timeFrame === 'DAILY' ? new Date(selectedDate) : new Date(Number(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]) - 1, 1);
+            const end = timeFrame === 'DAILY' ? new Date(selectedDate) : new Date(Number(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]), 0);
+            start.setHours(0,0,0,0);
+            end.setHours(23,59,59,999);
+            
+            data = data.filter((d: any) => {
+               const recDate = d.createdAt?.toDate ? d.createdAt.toDate() : (d.timestamp ? new Date(d.timestamp) : null);
+               if (!recDate) return false;
+               return recDate >= start && recDate <= end;
+            });
+        }
+
+        let formattedData = data.flatMap(d => mapDataRecord(d, reportType, selectedAuditType));
+        
+        if (reportType === 'COMPLIANCE' && timeFrame !== 'ALL_TIME') {
+          formattedData = formattedData.filter(row => {
+            const dateVal = row['Date Logged'] || row.Date || row.date;
+            if (timeFrame === 'DAILY') {
+              return dateVal === selectedDate;
+            } else if (timeFrame === 'MONTHLY') {
+              return dateVal && dateVal.startsWith(selectedMonth); // e.g. 2026-06
+            }
+            return true;
+          });
+        }
+        
         downloadCSV(formattedData, `${reportType}_Report`);
       }
     } catch (error: any) {
@@ -935,6 +1315,22 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                    </div>
                  </div>
                )}
+
+               {reportType === 'AUDITS' && (
+                 <div className="space-y-1.5 mt-4">
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Specific Audit</label>
+                   <div className="relative">
+                     <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                     <select 
+                       value={selectedAuditType}
+                       onChange={e => setSelectedAuditType(e.target.value)}
+                       className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-black text-slate-900 focus:ring-2 focus:ring-brand-primary/20 outline-none"
+                     >
+                       {auditTypeOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
+                     </select>
+                   </div>
+                 </div>
+               )}
                {timeFrame === 'ALL_TIME' && (
                  <div className="p-6 bg-amber-50 border border-amber-100 rounded-2xl flex items-center gap-3">
                    <ShieldAlert className="w-5 h-5 text-amber-500" />
@@ -1040,7 +1436,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                      masterContent += "No records found.\n\n";
                      continue;
                    }
-                   const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                   const docs = snap.docs.map(d => ({ ...d.data(), id: d.id }));
                    masterContent += JSON.stringify(docs, (key, value) => 
                      value instanceof Timestamp ? value.toDate().toISOString() : value
                    , 2);

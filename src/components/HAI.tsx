@@ -46,6 +46,9 @@ const downloadCasePDF = (c: HAICase) => {
   
   autoTable(doc, {
     startY: 40,
+    margin: { top: 20, right: 14, bottom: 20, left: 14 },
+    pageBreak: 'auto',
+    rowPageBreak: 'avoid',
     head: [["Field", "Value"]],
     body: [
       ["Patient Name", c.patientName || "N/A"],
@@ -55,7 +58,7 @@ const downloadCasePDF = (c: HAICase) => {
       ["HAI Type", c.type || "N/A"],
     ],
     theme: "grid",
-    styles: { fontSize: 10 },
+    styles: { fontSize: 10, cellPadding: 6, overflow: 'linebreak' },
     headStyles: { fillColor: [15, 118, 110] },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 65 } }
   });
@@ -66,6 +69,9 @@ const downloadCasePDF = (c: HAICase) => {
   
   autoTable(doc, {
     startY: (doc as any).lastAutoTable.finalY + 20,
+    margin: { top: 20, right: 14, bottom: 20, left: 14 },
+    pageBreak: 'auto',
+    rowPageBreak: 'avoid',
     head: [["Field", "Value"]],
     body: [
       ["Trigger Date", c.triggerDate ? (typeof c.triggerDate === 'string' ? c.triggerDate : 'N/A') : "N/A"],
@@ -75,7 +81,7 @@ const downloadCasePDF = (c: HAICase) => {
       ["Lab Results (Flagged)", c.triggeredLabs?.join(", ") || "None"],
     ],
     theme: "grid",
-    styles: { fontSize: 10 },
+    styles: { fontSize: 10, cellPadding: 6, overflow: 'linebreak' },
     headStyles: { fillColor: [15, 118, 110] },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 65 } }
   });
@@ -84,7 +90,13 @@ const downloadCasePDF = (c: HAICase) => {
   doc.setFont("helvetica", "bold");
   doc.text("3. VALIDATION DETAILS", 15, (doc as any).lastAutoTable.finalY + 15);
   
-  const valDate = c.validatedAt && (c.validatedAt as any).toDate ? (c.validatedAt as any).toDate().toLocaleDateString() : (c.validatedAt ? new Date(c.validatedAt).toLocaleDateString() : 'N/A');
+  const tryFormatDate = (d: any) => {
+    if (!d) return 'N/A';
+    if (typeof d.toDate === 'function') return d.toDate().toLocaleDateString();
+    const parsed = new Date(d);
+    return isNaN(parsed.getTime()) ? 'N/A' : parsed.toLocaleDateString();
+  };
+  const valDate = tryFormatDate(c.validatedAt);
 
   let validationBody: string[][] = [
       ["Validated By", c.validatorName || "IPCU Administrator"],
@@ -105,10 +117,13 @@ const downloadCasePDF = (c: HAICase) => {
   
   autoTable(doc, {
     startY: (doc as any).lastAutoTable.finalY + 20,
+    margin: { top: 20, right: 14, bottom: 20, left: 14 },
+    pageBreak: 'auto',
+    rowPageBreak: 'avoid',
     head: [["Field", "Value"]],
     body: validationBody,
     theme: "grid",
-    styles: { fontSize: 10 },
+    styles: { fontSize: 10, cellPadding: 6, overflow: 'linebreak' },
     headStyles: { fillColor: [15, 118, 110] },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 65 } }
   });
@@ -155,8 +170,73 @@ export default function HAI({ user }: { user: UserProfile | null }) {
   const isAdmin = user?.role === 'ADMIN';
   const [activeView, setActiveView] = useState<'surveillance' | 'monitoring'>(isIPCU ? 'surveillance' : 'monitoring');
   const [searchTerm, setSearchTerm] = useState('');
+
+  const downloadCSV = (data: any[], filename: string) => {
+    if (data.length === 0) {
+      alert('No data found for export.');
+      return;
+    }
+    const headers = Object.keys(data[0]);
+    const csvContent = [
+      headers.join(','),
+      ...data.map(obj => 
+        headers.map(header => {
+          const v = obj[header];
+          const str = (v === null || v === undefined) ? '' : String(v).replace(/"/g, '""').replace(/\n/g, ' ');
+          return `"${str}"`;
+        }).join(',')
+      )
+    ].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadBundleCSV = () => {
+    const data = monitorings.flatMap(p => (p.monitoringDays || []).map(day => {
+       const reqValues = Object.values(day.bundleChecklist || {});
+       const compliantCount = reqValues.filter((v: any) => v === 'Done' || v === 'N/A').length;
+       const reqCount = reqValues.length;
+       const compPct = reqCount > 0 ? ((compliantCount / reqCount) * 100).toFixed(1) + '%' : '0%';
+       return {
+          'Date': day.date,
+          'Unit': p.unit,
+          'Patient Name': p.patientName,
+          'Hosp Number': p.hospitalNo || '',
+          'Device/Subtype': `${day.bundleType || ''} - ${day.bundleSubtype || ''}`,
+          'Compliance %': (day.complianceScores?.overall || compPct.replace('%', '')) + '%',
+          'Staff Reporter': day.staffName || p.staffName || 'System',
+          'Missed Reason': day.missedReason || '',
+       }
+    }));
+    downloadCSV(data, 'Bundle_Compliance_Logs');
+  };
+
+  const handleDownloadHAICasesCSV = () => {
+    const data = cases.map(c => ({
+       'Date': c.createdAt?.toDate ? c.createdAt.toDate().toLocaleString() : '',
+       'Patient Name': c.patientName,
+       'Hosp Number': c.hospNo || c.hospitalNo || '',
+       'Unit': c.unit,
+       'HAI Type': (c.type || c.haiType || '').replace(/_/g, ' '),
+       'Status': c.status || 'PENDING',
+       'Risk Level': c.riskLevel || '',
+       'IPCU Decision': c.decisionNote || '',
+       'Device Days': c.deviceDays || '',
+       'Verified By': c.validatorName || '',
+    }));
+    downloadCSV(data, 'Reported_HAIs');
+  };
+
   const [searchResults, setSearchResults] = useState<BundleMonitoring[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [selectedPatient, setSelectedPatient] = useState<BundleMonitoring | null>(null);
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [isAddingDay, setIsAddingDay] = useState(false);
@@ -187,7 +267,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       const qH = query(collection(db, 'bundle_monitorings'), where('hospitalNo', '==', searchTerm));
       const qN = query(collection(db, 'bundle_monitorings'), where('patientName', '>=', searchTerm), where('patientName', '<=', searchTerm + '\uf8ff'));
       const [snapH, snapN] = await Promise.all([getDocs(qH), getDocs(qN)]);
-      const results = [...snapH.docs, ...snapN.docs].map(d => ({ id: d.id, ...d.data() } as BundleMonitoring));
+      const results = [...snapH.docs, ...snapN.docs].map(d => ({ ...d.data(), id: d.id } as BundleMonitoring));
       setSearchResults(results);
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, 'bundle_monitorings');
@@ -293,7 +373,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       q1 = query(collection(db, 'hai_cases'), where('auditorId', '==', user.uid), orderBy('createdAt', 'desc'));
     }
     const unsub1 = onSnapshot(q1, (snap) => {
-      setCases(snap.docs.map(d => ({ id: d.id, ...d.data() } as HAICase)));
+      setCases(snap.docs.map(d => ({ ...d.data(), id: d.id } as HAICase)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'hai_cases'));
 
     // 2. BOC Logs
@@ -304,7 +384,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       q2 = query(collection(db, 'boc_logs'), where('staffId', '==', user.uid), orderBy('createdAt', 'desc'));
     }
     const unsub2 = onSnapshot(q2, (snap) => {
-      setBundleLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as BOCLog)));
+      setBundleLogs(snap.docs.map(d => ({ ...d.data(), id: d.id } as BOCLog)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'boc_logs'));
 
     // 3. Bundle Monitorings
@@ -316,12 +396,12 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       qM = query(collection(db, 'bundle_monitorings'), orderBy('createdAt', 'desc')); 
     }
     const unsubM = onSnapshot(qM, (snap) => {
-      setMonitorings(snap.docs.map(d => ({ id: d.id, ...d.data() } as BundleMonitoring)));
+      setMonitorings(snap.docs.map(d => ({ ...d.data(), id: d.id } as BundleMonitoring)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'bundle_monitorings'));
 
     const q3 = query(collection(db, 'hai_denominators'), orderBy('month', 'desc'), limit(12));
     const unsub3 = onSnapshot(q3, (snap) => {
-      setDenominators(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setDenominators(snap.docs.map(d => ({ ...d.data(), id: d.id })));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'hai_denominators'));
 
     return () => { unsub1(); unsub2(); unsubM(); unsub3(); };
@@ -608,16 +688,25 @@ export default function HAI({ user }: { user: UserProfile | null }) {
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 uppercase">IPCU Clinical Monitor</h2>
           <p className="text-[10px] sm:text-xs text-slate-500 font-medium tracking-tight">Standardized HAI surveillance and device monitoring workflow</p>
         </div>
-        <div className="flex gap-4 w-full sm:w-auto">
-            {activeView === 'monitoring' && (
-              <button 
-                onClick={() => setIsEnrollingDevice(true)}
-                className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2 shadow-lg shadow-teal-900/10"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">Enroll Patient</span>
-              </button>
-            )}
+          <div className="flex gap-4 w-full sm:w-auto">
+              {activeView === 'monitoring' && (
+                <>
+                  <button 
+                    onClick={handleDownloadBundleCSV}
+                    className="flex-1 sm:flex-none px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 flex items-center justify-center gap-2 rounded-xl transition-all shadow-sm"
+                  >
+                    <FileDown className="w-4 h-4 text-slate-400" />
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">CSV</span>
+                  </button>
+                  <button 
+                    onClick={() => setIsEnrollingDevice(true)}
+                    className="flex-1 sm:flex-none btn-primary px-6 py-2.5 flex items-center justify-center gap-2 shadow-lg shadow-teal-900/10"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">Enroll Patient</span>
+                  </button>
+                </>
+              )}
             {isIPCU && activeView === 'surveillance' && (
               <>
                 <button 
@@ -712,19 +801,24 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                   <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">HAI Case Surveillance Register</h3>
                   <div className="h-px w-12 bg-slate-200 hidden sm:block" />
                 </div>
-                <div className="flex bg-slate-100 p-1 rounded-xl">
-                  {(['PENDING', 'VALIDATED'] as const).map(tab => (
-                    <button
-                      key={tab}
-                      onClick={() => setCaseFilter(tab)}
-                      className={cn(
-                        "px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
-                        caseFilter === tab ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-500"
-                      )}
-                    >
-                      {tab === 'PENDING' ? `Triggered (${cases.filter(c => c.status === 'PENDING').length})` : `Validated (${cases.filter(c => c.status !== 'PENDING').length})`}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2">
+                  <div className="flex bg-slate-100 p-1 rounded-xl">
+                    {(['PENDING', 'VALIDATED'] as const).map(tab => (
+                      <button
+                        key={tab}
+                        onClick={() => setCaseFilter(tab)}
+                        className={cn(
+                          "px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
+                          caseFilter === tab ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-500"
+                        )}
+                      >
+                        {tab === 'PENDING' ? `Triggered (${cases.filter(c => c.status === 'PENDING').length})` : `Validated (${cases.filter(c => c.status !== 'PENDING').length})`}
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={handleDownloadHAICasesCSV} className="px-4 py-2 bg-white border border-slate-200 hover:border-slate-300 text-[9px] font-black uppercase tracking-widest text-slate-600 rounded-xl transition-all flex items-center gap-2">
+                    <FileDown className="w-3.5 h-3.5" /> CSV
+                  </button>
                 </div>
               </div>
 
@@ -780,7 +874,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                                    </span>
                                    {c.decisionNote && <span className="text-[9px] text-slate-500 line-clamp-1 italic">"{c.decisionNote}"</span>}
                                  </div>
-                                 <span className="text-[8px] font-bold text-slate-400 uppercase">Validated on: {c.validatedAt ? new Date(c.validatedAt).toLocaleDateString() : 'N/A'}</span>
+                                 <span className="text-[8px] font-bold text-slate-400 uppercase">Validated on: {(c.validatedAt && typeof (c.validatedAt as any).toDate === 'function') ? (c.validatedAt as any).toDate().toLocaleDateString() : (c.validatedAt && !isNaN(new Date(c.validatedAt).getTime()) ? new Date(c.validatedAt).toLocaleDateString() : 'N/A')}</span>
                                </div>
                              )}
                           </td>
@@ -807,30 +901,30 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                                    <Trash2 className="w-4 h-4" />
                                  </button>
                                )}
-                               {isIPCU && c.status === 'PENDING' ? (
+                               <div className="flex items-center gap-1">
                                  <button 
-                                   onClick={() => { setSelectedCase(c); setIsValidating(true); }}
-                                   className="text-[9px] font-black uppercase tracking-widest text-brand-primary p-2 hover:bg-teal-50 rounded-lg transition-colors border border-transparent hover:border-teal-100"
+                                   onClick={() => downloadCasePDF(c)}
+                                   className="p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-500 rounded-lg transition-colors"
+                                   title="Download PDF Report"
                                  >
-                                   Validate
+                                   <FileDown className="w-4 h-4" />
                                  </button>
-                               ) : (
-                                 <div className="flex items-center gap-1">
-                                    <button 
-                                      onClick={() => downloadCasePDF(c)}
-                                      className="p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-500 rounded-lg transition-colors"
-                                      title="Download PDF Report"
-                                    >
-                                      <FileDown className="w-4 h-4" />
-                                    </button>
+                                 {isIPCU && c.status === 'PENDING' ? (
+                                   <button 
+                                     onClick={() => { setSelectedCase(c); setIsValidating(true); }}
+                                     className="text-[9px] font-black uppercase tracking-widest text-brand-primary p-2 hover:bg-teal-50 rounded-lg transition-colors border border-transparent hover:border-teal-100"
+                                   >
+                                     Validate
+                                   </button>
+                                 ) : (
                                     <button 
                                       onClick={() => { setSelectedCase(c); setIsValidating(true); }}
                                       className="text-[9px] font-black uppercase tracking-widest text-slate-400 p-2 hover:bg-slate-100 rounded-lg"
                                     >
                                       View
                                     </button>
-                                 </div>
-                               )}
+                                 )}
+                               </div>
                              </div>
                           </td>
                         </tr>
@@ -1154,7 +1248,33 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                         >
                            <div className="flex justify-between items-start mb-1">
                               <span className={cn("text-[8px] font-black uppercase tracking-widest", selectedPatient?.id === p.id ? "text-slate-400" : "text-slate-500")}>#{p.hospitalNo}</span>
-                              <span className={cn("text-[8px] font-black uppercase", selectedPatient?.id === p.id ? "text-teal-400" : "text-slate-400")}>{p.unit}</span>
+                              <div className="flex items-center gap-2">
+                                 <span className={cn("text-[8px] font-black uppercase", selectedPatient?.id === p.id ? "text-teal-400" : "text-slate-400")}>{p.unit}</span>
+                                 {selectedUnit === 'ARCHIVED' && (isIPCU || isAdmin || p.staffId === user?.uid) && (
+                                   <button
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (confirmDeleteId === p.id) {
+                                            setConfirmDeleteId(null);
+                                            try {
+                                              await deleteDoc(doc(db, 'bundle_monitorings', p.id!));
+                                              if (selectedPatient?.id === p.id) setSelectedPatient(null);
+                                              showToast('Archived record deleted permanently');
+                                            } catch (err) {
+                                              handleFirestoreError(err, OperationType.DELETE, 'bundle_monitorings');
+                                            }
+                                        } else {
+                                            setConfirmDeleteId(p.id!);
+                                        }
+                                      }}
+                                      onMouseLeave={() => setConfirmDeleteId(null)}
+                                      className={cn("transition-colors p-1 rounded", confirmDeleteId === p.id ? "bg-rose-500 text-white" : "text-slate-300 hover:text-rose-500")}
+                                      title={confirmDeleteId === p.id ? "Click again to confirm" : "Delete"}
+                                   >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                   </button>
+                                 )}
+                              </div>
                            </div>
                            <h5 className={cn("text-[10px] font-black uppercase leading-tight truncate", selectedPatient?.id === p.id ? "text-white" : "text-slate-900")}>{p.patientName}</h5>
                            <div className="flex items-center gap-2 mt-2">
@@ -1225,19 +1345,25 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                              </button>
                            )
                          ) : (
-                            isIPCU && (
+                            (isIPCU || isAdmin || selectedPatient.staffId === user?.uid) && (
                               <button 
                                 onClick={async (e) => {
-                                  try {
-                                    await deleteDoc(doc(db, 'bundle_monitorings', selectedPatient.id!));
-                                    setSelectedPatient(null);
-                                    showToast('Patient record permanently deleted');
-                                  } catch (err) {
-                                    handleFirestoreError(err, OperationType.DELETE, 'bundle_monitorings');
+                                  if (confirmDeleteId === selectedPatient.id) {
+                                    setConfirmDeleteId(null);
+                                    try {
+                                      await deleteDoc(doc(db, 'bundle_monitorings', selectedPatient.id!));
+                                      setSelectedPatient(null);
+                                      showToast('Patient record permanently deleted');
+                                    } catch (err) {
+                                      handleFirestoreError(err, OperationType.DELETE, 'bundle_monitorings');
+                                    }
+                                  } else {
+                                    setConfirmDeleteId(selectedPatient.id!);
                                   }
                                 }}
-                                className="p-4 bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border border-rose-500/20 rounded-2xl transition-all group"
-                                title="Delete Permanently (IPCU Only)"
+                                onMouseLeave={() => setConfirmDeleteId(null)}
+                                className={cn("p-4 rounded-2xl transition-all group flex items-center justify-center border", confirmDeleteId === selectedPatient.id ? "bg-rose-500 text-white border-rose-600" : "bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border-rose-500/20")}
+                                title={confirmDeleteId === selectedPatient.id ? "Click again to confirm delete" : "Delete Permanently"}
                               >
                                 <Trash2 className="w-5 h-5" />
                               </button>

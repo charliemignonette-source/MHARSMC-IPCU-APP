@@ -59,7 +59,6 @@ import {
 
 type ValidationType =
   | "HAI"
-  | "ANTIMICROBIAL_STEWARDSHIP"
   | "AUDIT"
   | "BUNDLE"
   | "NSI"
@@ -74,6 +73,10 @@ interface PendingItem {
   dateFlagged: string;
   riskLevel?: string;
   patientId?: string;
+  bundleType?: string;
+  date?: string;
+  isDaily?: boolean;
+  dayNumber?: number;
   originalData: any;
 }
 
@@ -93,7 +96,6 @@ export default function IPCUValidationConsole({
 
   // States for Sections 4-7
   const [confirmedHAI, setConfirmedHAI] = useState<HAICase[]>([]);
-  const [validatedAMS, setValidatedAMS] = useState<AMSRequest[]>([]);
   const [validatedAudits, setValidatedAudits] = useState<Audit[]>([]);
   const [validatedBundles, setValidatedBundles] = useState<BOCLog[]>([]);
   const [verifiedDailyDays, setVerifiedDailyDays] = useState<any[]>([]);
@@ -125,27 +127,6 @@ export default function IPCUValidationConsole({
       updatePendingList("HAI", items, "hai_cases");
     });
 
-    // 2. Fetch Pending AMS Requests
-    const qAMS = query(
-      collection(db, "ams_requests"),
-      where("status", "==", "PENDING"),
-    );
-    const unsubAMS = onSnapshot(qAMS, (snap) => {
-      const items = snap.docs.map((d) => {
-        const data = d.data() as AMSRequest;
-        return {
-          id: d.id,
-          type: "ANTIMICROBIAL_STEWARDSHIP" as ValidationType,
-          patientName: data.patientName,
-          unit: data.unit || data.location || "Unknown",
-          subType: data.type,
-          dateFlagged: data.date,
-          originalData: data,
-        };
-      });
-      updatePendingList("ANTIMICROBIAL_STEWARDSHIP", items, "ams_requests");
-    });
-
     // 3. Fetch Pending Audits
     const qAudits = query(
       collection(db, "audits"),
@@ -159,7 +140,7 @@ export default function IPCUValidationConsole({
           type: "AUDIT" as ValidationType,
           unit: data.unit,
           subType: data.type,
-          dateFlagged: new Date(data.timestamp).toLocaleDateString(),
+          dateFlagged: data.timestamp && !isNaN(new Date(data.timestamp).getTime()) ? new Date(data.timestamp).toLocaleDateString() : 'N/A',
           originalData: data,
         };
       });
@@ -197,24 +178,35 @@ export default function IPCUValidationConsole({
       snap.docs.forEach((docSnap) => {
         const data = docSnap.data();
         const days = data.monitoringDays || [];
-        days.forEach((day: any, index: number) => {
+        
+        const unverifiedDaysByType = days.reduce((acc: any, day: any, index: number) => {
           if (!day.isVerifiedByIPCU) {
-            items.push({
-              id: `${docSnap.id}-${day.date}-${day.bundleType}`,
-              type: "BUNDLE" as ValidationType,
-              patientName: data.patientName || "Unknown",
-              unit: data.unit || "Unknown",
-              subType: `Daily: ${day.bundleType}`,
-              dateFlagged: day.date,
-              riskLevel: Object.values(day.clinicalCriteria || {}).some(
-                (v) => v === true,
-              )
-                ? "RED"
-                : undefined,
-              originalData: { ...day, patientId: docSnap.id, dayIndex: index },
-              patientId: docSnap.id,
-            });
+            if (!acc[day.bundleType]) acc[day.bundleType] = [];
+            acc[day.bundleType].push({ ...day, dayIndex: index });
           }
+          return acc;
+        }, {});
+
+        Object.keys(unverifiedDaysByType).forEach((bundleType) => {
+          const groupDays = unverifiedDaysByType[bundleType];
+          items.push({
+            id: `${docSnap.id}-${bundleType}`,
+            type: "BUNDLE" as ValidationType,
+            patientName: data.patientName || "Unknown",
+            unit: data.unit || "Unknown",
+            subType: `Daily: ${bundleType} (${groupDays.length} day${groupDays.length > 1 ? 's' : ''})`,
+            dateFlagged: groupDays[groupDays.length - 1].date,
+            riskLevel: groupDays.some((d: any) =>
+              Object.values(d.clinicalCriteria || {}).some(
+                (v) => v === true,
+              ),
+            )
+              ? "RED"
+              : undefined,
+            originalData: { ...groupDays[groupDays.length - 1], patientId: docSnap.id, isGrouped: true, groupDays },
+            patientId: docSnap.id,
+            bundleType: bundleType,
+          });
         });
       });
       updatePendingList("BUNDLE", items, "bundle_monitorings");
@@ -244,7 +236,7 @@ export default function IPCUValidationConsole({
     // 6. Fetch Pending Outbreaks
     const qOutbreaks = query(
       collection(db, "outbreaks"),
-      where("status", "==", "Suspected"),
+      where("status", "in", ["Suspected", "Under Investigation"]),
     );
     const unsubOutbreaks = onSnapshot(qOutbreaks, (snap) => {
       const items = snap.docs.map((d) => {
@@ -268,17 +260,7 @@ export default function IPCUValidationConsole({
     );
     const unsubConfirmedHAI = onSnapshot(qConfirmedHAI, (snap) => {
       setConfirmedHAI(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as HAICase),
-      );
-    });
-
-    const qValidatedAMS = query(
-      collection(db, "ams_requests"),
-      where("status", "in", ["APPROVED", "DENIED", "OVERRIDDEN", "MODIFY"]),
-    );
-    const unsubValidatedAMS = onSnapshot(qValidatedAMS, (snap) => {
-      setValidatedAMS(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as AMSRequest),
+        snap.docs.map((d) => ({ ...d.data(), id: d.id }) as HAICase),
       );
     });
 
@@ -288,7 +270,7 @@ export default function IPCUValidationConsole({
     );
     const unsubValidatedAudits = onSnapshot(qValidatedAudits, (snap) => {
       setValidatedAudits(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Audit),
+        snap.docs.map((d) => ({ ...d.data(), id: d.id }) as Audit),
       );
     });
 
@@ -298,7 +280,7 @@ export default function IPCUValidationConsole({
     );
     const unsubValidatedBundles = onSnapshot(qValidatedBundles, (snap) => {
       setValidatedBundles(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BOCLog),
+        snap.docs.map((d) => ({ ...d.data(), id: d.id }) as BOCLog),
       );
     });
 
@@ -309,10 +291,10 @@ export default function IPCUValidationConsole({
       snap.docs.forEach((docSnap) => {
         const data = docSnap.data();
         const days = data.monitoringDays || [];
-            days.forEach((day: any) => {
+            days.forEach((day: any, index: number) => {
               if (day.isVerifiedByIPCU) {
                 allVerified.push({
-                  id: `${docSnap.id}-${day.date}-${day.bundleType}`,
+                  id: `${docSnap.id}-${index}-${day.date}-${day.bundleType}`,
                   patientId: docSnap.id,
                   patientName: data.patientName,
                   unit: data.unit,
@@ -339,7 +321,7 @@ export default function IPCUValidationConsole({
     );
     const unsubValidatedNSI = onSnapshot(qValidatedNSI, (snap) => {
       setValidatedNSI(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as NSIReport),
+        snap.docs.map((d) => ({ ...d.data(), id: d.id }) as NSIReport),
       );
     });
 
@@ -349,20 +331,18 @@ export default function IPCUValidationConsole({
     );
     const unsubValidatedOutbreaks = onSnapshot(qValidatedOutbreaks, (snap) => {
       setValidatedOutbreaks(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as OutbreakReport),
+        snap.docs.map((d) => ({ ...d.data(), id: d.id }) as OutbreakReport),
       );
     });
 
     return () => {
       unsubHAI();
-      unsubAMS();
       unsubAudits();
       unsubBundles();
       unsubVerifiedDaily();
       unsubNSI();
       unsubOutbreaks();
       unsubConfirmedHAI();
-      unsubValidatedAMS();
       unsubValidatedAudits();
       unsubValidatedBundles();
       unsubValidatedNSI();
@@ -374,7 +354,6 @@ export default function IPCUValidationConsole({
     Record<ValidationType, PendingItem[]>
   >({
     HAI: [],
-    ANTIMICROBIAL_STEWARDSHIP: [],
     AUDIT: [],
     BUNDLE: [],
     NSI: [],
@@ -410,21 +389,19 @@ export default function IPCUValidationConsole({
     const targetCollection =
       item.type === "HAI"
         ? "hai_cases"
-        : item.type === "ANTIMICROBIAL_STEWARDSHIP"
-          ? "ams_requests"
-          : item.type === "NSI"
-            ? "nsi_reports"
-            : item.type === "OUTBREAK"
-              ? "outbreaks"
-              : item.type === "BUNDLE"
-                ? item.isDaily || item.dayNumber || item.originalData?.isDaily
-                  ? "bundle_monitorings"
-                  : "boc_logs"
-                : item.type === "AUDIT"
-                  ? item.originalData?.bundleType || item.bundleType
-                    ? "boc_logs"
-                    : "audits"
-                  : "audits";
+        : item.type === "NSI"
+          ? "nsi_reports"
+          : item.type === "OUTBREAK"
+            ? "outbreaks"
+            : item.type === "BUNDLE"
+              ? item.isDaily || item.dayNumber || item.originalData?.isDaily
+                ? "bundle_monitorings"
+                : "boc_logs"
+              : item.type === "AUDIT"
+                ? item.originalData?.bundleType || item.bundleType
+                  ? "boc_logs"
+                  : "audits"
+                : "audits";
 
     // Target ID resolution
     const targetId =
@@ -445,7 +422,7 @@ export default function IPCUValidationConsole({
     const recordDate = item.date || item.dateFlagged || (item.verifiedAt?.toDate?.() ? formatDate(item.verifiedAt.toDate()) : item.verifiedAt) || "";
 
     // Special handling for Daily Bundle entries (array items)
-    if (item.type === "BUNDLE" && (item.isDaily || item.dayNumber || item.originalData?.isDaily || item.originalData?.dayNumber)) {
+    if (item.type === "BUNDLE" && (item.isDaily || item.dayNumber || item.originalData?.isDaily || item.originalData?.dayNumber || item.originalData?.isGrouped)) {
       try {
         const docRef = doc(db, "bundle_monitorings", targetId);
         const docSnap = await getDoc(docRef);
@@ -453,22 +430,36 @@ export default function IPCUValidationConsole({
           const data = docSnap.data();
           const days = data.monitoringDays || [];
           
-          // Stringify both sides to ensure matching regardless of Timestamp/String mix
-          const targetDateStr = String(item.date || item.originalData?.date || "");
-          const targetTypeStr = String(item.bundleType || item.originalData?.bundleType || "");
-
-          const updatedDays = days.filter(
-            (d: any) =>
-              !(
-                String(d.date) === targetDateStr &&
-                String(d.bundleType) === targetTypeStr
-              ),
-          );
+          let updatedDays = days;
           
-          if (days.length === updatedDays.length) {
-            console.warn("No match found in array filter. Check date format.", { targetDateStr, targetTypeStr });
-            alert("Delete failed: Record not found in document.");
-            return;
+          if (item.originalData?.isGrouped && item.originalData?.groupDays) {
+            const targetTypeStr = String(item.bundleType || item.originalData?.bundleType || "");
+            // the logic here is to remove unverified entries of this bundle type (the ones that were grouped)
+            updatedDays = days.filter((d: any) => String(d.bundleType) !== targetTypeStr || d.isVerifiedByIPCU);
+            
+            if (days.length === updatedDays.length) {
+              console.warn("No match found in array filter.", { targetTypeStr });
+              alert("Delete failed: Record not found in document.");
+              return;
+            }
+          } else {
+            // Stringify both sides to ensure matching regardless of Timestamp/String mix
+            const targetDateStr = String(item.date || item.originalData?.date || "");
+            const targetTypeStr = String(item.bundleType || item.originalData?.bundleType || "");
+
+            updatedDays = days.filter(
+              (d: any) =>
+                !(
+                  String(d.date) === targetDateStr &&
+                  String(d.bundleType) === targetTypeStr
+                ),
+            );
+            
+            if (days.length === updatedDays.length) {
+              console.warn("No match found in array filter. Check date format.", { targetDateStr, targetTypeStr });
+              alert("Delete failed: Record not found in document.");
+              return;
+            }
           }
 
           await updateDoc(docRef, { monitoringDays: updatedDays });
@@ -505,21 +496,19 @@ export default function IPCUValidationConsole({
     const targetCollection =
       item.type === "HAI"
         ? "hai_cases"
-        : item.type === "ANTIMICROBIAL_STEWARDSHIP"
-          ? "ams_requests"
-          : item.type === "NSI"
-            ? "nsi_reports"
-            : item.type === "OUTBREAK"
-              ? "outbreaks"
-              : item.type === "BUNDLE"
-                ? item.isDaily || item.dayNumber || item.originalData?.isDaily
-                  ? "bundle_monitorings"
-                  : "boc_logs"
-                : item.type === "AUDIT"
-                  ? item.originalData?.bundleType || item.bundleType
-                    ? "boc_logs"
-                    : "audits"
-                  : "audits";
+        : item.type === "NSI"
+          ? "nsi_reports"
+          : item.type === "OUTBREAK"
+            ? "outbreaks"
+            : item.type === "BUNDLE"
+              ? item.isDaily || item.dayNumber || item.originalData?.isDaily
+                ? "bundle_monitorings"
+                : "boc_logs"
+              : item.type === "AUDIT"
+                ? item.originalData?.bundleType || item.bundleType
+                  ? "boc_logs"
+                  : "audits"
+                : "audits";
 
     const targetId =
       item.patientId ||
@@ -626,12 +615,14 @@ export default function IPCUValidationConsole({
       validatedAt: serverTimestamp(),
       ...decision,
     };
+    if (type !== "OUTBREAK") {
+      delete updateData.unitsAffected;
+      delete updateData.dateClosed;
+    }
     console.log("Initial updateData:", updateData);
 
     if (type === "HAI") {
       collectionName = "hai_cases";
-    } else if (type === "ANTIMICROBIAL_STEWARDSHIP") {
-      collectionName = "ams_requests";
     } else if (type === "AUDIT") {
       // Check if it's from boc_logs or audits
       collectionName = selectedItem.originalData.bundleType
@@ -640,7 +631,7 @@ export default function IPCUValidationConsole({
       updateData.validationStatus = decision.status;
     } else if (type === "BUNDLE") {
       // Manual update for clinical bundle monitoring array
-      const { patientId, dayIndex } = selectedItem.originalData;
+      const { patientId, dayIndex, isGrouped, groupDays } = selectedItem.originalData;
       try {
         const patientRef = doc(db, "bundle_monitorings", patientId);
         // We need to fetch the current patient doc to update the array correctly
@@ -651,7 +642,41 @@ export default function IPCUValidationConsole({
         if (docSnap.exists()) {
           const pData = docSnap.data() as any;
           const days = [...(pData.monitoringDays || [])];
-          if (days[dayIndex]) {
+          
+          let validatedCount = 0;
+          
+          if (isGrouped && groupDays && decision.targetDayIndex !== undefined) {
+            const targetIndex = decision.targetDayIndex;
+            if (days[targetIndex]) {
+              days[targetIndex] = {
+                ...days[targetIndex],
+                isVerifiedByIPCU: true,
+                verifiedAtIPCU: new Date().toISOString(),
+                verifiedByIPCUId: user.uid,
+                verifiedByIPCUName: user.name,
+                verificationNote: decision.notes,
+                clinicalAccuracy: decision.clinicalAccuracy || "Accurate",
+                complianceAccuracy: decision.complianceAccuracy || "Accurate",
+              };
+              validatedCount = 1;
+            }
+          } else if (isGrouped && groupDays) {
+            groupDays.forEach((gd: any) => {
+              if (days[gd.dayIndex]) {
+                days[gd.dayIndex] = {
+                  ...days[gd.dayIndex],
+                  isVerifiedByIPCU: true,
+                  verifiedAtIPCU: new Date().toISOString(),
+                  verifiedByIPCUId: user.uid,
+                  verifiedByIPCUName: user.name,
+                  verificationNote: decision.notes,
+                  clinicalAccuracy: decision.clinicalAccuracy || "Accurate",
+                  complianceAccuracy: decision.complianceAccuracy || "Accurate",
+                };
+                validatedCount++;
+              }
+            });
+          } else if (days[dayIndex]) {
             days[dayIndex] = {
               ...days[dayIndex],
               isVerifiedByIPCU: true,
@@ -662,6 +687,10 @@ export default function IPCUValidationConsole({
               clinicalAccuracy: decision.clinicalAccuracy || "Accurate",
               complianceAccuracy: decision.complianceAccuracy || "Accurate",
             };
+            validatedCount = 1;
+          }
+          
+          if (validatedCount > 0) {
             const stillUnverified = days.some((d: any) => !d.isVerifiedByIPCU);
             await updateDoc(patientRef, {
               monitoringDays: days,
@@ -675,7 +704,7 @@ export default function IPCUValidationConsole({
               hospNo: pData.hospitalNo,
               unit: pData.unit,
               haiType: "Daily Bundle",
-              action: `Verified Day ${days[dayIndex].dayNumber} - ${decision.clinicalAccuracy || "Accurate"}`,
+              action: `Verified ${validatedCount} Day(s) - ${decision.clinicalAccuracy || "Accurate"}`,
               staffId: user.uid,
               staffName: user.name,
               date: new Date().toISOString().split("T")[0],
@@ -877,9 +906,6 @@ export default function IPCUValidationConsole({
                                 {item.type === "HAI" && (
                                   <Activity className="w-2.5 h-2.5 text-rose-500" />
                                 )}
-                                {item.type === "ANTIMICROBIAL_STEWARDSHIP" && (
-                                  <Stethoscope className="w-2.5 h-2.5 text-blue-500" />
-                                )}
                                 {item.type === "AUDIT" && (
                                   <ClipboardList className="w-2.5 h-2.5 text-emerald-500" />
                                 )}
@@ -919,11 +945,6 @@ export default function IPCUValidationConsole({
                                     </span>
                                   ),
                                 )}
-                              {item.type === "ANTIMICROBIAL_STEWARDSHIP" && (
-                                <span className="text-[10px] font-bold opacity-60 italic">
-                                  {item.originalData.antibiotic}
-                                </span>
-                              )}
                               {item.type === "AUDIT" && (
                                 <span className="text-[10px] font-bold text-emerald-600">
                                   Compliance:{" "}
@@ -984,10 +1005,7 @@ export default function IPCUValidationConsole({
                                     ? "bg-rose-500"
                                     : item.riskLevel === "YELLOW"
                                       ? "bg-amber-400"
-                                      : item.type ===
-                                          "ANTIMICROBIAL_STEWARDSHIP"
-                                        ? "bg-blue-500"
-                                        : "bg-slate-900",
+                                      : "bg-slate-900",
                                 )}
                               />
                               <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
@@ -1073,8 +1091,7 @@ export default function IPCUValidationConsole({
                   </span>
                   <span className="text-[9px] text-slate-400">
                     {c.validatedAt?.toDate?.()?.toLocaleDateString() ||
-                      c.validatedAt ||
-                      "-"}
+                      (c.validatedAt && !isNaN(new Date(c.validatedAt).getTime()) ? new Date(c.validatedAt).toLocaleDateString() : "-")}
                   </span>
                 </span>,
               ])}
@@ -1083,49 +1100,6 @@ export default function IPCUValidationConsole({
               }
               onReset={(i) =>
                 handleReset({ ...confirmedHAI[i], type: "HAI" })
-              }
-            />
-
-            {/* Validated Antimicrobial Stewardship Requests */}
-            <HistorySection
-              title="Validated Antimicrobial Pharmacological Requests"
-              icon={<Stethoscope className="w-5 h-5 text-blue-500" />}
-              headers={[
-                "Patient",
-                "Antibiotic",
-                "Status",
-                "Indication",
-                "Validator",
-              ]}
-              items={validatedAMS.map((a) => [
-                a.patientName,
-                a.antibiotic,
-                <span
-                  className={cn(
-                    "px-2 py-0.5 rounded-full text-[9px] font-black uppercase",
-                    a.status === "APPROVED"
-                      ? "bg-emerald-50 text-emerald-600"
-                      : a.status === "MODIFY"
-                        ? "bg-orange-50 text-orange-600"
-                        : "bg-rose-50 text-rose-600",
-                  )}
-                >
-                  {a.status}
-                </span>,
-                a.indicationForUse || a.diagnosis,
-                a.validatorName || "-",
-              ])}
-              onDelete={(i) =>
-                handleDelete({
-                  ...validatedAMS[i],
-                  type: "ANTIMICROBIAL_STEWARDSHIP",
-                })
-              }
-              onReset={(i) =>
-                handleReset({
-                  ...validatedAMS[i],
-                  type: "ANTIMICROBIAL_STEWARDSHIP",
-                })
               }
             />
 
@@ -1167,7 +1141,7 @@ export default function IPCUValidationConsole({
                   )}
                 </span>,
                 a.validatorName || "-",
-                new Date(a.timestamp).toLocaleDateString(),
+                a.timestamp && !isNaN(new Date(a.timestamp).getTime()) ? new Date(a.timestamp).toLocaleDateString() : '-',
               ])}
               onDelete={(i) =>
                 handleDelete({ ...validatedAudits[i], type: "AUDIT" })
@@ -1276,7 +1250,7 @@ export default function IPCUValidationConsole({
                         </span>
                         <span className="text-[8px] text-slate-400 uppercase font-black">
                           {d.verifiedBy} •{" "}
-                          {d.verifiedAt
+                          {d.verifiedAt && !isNaN(new Date(d.verifiedAt).getTime())
                             ? new Date(d.verifiedAt).toLocaleDateString()
                             : "-"}
                         </span>
@@ -1518,15 +1492,20 @@ function HistorySection({
 }
 
 function ValidationModal({ item, user, onClose, onSubmit }: any) {
+  const isGroupedBundle = item.type === "BUNDLE" && item.originalData?.isGrouped;
+  const [selectedGroupIdx, setSelectedGroupIdx] = useState(0);
+
+  const currentBundleData = isGroupedBundle
+    ? item.originalData.groupDays[selectedGroupIdx]
+    : item.originalData;
+
   const [decision, setDecision] = useState<any>({
     status:
       item.type === "HAI"
         ? "CONFIRMED"
-        : item.type === "ANTIMICROBIAL_STEWARDSHIP"
-          ? "APPROVED"
-          : item.type === "NSI"
-            ? "VALIDATED"
-            : "VALIDATED",
+        : item.type === "NSI"
+          ? "VALIDATED"
+          : "VALIDATED",
     reason: "",
     notes: "",
     basis: [],
@@ -1547,7 +1526,11 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    await onSubmit(decision);
+    if (isGroupedBundle) {
+        await onSubmit({ ...decision, targetDayIndex: currentBundleData.dayIndex });
+    } else {
+        await onSubmit(decision);
+    }
     setLoading(false);
   };
 
@@ -1854,54 +1837,6 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                       </div>
                     )}
 
-                    {item.type === "ANTIMICROBIAL_STEWARDSHIP" && (
-                      <div className="pt-4 border-t border-slate-50 space-y-3">
-                        <div className="p-4 bg-blue-50 rounded-3xl border border-blue-100">
-                          <p className="text-[9px] font-black text-blue-900 uppercase tracking-widest mb-2">
-                            Requested Therapy
-                          </p>
-                          <div className="flex flex-col gap-1">
-                            <p className="text-lg font-black text-blue-600 leading-tight">
-                              {item.originalData.antibiotic}
-                            </p>
-                            <p className="text-xs font-bold text-blue-400">
-                              {item.originalData.dose} •{" "}
-                              {item.originalData.indicationForUse}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="p-3 bg-white border border-slate-100 rounded-2xl">
-                            <p className="text-[8px] font-black text-slate-400 uppercase mb-1">
-                              Creatinine Cl.
-                            </p>
-                            <p className="text-xs font-black text-slate-900">
-                              {item.originalData.creatinineClearance || "N/A"}
-                            </p>
-                          </div>
-                          <div className="p-3 bg-white border border-slate-100 rounded-2xl">
-                            <p className="text-[8px] font-black text-slate-400 uppercase mb-1">
-                              Diagnosis
-                            </p>
-                            <p className="text-xs font-black text-slate-900 truncate">
-                              {item.originalData.infectiousDiagnosis || "N/A"}
-                            </p>
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                            Clinical Rationale
-                          </p>
-                          <div className="bg-slate-100/50 p-4 rounded-2xl border border-slate-100 italic text-[10px] text-slate-600 leading-relaxed">
-                            "
-                            {item.originalData.justification ||
-                              item.originalData.diagnosis}
-                            "
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
                     {item.type === "AUDIT" && (
                       <div className="pt-4 border-t border-slate-50 space-y-4">
                         <div className="flex items-center justify-between p-4 bg-emerald-50 rounded-3xl border border-emerald-100">
@@ -2097,7 +2032,13 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                                 <div className="grid grid-cols-1 gap-1">
                                   {Object.entries(
                                     item.originalData?.details || {},
-                                  ).map(
+                                  ).filter(([section]) => {
+                                      if (item.subType === 'HH_AVAILABILITY') return ['sink', 'abhr', 'posters'].includes(section);
+                                      if (item.subType === 'PPE_AVAILABILITY') return ['ppe', 'posters'].includes(section);
+                                      if (item.subType === 'PPE_COMPLIANCE') return ['ppeCompliance'].includes(section);
+                                      if (item.subType === 'SAFE_INJECTION') return ['safeInjection'].includes(section);
+                                      return false;
+                                  }).map(
                                     ([section, data]: [string, any]) =>
                                       typeof data === "object" &&
                                       !Array.isArray(data) &&
@@ -2109,13 +2050,14 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                                               className="flex justify-between items-center p-2 bg-white border border-slate-50 rounded-xl"
                                             >
                                               <span className="text-[10px] font-bold text-slate-600 uppercase">
+                                                {section !== 'ppeCompliance' && section !== 'safeInjection' ? `${section.replace(/([A-Z])/g, " $1")} - ` : ''}
                                                 {key
                                                   .replace(/([A-Z])/g, " $1")
                                                   .toLowerCase()}
                                               </span>
                                               <div
                                                 className={cn(
-                                                  "w-2 h-2 rounded-full",
+                                                  "w-2 h-2 rounded-full shrink-0",
                                                   value
                                                     ? "bg-emerald-500"
                                                     : "bg-rose-500",
@@ -2127,6 +2069,42 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                                   )}
                                 </div>
                               )}
+
+                              {(item.subType === 'HH_AVAILABILITY' || item.subType === 'PPE_AVAILABILITY') && item.originalData.details?.inventory && (
+                                <div className="mt-3 p-3 bg-slate-50 border border-slate-100 rounded-2xl space-y-1.5">
+                                  <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Inventory & Replenishment Audit</p>
+                                  <div className="flex justify-between items-center text-[10px]">
+                                    <span className="font-bold text-slate-400">AUDITED INVENTORY?</span>
+                                    <span className={cn(
+                                      "text-[9px] font-black uppercase px-2 py-0.5 rounded-lg",
+                                      item.originalData.details.inventory.audited ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                                    )}>
+                                      {item.originalData.details.inventory.audited ? "YES" : "NO"}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-[10px]">
+                                    <span className="font-bold text-slate-400">INVENTORY STATUS:</span>
+                                    <span className={cn(
+                                      "text-[9px] font-black uppercase px-2 py-0.5 rounded-lg",
+                                      item.originalData.details.inventory.status === "Adequate" ? "bg-emerald-50 text-emerald-600" : item.originalData.details.inventory.status === "Low" ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600"
+                                    )}>
+                                      {item.originalData.details.inventory.status}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-[10px]">
+                                    <span className="font-bold text-slate-400">REPLENISHED DURING VISIT?</span>
+                                    <span className="text-[9px] font-black text-slate-700 uppercase">
+                                      {item.originalData.details.inventory.replenished === 'Yes' ? 'YES, REPLENISHED' : item.originalData.details.inventory.replenished === 'No' ? 'NO, LEFT UNREPLENISHED' : item.originalData.details.inventory.replenished === 'Requested' ? 'REQUESTED / ORDERED' : 'NOT NEEDED'}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-[10px]">
+                                    <span className="font-bold text-slate-400">ASSIGNED PERSONNEL:</span>
+                                    <span className="text-[9px] font-bold text-slate-700 uppercase">
+                                      {item.originalData.details.inventory.assignedPersonnel || "NONE SPECIFIED"}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}
@@ -2135,13 +2113,39 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
 
                     {item.type === "BUNDLE" && (
                       <div className="pt-4 border-t border-slate-50 space-y-6">
+                        {isGroupedBundle && item.originalData.groupDays && (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">
+                                SELECT DAY TO REVIEW ({selectedGroupIdx + 1}/{item.originalData.groupDays.length})
+                              </p>
+                            </div>
+                            <div className="flex gap-2 p-1 overflow-x-auto pb-3 custom-scrollbar snap-x">
+                                {item.originalData.groupDays.map((d: any, idx: number) => (
+                                    <button
+                                      key={idx}
+                                      type="button"
+                                      onClick={() => setSelectedGroupIdx(idx)}
+                                      className={cn(
+                                          "shrink-0 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all snap-center",
+                                          selectedGroupIdx === idx 
+                                            ? "bg-amber-100 text-amber-800 shadow-sm border border-amber-200" 
+                                            : "bg-slate-50 text-slate-500 hover:bg-slate-100 border border-transparent"
+                                      )}
+                                    >
+                                        Day {d.dayNumber}
+                                    </button>
+                                ))}
+                            </div>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between p-4 bg-teal-50 rounded-3xl border border-teal-100">
                           <div>
                             <p className="text-[10px] font-black text-teal-900 uppercase">
                               Reported Compliance
                             </p>
                             <p className="text-2xl font-black text-teal-600">
-                              {item.originalData.complianceScores?.overall || 0}
+                              {currentBundleData.complianceScores?.overall || 0}
                               %
                             </p>
                           </div>
@@ -2150,7 +2154,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                               Day Number
                             </p>
                             <p className="text-2xl font-black text-teal-600">
-                              {item.originalData.dayNumber}
+                              {currentBundleData.dayNumber}
                             </p>
                           </div>
                         </div>
@@ -2161,26 +2165,31 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                           </p>
                           <div className="grid grid-cols-2 gap-2">
                             {Object.entries(
-                              item.originalData.clinicalCriteria || {},
-                            ).map(([key, val]) => (
+                              currentBundleData.clinicalCriteria || {},
+                            ).map(([key, val]: [string, any]) => (
                               <div
                                 key={key}
                                 className={cn(
                                   "flex items-center justify-between p-3 rounded-2xl border transition-all",
-                                  val
+                                  (val === true || val === 'Present')
                                     ? "bg-amber-50 border-amber-200 text-amber-700"
-                                    : "bg-white border-slate-100 text-slate-300",
+                                    : val === 'No Entry' 
+                                    ? "bg-rose-50 border-rose-200 text-rose-700"
+                                    : "bg-slate-50 border-slate-200 text-slate-500",
                                 )}
                               >
-                                <span className="text-[9px] font-black uppercase tracking-tight truncate">
+                                <span className="text-[9px] font-black uppercase tracking-tight truncate flex-1 pr-2">
                                   {key}
                                 </span>
-                                <div
-                                  className={cn(
-                                    "w-2 h-2 rounded-full shadow-sm",
-                                    val ? "bg-amber-500" : "bg-slate-200",
-                                  )}
-                                />
+                                {(val === true || val === 'Present') ? (
+                                    <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 bg-amber-200 rounded text-amber-800 shrink-0">Present</span>
+                                ) : (val === false || val === 'Absent') ? (
+                                    <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 bg-slate-200 rounded text-slate-600 shrink-0">Absent</span>
+                                ) : (val === 'No Entry') ? (
+                                    <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 bg-rose-200 rounded text-rose-800 shrink-0">No Entry</span>
+                                ) : (
+                                    <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 bg-slate-100 rounded text-slate-400 shrink-0">Unspecified</span>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -2192,7 +2201,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                           </p>
                           <div className="grid grid-cols-1 gap-1 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                             {Object.entries(
-                              item.originalData.bundleChecklist || {},
+                              currentBundleData.bundleChecklist || {},
                             ).map(([key, val]) => (
                               <div
                                 key={key}
@@ -2211,7 +2220,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                                         : "bg-slate-50 text-slate-400",
                                   )}
                                 >
-                                  {val}
+                                  {val as any}
                                 </span>
                               </div>
                             ))}
@@ -2255,30 +2264,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                                 color: "text-amber-400",
                               },
                             ]
-                          : item.type === "ANTIMICROBIAL_STEWARDSHIP"
-                            ? [
-                                {
-                                  id: "APPROVED",
-                                  label: "Clinical Approval",
-                                  color: "text-emerald-400",
-                                },
-                                {
-                                  id: "MODIFY",
-                                  label: "Request Modification",
-                                  color: "text-orange-400",
-                                },
-                                {
-                                  id: "DENIED",
-                                  label: "Access Denied",
-                                  color: "text-rose-400",
-                                },
-                                {
-                                  id: "OVERRIDDEN",
-                                  label: "IPCU Manual Override",
-                                  color: "text-blue-400",
-                                },
-                              ]
-                            : item.type === "NSI"
+                          : item.type === "NSI"
                               ? [
                                   {
                                     id: "VALIDATED",
@@ -2861,7 +2847,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
                   disabled={loading || !decision.status}
                   className="flex-1 md:flex-none px-8 sm:px-12 py-3 sm:py-4 bg-slate-900 text-white rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-slate-900/20 active:scale-95 transition-all disabled:opacity-50"
                 >
-                  {loading ? "Finalizing..." : "Submit Validation"}
+                  {loading ? "Finalizing..." : isGroupedBundle ? "Validate Selected Day" : "Submit Validation"}
                 </button>
               </div>
             </div>

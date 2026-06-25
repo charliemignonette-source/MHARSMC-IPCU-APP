@@ -16,7 +16,9 @@ import {
   ShieldAlert,
   Droplets,
   Info,
-  Zap
+  Zap,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, addDoc, serverTimestamp, query, where, onSnapshot, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -122,8 +124,8 @@ export default function Audits({ user }: { user: UserProfile | null }) {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const auditData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
+        ...doc.data(),
+        id: doc.id
       })) as Audit[];
       setAudits(auditData);
       setLoading(false);
@@ -194,25 +196,33 @@ export default function Audits({ user }: { user: UserProfile | null }) {
   };
 
   const [checklist, setChecklist] = useState<Record<string, any>>({
-    abhr: { poc: false, notEmpty: false, expiry: '', notIndicated: false, functional: false, mounted: false },
+    abhr: { poc: false, personnelHasPortableABHR: false, notEmpty: false, expiry: '', notIndicated: false, functional: false, alternativeDeliveryMethod: '', mounted: false },
     sink: { sink: false, water: false, soap: false, expiry: '', notIndicated: false, towels: false, notClogged: false },
     posters: { visible: false, clean: false },
+    inventory: { audited: false, status: 'Adequate', replenished: 'NotNeeded', assignedPersonnel: '' },
     hhObs: {
       entries: [],
       staffIdentifier: '',
-      role: 'Registered Nurse'
+      role: 'Registered Nurse',
+      shortNaturalNails: true,
+      noArtificialNails: true,
+      noNailPolish: true,
+      noJewelry: true,
+      bareBelowElbow: true
     },
     ppe: {
       gloves: { avail: false, sizes: false, expiry: '', notIndicated: false },
       masks: { avail: false, notEmpty: false, expiry: '', notIndicated: false },
       n95: { avail: false, sizes: false, expiry: '', notIndicated: false },
       gowns: { avail: false, appropriate: false, expiry: '', notIndicated: false },
-      shields: { avail: false, notDamaged: false }
+      shields: { avail: false, notDamaged: false },
+      signage: { posted: false }
     },
     ppeCompliance: {
       staffType: 'Nurse',
       staffIdentifier: '',
       correctPPE: false,
+      appropriatePPEPerIsolation: false,
       missingItems: '',
       incorrectPPE: false,
       properDonning: false,
@@ -304,6 +314,11 @@ export default function Audits({ user }: { user: UserProfile | null }) {
         role: obs.role || 'Registered Nurse',
         source: 'buffer' as const,
         entries: obs.entries || [],
+        shortNaturalNails: obs.shortNaturalNails !== false,
+        noArtificialNails: obs.noArtificialNails !== false,
+        noNailPolish: obs.noNailPolish !== false,
+        noJewelry: obs.noJewelry !== false,
+        bareBelowElbow: obs.bareBelowElbow !== false,
         bufferId: obs.id
       };
     }).filter(hcw => hcw.staffIdentifier);
@@ -347,7 +362,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
     });
   }, [historicalHCWs, checklist.hhObs.staffIdentifier]);
 
-  const handleSelectPreviousHCW = (hcw: { staffIdentifier: string; profession: string; role: string; source: 'history' | 'buffer'; entries?: any[]; bufferId?: string | number }) => {
+  const handleSelectPreviousHCW = (hcw: { staffIdentifier: string; profession: string; role: string; source: 'history' | 'buffer'; entries?: any[]; shortNaturalNails?: boolean; noArtificialNails?: boolean; noNailPolish?: boolean; noJewelry?: boolean; bareBelowElbow?: boolean; bufferId?: string | number }) => {
     setFormData(prev => ({
       ...prev,
       profession: hcw.profession
@@ -358,6 +373,11 @@ export default function Audits({ user }: { user: UserProfile | null }) {
         ...prev.hhObs,
         staffIdentifier: hcw.staffIdentifier,
         role: hcw.role,
+        shortNaturalNails: hcw.shortNaturalNails !== false,
+        noArtificialNails: hcw.noArtificialNails !== false,
+        noNailPolish: hcw.noNailPolish !== false,
+        noJewelry: hcw.noJewelry !== false,
+        bareBelowElbow: hcw.bareBelowElbow !== false,
         entries: hcw.source === 'buffer' ? [...(hcw.entries || [])] : []
       }
     }));
@@ -380,6 +400,12 @@ export default function Audits({ user }: { user: UserProfile | null }) {
       id: Date.now(),
       profession: formData.profession,
       staffIdentifier: checklist.hhObs.staffIdentifier,
+      role: checklist.hhObs.role || 'Registered Nurse',
+      shortNaturalNails: checklist.hhObs.shortNaturalNails !== false,
+      noArtificialNails: checklist.hhObs.noArtificialNails !== false,
+      noNailPolish: checklist.hhObs.noNailPolish !== false,
+      noJewelry: checklist.hhObs.noJewelry !== false,
+      bareBelowElbow: checklist.hhObs.bareBelowElbow !== false,
       entries: [...(checklist.hhObs.entries || [])],
       ...calculation
     }]);
@@ -390,7 +416,12 @@ export default function Audits({ user }: { user: UserProfile | null }) {
       hhObs: {
         entries: [],
         staffIdentifier: '',
-        role: 'Registered Nurse'
+        role: 'Registered Nurse',
+        shortNaturalNails: true,
+        noArtificialNails: true,
+        noNailPolish: true,
+        noJewelry: true,
+        bareBelowElbow: true
       }
     }));
   };
@@ -414,6 +445,12 @@ export default function Audits({ user }: { user: UserProfile | null }) {
             id: Date.now() + 1,
             profession: formData.profession,
             staffIdentifier: checklist.hhObs.staffIdentifier,
+            role: checklist.hhObs.role || 'Registered Nurse',
+            shortNaturalNails: checklist.hhObs.shortNaturalNails !== false,
+            noArtificialNails: checklist.hhObs.noArtificialNails !== false,
+            noNailPolish: checklist.hhObs.noNailPolish !== false,
+            noJewelry: checklist.hhObs.noJewelry !== false,
+            bareBelowElbow: checklist.hhObs.bareBelowElbow !== false,
             entries: [...(checklist.hhObs.entries || [])],
             ...currentCalc
           });
@@ -453,10 +490,21 @@ export default function Audits({ user }: { user: UserProfile | null }) {
         let total = 1;
 
         if (selectedType === 'HH_AVAILABILITY') {
+          const abhrPocScoreElement = !!(checklist.abhr.poc || checklist.abhr.personnelHasPortableABHR);
+          const abhrFunctionalScoreElement = !!(checklist.abhr.functional || (checklist.abhr.alternativeDeliveryMethod && checklist.abhr.alternativeDeliveryMethod !== 'None'));
+
           const hhKeys = [
-            checklist.abhr.poc, checklist.abhr.notEmpty, checklist.abhr.functional, checklist.abhr.mounted,
-            checklist.sink.sink, checklist.sink.water, checklist.sink.soap, checklist.sink.towels, checklist.sink.notClogged,
-            checklist.posters.visible, checklist.posters.clean
+            abhrPocScoreElement,
+            checklist.abhr.notEmpty,
+            abhrFunctionalScoreElement,
+            checklist.abhr.mounted,
+            checklist.sink.sink,
+            checklist.sink.water,
+            checklist.sink.soap,
+            checklist.sink.towels,
+            checklist.sink.notClogged,
+            checklist.posters.visible,
+            checklist.posters.clean
           ];
           score = hhKeys.filter(v => v === true).length;
           total = hhKeys.length;
@@ -466,13 +514,15 @@ export default function Audits({ user }: { user: UserProfile | null }) {
             checklist.ppe.masks.avail, checklist.ppe.masks.notEmpty,
             checklist.ppe.n95.avail, checklist.ppe.n95.sizes,
             checklist.ppe.gowns.avail, checklist.ppe.gowns.appropriate,
-            checklist.ppe.shields.avail, checklist.ppe.shields.notDamaged
+            checklist.ppe.shields.avail, checklist.ppe.shields.notDamaged,
+            checklist.ppe.signage.posted
           ];
           score = ppeKeys.filter(v => v === true).length;
           total = ppeKeys.length;
         } else if (selectedType === 'PPE_COMPLIANCE') {
           const ppeKeys = [
             checklist.ppeCompliance.correctPPE,
+            checklist.ppeCompliance.appropriatePPEPerIsolation,
             checklist.ppeCompliance.properDonning,
             checklist.ppeCompliance.properDoffing,
             checklist.ppeCompliance.ppeIntact,
@@ -527,9 +577,10 @@ export default function Audits({ user }: { user: UserProfile | null }) {
       setPendingHHObservations([]);
       setFormData({ unit: UNITS[0], score: 0, total: 10, remarks: '', profession: '1', staffType: 'Nurse' });
       setChecklist({
-        abhr: { poc: false, notEmpty: false, expiry: '', notIndicated: false, functional: false, mounted: false },
+        abhr: { poc: false, personnelHasPortableABHR: false, notEmpty: false, expiry: '', notIndicated: false, functional: false, alternativeDeliveryMethod: '', mounted: false },
         sink: { sink: false, water: false, soap: false, expiry: '', notIndicated: false, towels: false, notClogged: false },
         posters: { visible: false, clean: false },
+        inventory: { audited: false, status: 'Adequate', replenished: 'NotNeeded', assignedPersonnel: '' },
         hhObs: {
           entries: [],
           staffIdentifier: '',
@@ -540,12 +591,14 @@ export default function Audits({ user }: { user: UserProfile | null }) {
           masks: { avail: false, notEmpty: false, expiry: '', notIndicated: false },
           n95: { avail: false, sizes: false, expiry: '', notIndicated: false },
           gowns: { avail: false, appropriate: false, expiry: '', notIndicated: false },
-          shields: { avail: false, notDamaged: false }
+          shields: { avail: false, notDamaged: false },
+          signage: { posted: false }
         },
         ppeCompliance: {
           staffType: 'Nurse',
           staffIdentifier: '',
           correctPPE: false,
+          appropriatePPEPerIsolation: false,
           missingItems: '',
           incorrectPPE: false,
           properDonning: false,
@@ -837,7 +890,21 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                         <div className="space-y-3">
                           <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">ABHR</h4>
                           <div className="grid grid-cols-1 gap-2">
-                            <CheckItem label="ABHR at point of care" checked={checklist.abhr.poc} onChange={v => setChecklist({...checklist, abhr: {...checklist.abhr, poc: v}})} />
+                            <CheckItem label="ABHR at point of care" checked={checklist.abhr.poc} onChange={v => {
+                              const updatedAbhr = { ...checklist.abhr, poc: v };
+                              if (v) {
+                                updatedAbhr.personnelHasPortableABHR = false;
+                              }
+                              setChecklist({...checklist, abhr: updatedAbhr});
+                            }} />
+
+                            {!checklist.abhr.poc && (
+                              <div className="pl-4 border-l-2 border-slate-200 ml-2 py-1 space-y-1">
+                                <span className="text-[9px] font-bold text-slate-400 block uppercase tracking-wider">No ABHR at Point of Care:</span>
+                                <CheckItem label="Personnel equipped with portable ABHR?" checked={checklist.abhr.personnelHasPortableABHR} onChange={v => setChecklist({...checklist, abhr: {...checklist.abhr, personnelHasPortableABHR: v}})} />
+                              </div>
+                            )}
+
                             <CheckItem label="Bottle not empty" checked={checklist.abhr.notEmpty} onChange={v => setChecklist({...checklist, abhr: {...checklist.abhr, notEmpty: v}})} />
                             <div className="flex gap-2">
                               <input 
@@ -848,7 +915,33 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                               />
                               <CheckItem label="N/I" checked={checklist.abhr.notIndicated} onChange={v => setChecklist({...checklist, abhr: {...checklist.abhr, notIndicated: v}})} />
                             </div>
-                            <CheckItem label="Pump functional" checked={checklist.abhr.functional} onChange={v => setChecklist({...checklist, abhr: {...checklist.abhr, functional: v}})} />
+
+                            <CheckItem label="Pump functional" checked={checklist.abhr.functional} onChange={v => {
+                              const updatedAbhr = { ...checklist.abhr, functional: v };
+                              if (v) {
+                                updatedAbhr.alternativeDeliveryMethod = '';
+                              }
+                              setChecklist({...checklist, abhr: updatedAbhr});
+                            }} />
+
+                            {!checklist.abhr.functional && (
+                              <div className="pl-4 border-l-2 border-slate-200 ml-2 py-1 space-y-1 text-xs">
+                                <label className="text-[9px] font-bold text-slate-400 block uppercase tracking-wider">Not Using Pump: Delivery Method Used</label>
+                                <select 
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold text-slate-700 outline-none focus:ring-1 focus:ring-brand-primary cursor-pointer"
+                                  value={checklist.abhr.alternativeDeliveryMethod || ''}
+                                  onChange={e => setChecklist({...checklist, abhr: {...checklist.abhr, alternativeDeliveryMethod: e.target.value}})}
+                                >
+                                  <option value="">-- Select alternative method --</option>
+                                  <option value="Squeeze Bottle">Squeeze Bottle</option>
+                                  <option value="Flip-top Bottle">Flip-top Bottle</option>
+                                  <option value="Spray Bottle">Spray Bottle</option>
+                                  <option value="Individual Sachet/Wipe">Individual Sachet/Wipe</option>
+                                  <option value="None">None / Unsupported</option>
+                                </select>
+                              </div>
+                            )}
+
                             <CheckItem label="Properly mounted/placed" checked={checklist.abhr.mounted} onChange={v => setChecklist({...checklist, abhr: {...checklist.abhr, mounted: v}})} />
                           </div>
                         </div>
@@ -880,6 +973,80 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                           <div className="grid grid-cols-1 gap-2">
                             <CheckItem label="Posters visible" checked={checklist.posters.visible} onChange={v => setChecklist({...checklist, posters: {...checklist.posters, visible: v}})} />
                             <CheckItem label="Posters clean/readable" checked={checklist.posters.clean} onChange={v => setChecklist({...checklist, posters: {...checklist.posters, clean: v}})} />
+                          </div>
+                        </div>
+
+                        {/* D. Inventory & Replenishment */}
+                        <div className="space-y-3 pt-3 border-t border-slate-100">
+                          <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Inventory & Replenishment</h4>
+                          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-3.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold uppercase text-slate-500">Inventory Audited?</span>
+                              <div className="flex gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setChecklist({...checklist, inventory: {...(checklist.inventory || {}), audited: true}})}
+                                  className={cn(
+                                    "px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase transition-all",
+                                    checklist.inventory?.audited
+                                      ? "bg-emerald-600 border-emerald-600 text-white"
+                                      : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
+                                  )}
+                                >
+                                  Yes
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setChecklist({...checklist, inventory: {...(checklist.inventory || {}), audited: false}})}
+                                  className={cn(
+                                    "px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase transition-all",
+                                    !checklist.inventory?.audited
+                                      ? "bg-slate-400 border-slate-400 text-white"
+                                      : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
+                                  )}
+                                >
+                                  No
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block">Inventory Status</label>
+                              <select
+                                value={checklist.inventory?.status || 'Adequate'}
+                                onChange={e => setChecklist({...checklist, inventory: {...(checklist.inventory || {}), status: e.target.value}})}
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-brand-primary"
+                              >
+                                <option value="Adequate">Adequate / Standard Levels</option>
+                                <option value="Low">Low Stocks (Needs Attention)</option>
+                                <option value="OutOfStock">Out of Stock (Zero Inventory)</option>
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block">Replenishment Action</label>
+                              <select
+                                value={checklist.inventory?.replenished || 'NotNeeded'}
+                                onChange={e => setChecklist({...checklist, inventory: {...(checklist.inventory || {}), replenished: e.target.value}})}
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-brand-primary"
+                              >
+                                <option value="NotNeeded">Replenishment Not Needed</option>
+                                <option value="Yes">Yes, Replenished Immediately</option>
+                                <option value="No">No, Left Unreplenished</option>
+                                <option value="Requested">Replenishment Requested / Ordered</option>
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block">Assigned Personnel</label>
+                              <input
+                                type="text"
+                                placeholder="Name/Role of person responsible"
+                                value={checklist.inventory?.assignedPersonnel || ''}
+                                onChange={e => setChecklist({...checklist, inventory: {...(checklist.inventory || {}), assignedPersonnel: e.target.value}})}
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 outline-none focus:ring-1 focus:ring-brand-primary"
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1121,6 +1288,87 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                              <CheckItem label="Not cracked/damaged" checked={checklist.ppe.shields.notDamaged} onChange={v => setChecklist({...checklist, ppe: {...checklist.ppe, shields: {...checklist.ppe.shields, notDamaged: v}}})} />
                           </div>
                         </div>
+
+                        <div className="space-y-3">
+                          <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Transmission Isolation Signage</h4>
+                          <div className="grid grid-cols-1 gap-2">
+                             <CheckItem label="Transmission isolation signages are posted" checked={checklist.ppe.signage?.posted || false} onChange={v => setChecklist({...checklist, ppe: {...checklist.ppe, signage: { posted: v }}})} />
+                          </div>
+                        </div>
+
+                        {/* Inventory & Replenishment */}
+                        <div className="space-y-3 pt-3 border-t border-slate-100">
+                          <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Inventory & Replenishment</h4>
+                          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-3.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold uppercase text-slate-500">Inventory Audited?</span>
+                              <div className="flex gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setChecklist({...checklist, inventory: {...(checklist.inventory || {}), audited: true}})}
+                                  className={cn(
+                                    "px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase transition-all",
+                                    checklist.inventory?.audited
+                                      ? "bg-emerald-600 border-emerald-600 text-white"
+                                      : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
+                                  )}
+                                >
+                                  Yes
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setChecklist({...checklist, inventory: {...(checklist.inventory || {}), audited: false}})}
+                                  className={cn(
+                                    "px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase transition-all",
+                                    !checklist.inventory?.audited
+                                      ? "bg-slate-400 border-slate-400 text-white"
+                                      : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
+                                  )}
+                                >
+                                  No
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block">Inventory Status</label>
+                              <select
+                                value={checklist.inventory?.status || 'Adequate'}
+                                onChange={e => setChecklist({...checklist, inventory: {...(checklist.inventory || {}), status: e.target.value}})}
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-brand-primary"
+                              >
+                                <option value="Adequate">Adequate / Standard Levels</option>
+                                <option value="Low">Low Stocks (Needs Attention)</option>
+                                <option value="OutOfStock">Out of Stock (Zero Inventory)</option>
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block">Replenishment Action</label>
+                              <select
+                                value={checklist.inventory?.replenished || 'NotNeeded'}
+                                onChange={e => setChecklist({...checklist, inventory: {...(checklist.inventory || {}), replenished: e.target.value}})}
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-brand-primary"
+                              >
+                                <option value="NotNeeded">Replenishment Not Needed</option>
+                                <option value="Yes">Yes, Replenished Immediately</option>
+                                <option value="No">No, Left Unreplenished</option>
+                                <option value="Requested">Replenishment Requested / Ordered</option>
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block">Assigned Personnel</label>
+                              <input
+                                type="text"
+                                placeholder="Name/Role of person responsible"
+                                value={checklist.inventory?.assignedPersonnel || ''}
+                                onChange={e => setChecklist({...checklist, inventory: {...(checklist.inventory || {}), assignedPersonnel: e.target.value}})}
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 outline-none focus:ring-1 focus:ring-brand-primary"
+                              />
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     ) : selectedType === 'PPE_COMPLIANCE' ? (
                       <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
@@ -1169,6 +1417,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                           <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Correct PPE for Zone</h4>
                           <div className="grid grid-cols-1 gap-2">
                              <CheckItem label="Wearing correct PPE" checked={checklist.ppeCompliance.correctPPE} onChange={v => setChecklist({...checklist, ppeCompliance: {...checklist.ppeCompliance, correctPPE: v}})} />
+                             <CheckItem label="Appropriate PPE per transmission isolation" checked={checklist.ppeCompliance.appropriatePPEPerIsolation || false} onChange={v => setChecklist({...checklist, ppeCompliance: {...checklist.ppeCompliance, appropriatePPEPerIsolation: v}})} />
                              <input 
                                placeholder="Specify missing items..." 
                                className="text-[10px] bg-slate-50 border border-slate-200 rounded-xl px-3 py-2" 
@@ -1318,6 +1567,79 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                                   >
                                     {STAFF_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                                   </select>
+                                </div>
+                              </div>
+
+                              <div className="space-y-2 border-t border-slate-100 pt-3 mt-3">
+                                <label className="text-[9px] font-black uppercase text-slate-400 ml-1 flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse"></span>
+                                  Nail & Hand Prep Pre-Requisites
+                                </label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
+                                  <label className={cn(
+                                    "flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-all cursor-pointer",
+                                    checklist.hhObs?.shortNaturalNails !== false ? "bg-emerald-50/50 border-emerald-100 text-emerald-800" : "bg-rose-50/50 border-rose-100 text-rose-800"
+                                  )}>
+                                    <input 
+                                      type="checkbox" 
+                                      className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                      checked={checklist.hhObs?.shortNaturalNails !== false} 
+                                      onChange={e => setChecklist({...checklist, hhObs: {...checklist.hhObs, shortNaturalNails: e.target.checked}})} 
+                                    />
+                                    <span className="text-[10px] font-bold uppercase tracking-tight text-left">Short Natural Nails</span>
+                                  </label>
+
+                                  <label className={cn(
+                                    "flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-all cursor-pointer",
+                                    checklist.hhObs?.noArtificialNails !== false ? "bg-emerald-50/50 border-emerald-100 text-emerald-800" : "bg-rose-50/50 border-rose-100 text-rose-800"
+                                  )}>
+                                    <input 
+                                      type="checkbox" 
+                                      className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                      checked={checklist.hhObs?.noArtificialNails !== false} 
+                                      onChange={e => setChecklist({...checklist, hhObs: {...checklist.hhObs, noArtificialNails: e.target.checked}})} 
+                                    />
+                                    <span className="text-[10px] font-bold uppercase tracking-tight text-left">No Artificial Nails</span>
+                                  </label>
+
+                                  <label className={cn(
+                                    "flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-all cursor-pointer",
+                                    checklist.hhObs?.noNailPolish !== false ? "bg-emerald-50/50 border-emerald-100 text-emerald-800" : "bg-rose-50/50 border-rose-100 text-rose-800"
+                                  )}>
+                                    <input 
+                                      type="checkbox" 
+                                      className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                      checked={checklist.hhObs?.noNailPolish !== false} 
+                                      onChange={e => setChecklist({...checklist, hhObs: {...checklist.hhObs, noNailPolish: e.target.checked}})} 
+                                    />
+                                    <span className="text-[10px] font-bold uppercase tracking-tight text-left">No Polish/Color</span>
+                                  </label>
+
+                                  <label className={cn(
+                                    "flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-all cursor-pointer",
+                                    checklist.hhObs?.noJewelry !== false ? "bg-emerald-50/50 border-emerald-100 text-emerald-800" : "bg-rose-50/50 border-rose-100 text-rose-800"
+                                  )}>
+                                    <input 
+                                      type="checkbox" 
+                                      className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                      checked={checklist.hhObs?.noJewelry !== false} 
+                                      onChange={e => setChecklist({...checklist, hhObs: {...checklist.hhObs, noJewelry: e.target.checked}})} 
+                                    />
+                                    <span className="text-[10px] font-bold uppercase tracking-tight text-left">No Wrist/Finger Jewelry</span>
+                                  </label>
+
+                                  <label className={cn(
+                                    "flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-all cursor-pointer",
+                                    checklist.hhObs?.bareBelowElbow !== false ? "bg-emerald-50/50 border-emerald-100 text-emerald-800" : "bg-rose-50/50 border-rose-100 text-rose-800"
+                                  )}>
+                                    <input 
+                                      type="checkbox" 
+                                      className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                      checked={checklist.hhObs?.bareBelowElbow !== false} 
+                                      onChange={e => setChecklist({...checklist, hhObs: {...checklist.hhObs, bareBelowElbow: e.target.checked}})} 
+                                    />
+                                    <span className="text-[10px] font-bold uppercase tracking-tight text-left">Bare Below Elbow (BBE)</span>
+                                  </label>
                                 </div>
                               </div>
                            </div>
@@ -1544,11 +1866,26 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                                 <div key={obs.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between">
                                   <div className="flex flex-col">
                                     <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">{obs.staffIdentifier || 'Anonymous HCW'}</span>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                                        <span className="text-[8px] font-bold text-slate-500 uppercase">{obs.role}</span>
                                        <span className="text-[8px] font-black text-teal-600 bg-teal-100 px-1.5 py-0.5 rounded leading-none">
                                           {Math.round((obs.score / (obs.total || 1)) * 100)}% Compliance
                                        </span>
+                                       {obs.shortNaturalNails === false && (
+                                         <span className="text-[7px] font-black text-rose-600 bg-rose-100/50 border border-rose-200 px-1 py-0.5 rounded leading-none uppercase">Long Nails</span>
+                                       )}
+                                       {obs.noArtificialNails === false && (
+                                         <span className="text-[7px] font-black text-rose-600 bg-rose-100/50 border border-rose-200 px-1 py-0.5 rounded leading-none uppercase font-semibold">Artificial Nails</span>
+                                       )}
+                                       {obs.noNailPolish === false && (
+                                         <span className="text-[7px] font-black text-rose-600 bg-rose-100/50 border border-rose-200 px-1 py-0.5 rounded leading-none uppercase font-semibold">Nail Polish</span>
+                                       )}
+                                       {obs.noJewelry === false && (
+                                         <span className="text-[7px] font-black text-rose-600 bg-rose-100/50 border border-rose-200 px-1 py-0.5 rounded leading-none uppercase font-semibold">Wrist/Finger Jewelry</span>
+                                       )}
+                                       {obs.bareBelowElbow === false && (
+                                         <span className="text-[7px] font-black text-rose-600 bg-rose-100/50 border border-rose-200 px-1 py-0.5 rounded leading-none uppercase font-semibold">Not Bare Below Elbow</span>
+                                       )}
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-1">
@@ -1560,6 +1897,11 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                                         role: obs.role,
                                         source: 'buffer',
                                         entries: obs.entries,
+                                        shortNaturalNails: obs.shortNaturalNails,
+                                        noArtificialNails: obs.noArtificialNails,
+                                        noNailPolish: obs.noNailPolish,
+                                        noJewelry: obs.noJewelry,
+                                        bareBelowElbow: obs.bareBelowElbow,
                                         bufferId: obs.id
                                       })}
                                       className="py-1 px-2.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 border border-emerald-200/50 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1"
@@ -1745,134 +2087,435 @@ export default function Audits({ user }: { user: UserProfile | null }) {
 }
 
 function AuditEntry(props: any) {
-  const { id, type, unit, score, total, timestamp, auditorEmail, auditorName, isValidated, validatedBy, validatorName, validationStatus, validatedAt, onValidate, isAdmin } = props;
+  const { id, type, unit, score, total, timestamp, auditorEmail, auditorName, isValidated, validatedBy, validatorName, validationStatus, validatedAt, onValidate, isAdmin, details } = props;
+  const [isExpanded, setIsExpanded] = useState(false);
   const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
   const colorClass = percentage >= 90 ? 'text-emerald-600' : percentage >= 80 ? 'text-amber-600' : 'text-rose-600';
   const barClass = percentage >= 90 ? 'bg-emerald-500' : percentage >= 80 ? 'bg-amber-500' : 'bg-rose-500';
 
   return (
-    <div className="p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-5 hover:bg-slate-50/80 transition-all rounded-2xl group relative">
-      <div className="flex items-center gap-4 w-full sm:w-auto">
-        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-white group-hover:shadow-sm transition-all text-xs font-bold">
-          {type === 'HH_COMPLIANCE' && <HandMetal className="w-5 h-5" />}
-          {type === 'HH_AVAILABILITY' && <ClipboardCheck className="w-5 h-5" />}
-          {type === 'PPE_AVAILABILITY' && <ShieldCheck className="w-5 h-5" />}
-          {type === 'PPE_COMPLIANCE' && <ShieldCheck className="w-5 h-5" />}
-          {type === 'ENV_CLEANING' && <Trash2 className="w-5 h-5" />}
-          {type === 'SAFE_INJECTION' && <Syringe className="w-5 h-5" />}
-        </div>
-        <div className="flex-1 sm:hidden">
-           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest truncate">{type.replace('_', ' ')}</span>
-            {isValidated && <CheckCircle2 className="w-3 h-3 text-brand-primary" />}
+    <div 
+      onClick={() => setIsExpanded(!isExpanded)}
+      className="p-3 sm:p-4 flex flex-col hover:bg-slate-50/80 transition-all rounded-2xl group relative border border-transparent hover:border-slate-150 cursor-pointer"
+    >
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-5 w-full">
+        <div className="flex items-center gap-4 w-full sm:w-auto">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-white group-hover:shadow-sm transition-all text-xs font-bold shrink-0">
+            {type === 'HH_COMPLIANCE' && <HandMetal className="w-5 h-5" />}
+            {type === 'HH_AVAILABILITY' && <ClipboardCheck className="w-5 h-5" />}
+            {type === 'PPE_AVAILABILITY' && <ShieldCheck className="w-5 h-5" />}
+            {type === 'PPE_COMPLIANCE' && <ShieldCheck className="w-5 h-5" />}
+            {type === 'ENV_CLEANING' && <Trash2 className="w-5 h-5" />}
+            {type === 'SAFE_INJECTION' && <Syringe className="w-5 h-5" />}
           </div>
-          <p className="text-xs font-bold text-slate-900">{unit}</p>
-        </div>
-      </div>
-      
-      <div className="flex-1 overflow-hidden hidden sm:block">
-        <div className="flex items-center gap-2 mb-0.5">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{type.replace('_', ' ')}</span>
-            {isValidated && <CheckCircle2 className="w-3 h-3 text-brand-primary" />}
+          <div className="flex-1 sm:hidden">
+             <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest truncate">{type.replace('_', ' ')}</span>
+              {isValidated && <CheckCircle2 className="w-3 h-3 text-brand-primary" />}
+            </div>
+            <p className="text-xs font-bold text-slate-900">{unit}</p>
           </div>
-          <span className="w-1 h-1 rounded-full bg-slate-200" />
-          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-widest">{unit}</span>
         </div>
-        <div className="flex flex-col gap-0.5">
-           <div className="flex items-center justify-between">
-              <span className="text-sm font-bold text-slate-700 truncate max-w-[150px]">{auditorName || auditorEmail || 'System'}</span>
+        
+        <div className="flex-1 overflow-hidden hidden sm:block">
+          <div className="flex items-center gap-2 mb-0.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{type.replace('_', ' ')}</span>
+              {isValidated && <CheckCircle2 className="w-3 h-3 text-brand-primary" />}
+            </div>
+            <span className="w-1 h-1 rounded-full bg-slate-200" />
+            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-widest">{unit}</span>
+            <span className="w-1 h-1 rounded-full bg-slate-200" />
+            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">Click to view details</span>
+          </div>
+          <div className="flex flex-col gap-0.5">
+             <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-slate-700 truncate max-w-[150px]">{auditorName || auditorEmail || 'System'}</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{formatDate(timestamp)}</span>
+             </div>
+             {isValidated && (
+               <div className="flex flex-col gap-0.5 mt-1">
+                 <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 uppercase tracking-tight">
+                    <CheckCircle2 className="w-2.5 h-2.5" />
+                    <span>Validated by: {validatorName || validatedBy}</span>
+                 </div>
+                 <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 uppercase tracking-tight">
+                    <span>Status: {props.validationStatus || 'VALIDATED'}</span>
+                    <span className="w-1 h-1 bg-emerald-200 rounded-full mx-1" />
+                    <span>On: {props.validatedAt?.toDate ? props.validatedAt.toDate().toLocaleDateString() : (props.validatedAt && !isNaN(new Date(props.validatedAt).getTime()) ? new Date(props.validatedAt).toLocaleDateString() : 'N/A')}</span>
+                 </div>
+               </div>
+             )}
+          </div>
+        </div>
+
+        <div className="sm:hidden w-full flex items-center justify-between border-t border-slate-50 pt-2">
+           <div className="flex flex-col">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{formatDate(timestamp)}</span>
+              <span className="text-[10px] font-bold text-slate-700 truncate max-w-[120px]">{auditorName || auditorEmail || 'System'}</span>
            </div>
            {isValidated && (
-             <div className="flex flex-col gap-0.5 mt-1">
-               <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 uppercase tracking-tight">
-                  <CheckCircle2 className="w-2.5 h-2.5" />
-                  <span>Validated by: {validatorName || validatedBy}</span>
+               <div className="flex flex-col items-end gap-0.5">
+                  <div className="flex items-center gap-1 text-[8px] font-bold text-emerald-600 uppercase tracking-tight">
+                    <CheckCircle2 className="w-2 h-2" />
+                    <span>{props.validationStatus || 'Validated'}</span>
+                  </div>
+                  <span className="text-[8px] font-bold text-slate-500 uppercase">{validatorName || validatedBy}</span>
                </div>
-               <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 uppercase tracking-tight">
-                  <span>Status: {props.validationStatus || 'VALIDATED'}</span>
-                  <span className="w-1 h-1 bg-emerald-200 rounded-full mx-1" />
-                  <span>On: {props.validatedAt?.toDate ? props.validatedAt.toDate().toLocaleDateString() : (props.validatedAt ? new Date(props.validatedAt).toLocaleDateString() : 'N/A')}</span>
-               </div>
-             </div>
-           )}
-        </div>
-      </div>
-
-      <div className="sm:hidden w-full flex items-center justify-between border-t border-slate-50 pt-2">
-         <div className="flex flex-col">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{formatDate(timestamp)}</span>
-            <span className="text-[10px] font-bold text-slate-700 truncate max-w-[120px]">{auditorName || auditorEmail || 'System'}</span>
-         </div>
-         {isValidated && (
-             <div className="flex flex-col items-end gap-0.5">
-                <div className="flex items-center gap-1 text-[8px] font-bold text-emerald-600 uppercase tracking-tight">
-                  <CheckCircle2 className="w-2 h-2" />
-                  <span>{props.validationStatus || 'Validated'}</span>
-                </div>
-                <span className="text-[8px] font-bold text-slate-500 uppercase">{validatorName || validatedBy}</span>
-             </div>
-           )}
-      </div>
-
-      <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
-        <div className="flex flex-col items-start sm:items-end gap-1.5 w-full sm:w-24">
-          <div className="flex items-baseline gap-1">
-            <span className="text-[10px] font-bold text-slate-400">{score}/{total}</span>
-            <span className={cn("text-base sm:text-lg font-black tracking-tighter", colorClass)}>{percentage}%</span>
-          </div>
-          <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
-            <motion.div 
-              initial={{ width: 0 }}
-              animate={{ width: `${percentage}%` }}
-              className={cn("h-full", barClass)}
-            />
-          </div>
+             )}
         </div>
 
-        {isAdmin && (
-          <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-            <button 
-              onClick={async (e) => {
-                e.stopPropagation();
-                
-                // Sample/Demo Item Detection
-                const isSample = id.startsWith("SAMPLE_") || id.includes("demo");
-                if (isSample) {
-                  alert("This is sample data and cannot be deleted.");
-                  return;
-                }
+        <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
+          <div className="flex flex-col items-start sm:items-end gap-1.5 w-full sm:w-24">
+            <div className="flex items-baseline gap-1">
+              <span className="text-[10px] font-bold text-slate-400">{score}/{total}</span>
+              <span className={cn("text-base sm:text-lg font-black tracking-tighter", colorClass)}>{percentage}%</span>
+            </div>
+            <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${percentage}%` }}
+                className={cn("h-full", barClass)}
+              />
+            </div>
+          </div>
 
-                try {
-                  await deleteDoc(doc(db, 'audits', id));
-                  alert("Log deleted.");
-                } catch (error) {
-                  console.error("Delete error:", error);
-                  handleFirestoreError(error, OperationType.DELETE, `audits/${id}`);
-                  alert("Delete failed. Try again.");
-                }
-              }}
-              className="p-1.5 sm:p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-              title="Delete Audit"
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="p-1 text-slate-400 hover:text-slate-600 transition-colors"
             >
-              <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
-            {!isValidated && (
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onValidate();
-                }}
-                className="p-1.5 sm:p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
-                title="IPCN Validation"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </button>
+
+            {isAdmin && (
+              <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                <button 
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    
+                    // Sample/Demo Item Detection
+                    const isSample = id.startsWith("SAMPLE_") || id.includes("demo");
+                    if (isSample) {
+                      alert("This is sample data and cannot be deleted.");
+                      return;
+                    }
+
+                    try {
+                      await deleteDoc(doc(db, 'audits', id));
+                      alert("Log deleted.");
+                    } catch (error) {
+                      console.error("Delete error:", error);
+                      handleFirestoreError(error, OperationType.DELETE, `audits/${id}`);
+                      alert("Delete failed. Try again.");
+                    }
+                  }}
+                  className="p-1.5 sm:p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                  title="Delete Audit"
+                >
+                  <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </button>
+                {!isValidated && (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onValidate();
+                    }}
+                    className="p-1.5 sm:p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
+                    title="IPCN Validation"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  </button>
+                )}
+              </div>
             )}
           </div>
-        )}
+        </div>
       </div>
+
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="w-full mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col gap-3 font-sans overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Response Checklist Findings</span>
+              <span className="text-[9px] font-bold text-slate-500 bg-slate-200/50 px-2.5 py-1 rounded-full uppercase">{type.replace('_', ' ')} Details</span>
+            </div>
+
+            {/* Hand hygiene detail render */}
+            {type === 'HH_AVAILABILITY' && details && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {details.abhr && (
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-black uppercase text-slate-400">ABHR & Soap Dispenser</span>
+                    <div className="space-y-1 text-xs text-slate-700">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.abhr.poc ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>ABHR at Point of Care: {details.abhr.poc ? 'Yes' : 'No'}</span>
+                      </div>
+                      {!details.abhr.poc && (
+                        <div className="flex items-center gap-1.5 font-bold pl-3 border-l border-slate-200">
+                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", details.abhr.personnelHasPortableABHR ? "bg-emerald-500" : "bg-rose-500")} />
+                          <span className="text-[11px] text-slate-500">Personnel with Portable ABHR: {details.abhr.personnelHasPortableABHR ? 'Yes' : 'No'}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.abhr.notEmpty ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Bottle Not Empty: {details.abhr.notEmpty ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.abhr.functional ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Pump Functional: {details.abhr.functional ? 'Yes' : 'No'}</span>
+                      </div>
+                      {!details.abhr.functional && details.abhr.alternativeDeliveryMethod && (
+                        <div className="flex items-center gap-1.5 font-bold pl-3 border-l border-slate-200 text-[11px] text-slate-500">
+                          <span>Delivery Method: {details.abhr.alternativeDeliveryMethod}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.abhr.mounted ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Properly Mounted: {details.abhr.mounted ? 'Yes' : 'No'}</span>
+                      </div>
+                      {details.abhr.expiry && <div className="text-[9px] font-bold text-slate-400 mt-1 uppercase">Expiry Date: {details.abhr.expiry}</div>}
+                    </div>
+                  </div>
+                )}
+                {details.sink && (
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-black uppercase text-slate-400">Sink & Water Supply</span>
+                    <div className="space-y-1 text-xs text-slate-700">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.sink.sink ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Sink Available: {details.sink.sink ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.sink.water ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Clean Water Supply: {details.sink.water ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.sink.soap ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Soap Available: {details.sink.soap ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.sink.towels ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Paper Towels Available: {details.sink.towels ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.sink.notClogged ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Sink Not Clogged: {details.sink.notClogged ? 'Yes' : 'No'}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* PPE detail render */}
+            {type === 'PPE_AVAILABILITY' && details?.ppe && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {Object.entries(details.ppe).map(([itemName, fields]: [string, any]) => (
+                  <div key={itemName} className="space-y-1">
+                    <span className="text-[9px] font-black uppercase text-slate-400">{itemName.replace(/([A-Z])/g, " $1")}</span>
+                    <div className="space-y-1 text-xs text-slate-700">
+                      {Object.entries(fields).map(([kf, vf]: [string, any]) => {
+                        if (kf === 'expiry') {
+                          return vf ? <div key={kf} className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">Expiry: {vf}</div> : null;
+                        }
+                        if (typeof vf === 'boolean') {
+                          return (
+                            <div key={kf} className="flex items-center gap-1.5 font-bold">
+                              <span className={cn("w-2 h-2 rounded-full shrink-0", vf ? "bg-emerald-500" : "bg-rose-500")} />
+                              <span className="capitalize">{kf.replace(/([A-Z])/g, " $1")}: {vf ? 'Yes' : 'No'}</span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* PPE Behavior/Compliance detail render */}
+            {type === 'PPE_COMPLIANCE' && details?.ppeCompliance && (
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 flex flex-col gap-3 text-xs">
+                <span className="text-[9px] font-black uppercase text-slate-400">PPE Behavior & Compliance Checklist</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Assessment Elements</span>
+                    <div className="space-y-1 text-xs text-slate-700">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.correctPPE ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Wearing correct PPE: {details.ppeCompliance.correctPPE ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.appropriatePPEPerIsolation ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Appropriate PPE per transmission isolation: {details.ppeCompliance.appropriatePPEPerIsolation ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.properDonning ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Proper Donning Observed: {details.ppeCompliance.properDonning ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.properDoffing ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Proper Doffing Observed: {details.ppeCompliance.properDoffing ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.ppeIntact ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>PPE Intact/Free of Damage: {details.ppeCompliance.ppeIntact ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.ppeFits ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>PPE Fits Properly: {details.ppeCompliance.ppeFits ? 'Yes' : 'No'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {details.ppeCompliance.incorrectPPE && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-100 rounded-xl text-rose-700 font-semibold self-start text-[10px]">
+                        ⚠️ Non-compliant PPE behavior observed
+                      </div>
+                    )}
+                    {details.ppeCompliance.missingItems && (
+                      <div>
+                        <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Missing Items</span>
+                        <span className="text-[10px] font-black text-rose-600 block">{details.ppeCompliance.missingItems}</span>
+                      </div>
+                    )}
+                    {details.ppeCompliance.nonComplianceReason && (
+                      <div>
+                        <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Reason for Non-Compliance</span>
+                        <span className="text-[10px] font-semibold text-slate-600 block italic">"{details.ppeCompliance.nonComplianceReason}"</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Direct Inventory Audit Output */}
+            {(type === 'HH_AVAILABILITY' || type === 'PPE_AVAILABILITY') && details?.inventory && (
+              <div className="bg-white p-3 rounded-2xl border border-slate-100 flex flex-col gap-2 text-xs">
+                <span className="text-[9px] font-black uppercase text-slate-400">Inventory & Replenishment Findings</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Inventory Audited?</span>
+                    <span className={cn("text-[9px] font-black uppercase inline-block mt-0.5 px-2 py-0.5 rounded-lg", details.inventory.audited ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600")}>
+                      {details.inventory.audited ? "Yes" : "No"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Inventory Stock Level:</span>
+                    <span className={cn("text-[9px] font-black uppercase inline-block mt-0.5 px-2 py-0.5 rounded-lg", details.inventory.status === "Adequate" ? "bg-emerald-50 text-emerald-600" : details.inventory.status === "Low" ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600")}>
+                      {details.inventory.status}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Replenished?</span>
+                    <span className="text-[10px] font-black text-slate-700 uppercase block mt-1">
+                      {details.inventory.replenished === 'Yes' ? 'Yes, Replenished' : details.inventory.replenished === 'No' ? 'No, Unreplenished' : details.inventory.replenished === 'Requested' ? 'Replenishment Requested' : 'Not Needed'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Assigned Personnel:</span>
+                    <span className="text-[10px] font-extrabold text-slate-700 uppercase block mt-1">
+                      {details.inventory.assignedPersonnel || "None Specified"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {type === 'ENV_CLEANING' && details?.surfaces && (
+              <div className="space-y-2">
+                <span className="text-[9px] font-black uppercase text-slate-400">Surface Cleanliness Checklist</span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-[150px] overflow-y-auto pr-1">
+                  {Object.entries(details.surfaces).map(([key, value]: [string, any]) => (
+                    <div key={key} className="flex justify-between items-center p-1.5 bg-white border border-slate-100 rounded-lg text-[10px] font-bold">
+                      <span className="capitalize">{key.replace(/([A-Z])/g, " $1")}</span>
+                      <span className={cn("font-bold text-[9px] uppercase px-1.5 py-0.5 rounded", value === 'cleaned' ? "bg-emerald-50 text-emerald-600" : value === 'notCleaned' ? "bg-rose-50 text-rose-600" : "bg-slate-50 text-slate-400")}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {type === 'HH_COMPLIANCE' && details?.hhObs && (
+              <div className="space-y-2">
+                <div className="flex gap-1.5 flex-wrap">
+                  <span className={cn(
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase border",
+                    details.hhObs.shortNaturalNails !== false 
+                      ? "bg-slate-50 text-slate-400 border-slate-100" 
+                      : "bg-rose-50 text-rose-600 border-rose-100"
+                  )}>
+                    Nails Short/Natural: {details.hhObs.shortNaturalNails !== false ? "PASS" : "FAIL"}
+                  </span>
+                  <span className={cn(
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase border",
+                    details.hhObs.noArtificialNails !== false 
+                      ? "bg-slate-50 text-slate-400 border-slate-100" 
+                      : "bg-rose-50 text-rose-600 border-rose-100"
+                  )}>
+                    No Artificial Nails: {details.hhObs.noArtificialNails !== false ? "PASS" : "FAIL"}
+                  </span>
+                  <span className={cn(
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase border",
+                    details.hhObs.noNailPolish !== false 
+                      ? "bg-slate-50 text-slate-400 border-slate-100" 
+                      : "bg-rose-50 text-rose-600 border-rose-100"
+                  )}>
+                    No Polish/Color: {details.hhObs.noNailPolish !== false ? "PASS" : "FAIL"}
+                  </span>
+                  <span className={cn(
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase border",
+                    details.hhObs.noJewelry !== false 
+                      ? "bg-slate-50 text-slate-400 border-slate-100" 
+                      : "bg-rose-50 text-rose-600 border-rose-100"
+                  )}>
+                    No Wrist/Finger Jewelry: {details.hhObs.noJewelry !== false ? "PASS" : "FAIL"}
+                  </span>
+                  <span className={cn(
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase border",
+                    details.hhObs.bareBelowElbow !== false 
+                      ? "bg-slate-50 text-slate-400 border-slate-100" 
+                      : "bg-rose-50 text-rose-600 border-rose-100"
+                  )}>
+                    Bare Below Elbow: {details.hhObs.bareBelowElbow !== false ? "PASS" : "FAIL"}
+                  </span>
+                </div>
+
+                <span className="text-[9px] font-black uppercase text-slate-400 block pt-1">Logged Hand Hygiene Opportunities</span>
+                <div className="space-y-1.5 max-h-[150px] overflow-y-auto pr-1">
+                  {details.hhObs.entries && Array.isArray(details.hhObs.entries) ? (
+                    details.hhObs.entries.map((ent: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center p-2 bg-white border border-slate-100 rounded-xl text-xs font-semibold">
+                        <div className="flex gap-1 flex-wrap items-center">
+                          {ent.indications?.map((ind: string) => (
+                            <span key={ind} className="bg-slate-900 text-teal-400 px-1 py-0.5 rounded text-[8px] font-black uppercase">{ind}</span>
+                          ))}
+                          {ent.gloves && <span className="bg-blue-50 text-blue-500 px-1 py-0.5 rounded text-[8px] font-black uppercase">gloves</span>}
+                        </div>
+                        <span className={cn("text-[9px] font-black uppercase px-2 py-0.5 rounded-lg", ent.action === 'rub' || ent.action === 'wash' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600")}>
+                          {ent.action || 'missed'}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center mt-2">No observations logged</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

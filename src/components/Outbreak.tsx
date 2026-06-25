@@ -23,6 +23,8 @@ import {
   Users,
   FileText,
   BarChart3,
+  X,
+  AlertCircle,
 } from "lucide-react";
 import {
   collection,
@@ -217,7 +219,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
       q,
       (snap) => {
         const data = snap.docs.map(
-          (d) => ({ id: d.id, ...d.data() }) as OutbreakReport,
+          (d) => ({ ...d.data(), id: d.id }) as OutbreakReport,
         );
         const sortedData = data.sort((a, b) => {
           const timeA = a.createdAt?.toMillis
@@ -387,6 +389,20 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
 
+    const sanitizeText = (text: string) => {
+      if (!text) return "";
+      return text
+        .replace(/[\u2018\u2019]/g, "'") // smart single quotes
+        .replace(/[\u201C\u201D]/g, '"') // smart double quotes
+        .replace(/[\u2013\u2014\u2015\u2011]/g, "-") // en dash, em dash, horizontal bar, non-breaking hyphen
+        .replace(/[\u2265]/g, ">=") // greater than or equal to
+        .replace(/[\u2264]/g, "<=") // less than or equal to
+        .replace(/[\uFF01-\uFF5E]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)) // full-width alphanumeric to half-width
+        .replace(/[\u2000-\u200B\u202F\u205F\u3000\uFEFF\u00A0]/g, " ") // all unicode spaces
+        .replace(/[ \t]+/g, " ") // collapse multiple spaces
+        .trim();
+    };
+
     // Header - MHARSMC Branding
     doc.setFillColor(15, 118, 110); // Brand Teal
     doc.rect(0, 0, pageWidth, 40, "F");
@@ -427,10 +443,34 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     doc.setDrawColor(200, 200, 200);
     doc.line(15, 60, pageWidth - 15, 60);
 
-    // Section 1: Epidemiology Analytics
+    // Section 1: Outbreak Case Definition
     doc.setFontSize(12);
     doc.setTextColor(15, 118, 110);
-    doc.text("1. EPIDEMIOLOGICAL SUMMARY & ANALYTICS", 15, 70);
+    doc.text("1. OUTBREAK CASE DEFINITION", 15, 70);
+
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    
+    const orgTextRaw = sanitizeText(`Organism: ${report.organism || "Not Specified"}`);
+    const orgLines = doc.splitTextToSize(orgTextRaw, pageWidth - 30);
+    doc.text(orgLines, 15, 80);
+    
+    doc.setFont("helvetica", "normal");
+    const periodY = 80 + (orgLines.length * 5);
+    doc.text(`Period: ${report.detectedAt} to Present`, 15, periodY);
+    
+    doc.setFont("helvetica", "italic");
+    const caseDefTextRaw = sanitizeText(report.caseDefinition || "No case definition provided.");
+    const caseDefText = doc.splitTextToSize(caseDefTextRaw, pageWidth - 30);
+    doc.text(caseDefText, 15, periodY + 10);
+
+    const afterCaseDefY = periodY + 10 + (caseDefText.length * 5) + 15;
+
+    // Section 2: Epidemiology Analytics
+    doc.setFontSize(12);
+    doc.setTextColor(15, 118, 110);
+    doc.text("2. EPIDEMIOLOGICAL SUMMARY & ANALYTICS", 15, afterCaseDefY);
 
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(10);
@@ -457,41 +497,89 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     ];
 
     autoTable(doc, {
-      startY: 75,
+      startY: afterCaseDefY + 5,
+      margin: { top: 20, right: 14, bottom: 20, left: 14 },
+      pageBreak: 'auto',
+      rowPageBreak: 'avoid',
       head: [["Metric", "Value"]],
       body: epiData,
       theme: "striped",
+      styles: { overflow: 'linebreak' },
       headStyles: { fillColor: [51, 65, 85] },
     });
 
-    // Section 2: Case Line List
+    // Section 3: Universal Case Classification System
+    doc.addPage();
     doc.setFontSize(12);
     doc.setTextColor(15, 118, 110);
-    const lineListY = (doc as any).lastAutoTable.finalY + 15;
-    doc.text("2. CASE LINE LISTING", 15, lineListY);
+    doc.text("3. UNIVERSAL CASE CLASSIFICATION SYSTEM", 15, 20);
 
-    const cases = (report.lineList || []).map((c) => [
-      c.patientName,
-      c.hospNo,
-      c.unit,
-      c.onSetDate,
-      c.symptoms,
-      c.outcome,
-    ]);
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    
+    const scoringText = [
+      "A. Laboratory Criteria (0-4 points)",
+      "  4 = Outbreak organism isolated from sterile site",
+      "  2 = Outbreak organism isolated from non-sterile site",
+      "  1 = Lab pending / inconclusive",
+      "  0 = No lab evidence",
+      "",
+      "B. Clinical Criteria (0-3 points)",
+      "  3 = Strong clinical syndrome",
+      "  2 = Mild or non-specific symptoms",
+      "  0 = Asymptomatic",
+      "",
+      "C. Epidemiologic Link (0-3 points)",
+      "  3 = Direct exposure (same bed, device, staff, product)",
+      "  2 = Indirect exposure (same unit/shift)",
+      "  1 = Weak exposure",
+      "  0 = No known exposure",
+      "",
+      "CLASSIFICATION:",
+      "  7-10 points -> CONFIRMED CASE",
+      "  4-6 points -> PROBABLE CASE",
+      "  0-3 points -> POSSIBLE CASE"
+    ];
+    
+    doc.text(scoringText, 15, 30);
+
+    // Section 4: Case Line List & Classification Results
+    doc.setFontSize(12);
+    doc.setTextColor(15, 118, 110);
+    doc.text("4. CASE LINE LISTING & CLASSIFICATION RESULTS", 15, 130);
+
+    const cases = (report.lineList || []).map((c) => {
+      const score = c.caseScore?.totalScore || 0;
+      const cls = c.caseScore?.classification || "POSSIBLE CASE";
+      const labFlag = c.caseScore?.isPossibleLabAssoc ? "YES" : "NO";
+      
+      return [
+        c.patientName,
+        c.hospNo,
+        c.unit,
+        c.onSetDate,
+        `${cls} (${score}/10)\nLab-Assoc: ${labFlag}`,
+        c.outcome,
+      ];
+    });
 
     autoTable(doc, {
-      startY: lineListY + 5,
+      startY: 135,
+      margin: { top: 20, right: 14, bottom: 20, left: 14 },
+      pageBreak: 'auto',
+      rowPageBreak: 'avoid',
       head: [
-        ["Patient Name", "Hosp No", "Unit", "Onset", "Symptoms", "Outcome"],
+        ["Patient Name", "Hosp No", "Unit", "Onset", "Classification", "Outcome"],
       ],
       body:
         cases.length > 0 ? cases : [["No cases recorded", "", "", "", "", ""]],
       theme: "grid",
-      styles: { fontSize: 8 },
+      styles: { fontSize: 8, overflow: 'linebreak' },
       headStyles: { fillColor: [15, 118, 110] },
     });
 
-    // Section 2.5: Detailed Case Findings
+    // Section 5: Detailed Case Findings
     const detailedCases = (report.lineList || []).filter(
       (c) =>
         c.detailsOfOnset ||
@@ -508,7 +596,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
       doc.addPage();
       doc.setFontSize(12);
       doc.setTextColor(15, 118, 110);
-      doc.text("2.5 DETAILED CASE INVESTIGATION SUMMARIES", 15, 20);
+      doc.text("5. DETAILED CASE INVESTIGATION SUMMARIES", 15, 20);
 
       let currentY = 30;
       detailedCases.forEach((c, i) => {
@@ -524,21 +612,40 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
         const summaries = [
           `• Adm Details: DOB: ${c.dob || "N/A"}, Age/Service: ${c.ageService || "N/A"}, Adm Date: ${c.admissionDate || "N/A"}, Ward/Unit/Bed: ${c.wardUnitBed || "N/A"}`,
           `• Devices: ${c.devices || "N/A"}, Fluids: ${c.fluids || "N/A"}, Nurse: ${c.nurseAssignment || "N/A"}`,
-          `• Onset/Isolation: Onset: ${c.detailsOfOnset?.onsetDateTime || "N/A"}, Isolation: ${c.detailsOfOnset?.isolationDateTime || "N/A"}`,
+          `• Prev Care: Hosp <3mo: ${c.recentHospitalization?.within3Months ? "Yes (" + (c.recentHospitalization.date || "No date") + ")" : "No"}, LTCF: ${c.longTermCare?.fromFacility ? "Yes (" + (c.longTermCare.facilityName || "No name") + ")" : "No"}`,
+          `• Onset/Isolation: Onset: ${c.detailsOfOnset?.onsetDateTime || "N/A"}, Isolation: ${c.detailsOfOnset?.isolationDateTime || "N/A"}, Resolution: ${c.detailsOfOnset?.resolutionDate || "N/A"}`,
+          `• Antimicrobials: Prior Month: ${c.antimicrobials?.monthPriorToOnset || "None"}, At Onset: ${c.antimicrobials?.atTimeOfOnset || "None"}, Current: ${c.antimicrobials?.currentTreatment || "None"}`,
           `• Lab Results: ${c.labResults || "N/A"}`,
-          `• Pathology: Specimen Date: ${c.pathologyDetails?.dateOfPositiveSpecimen || "N/A"}, Lab #: ${c.pathologyDetails?.labNumber || "N/A"}, Organism: ${c.pathologyDetails?.organismsIsolated || "N/A"}`,
+          `• Pathology: ${(() => {
+            const res = c.pathologyDetails?.results;
+            if (res && res.length > 0) return res.map(r => `[${r.date}] Lab ${r.labNumber}: ${r.specimen} - ${r.organism} (Susc: ${r.susceptibility})`).join('; ');
+            if (c.pathologyDetails?.dateOfPositiveSpecimen || c.pathologyDetails?.labNumber) {
+              return `Specimen Date: ${c.pathologyDetails?.dateOfPositiveSpecimen || "N/A"}, Lab #: ${c.pathologyDetails?.labNumber || "N/A"}, Organism: ${c.pathologyDetails?.organismsIsolated || "N/A"}`;
+            }
+            return "N/A";
+          })()}`,
           `• Exposure: facility: ${c.exposureClassification?.healthcareAssociatedFacility || "N/A"}, community: ${c.exposureClassification?.healthcareAssociatedCommunity || "N/A"}`,
+          `• Outcome: Recovered: ${c.detailedOutcome?.recoveredNoAdverse ? "Yes" : "No"}, ICU: ${c.detailedOutcome?.admittedToICU?.done ? "Yes (" + (c.detailedOutcome.admittedToICU.date || "N/A") + ")" : "No"}, Death: ${c.detailedOutcome?.deathRelated?.done ? "Yes (" + (c.detailedOutcome.deathRelated.date || "N/A") + ")" : "No"}, Other: ${c.detailedOutcome?.otherOutcome || "N/A"}`,
         ];
 
-        summaries.forEach((line, lineIdx) => {
-          doc.text(line, 20, currentY + 5 + lineIdx * 4);
+        let cursorY = currentY + 5;
+        summaries.forEach((line) => {
+          const splitText = doc.splitTextToSize(sanitizeText(line), pageWidth - 35);
+          splitText.forEach((textLine: string) => {
+            if (cursorY > 280) {
+              doc.addPage();
+              cursorY = 20;
+            }
+            doc.text(textLine, 20, cursorY);
+            cursorY += 4;
+          });
         });
 
-        currentY += 35;
+        currentY = cursorY + 5;
       });
     }
 
-    // Section 3: Findings & Controls
+    // Section 6: Findings & Controls
     let findingsY = 0;
     if (detailedCases.length > 0) {
       doc.addPage();
@@ -552,7 +659,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     doc.setFontSize(12);
     doc.setTextColor(15, 118, 110);
     doc.text(
-      "3. INVESTIGATION FINDINGS & CONTROL MEASURES",
+      "6. INVESTIGATION FINDINGS & CONTROL MEASURES",
       15,
       findingsY > 250 ? 20 : findingsY,
     );
@@ -563,17 +670,17 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     const startY = findingsY > 250 ? 30 : findingsY + 10;
     doc.text("Laboratory & Environmental Data:", 15, startY);
     doc.setFont("helvetica", "normal");
-    doc.text(
-      `- Alert Organism: ${report.findings?.labAlerts.organism || "N/A"}`,
-      20,
-      startY + 5,
-    );
-    doc.text(
-      `- Resistance: ${report.findings?.labAlerts.resistancePattern || "N/A"}`,
-      20,
-      startY + 10,
-    );
-    let currentYVal = startY + 15;
+    
+    let currentYVal = startY + 5;
+    
+    const alertOrgLines = doc.splitTextToSize(sanitizeText(`- Alert Organism: ${report.findings?.labAlerts.organism || "N/A"}`), pageWidth - 30);
+    doc.text(alertOrgLines, 20, currentYVal);
+    currentYVal += (alertOrgLines.length * 5);
+    
+    const resLines = doc.splitTextToSize(sanitizeText(`- Resistance: ${report.findings?.labAlerts.resistancePattern || "N/A"}`), pageWidth - 30);
+    doc.text(resLines, 20, currentYVal);
+    currentYVal += (resLines.length * 5);
+    
     doc.text(
       `- Env. Swabbing: ${report.findings?.envSwabbing.status}`,
       20,
@@ -584,12 +691,9 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
       report.findings?.envSwabbing.status &&
       report.findings.envSwabbing.status !== "Not Indicated"
     ) {
-      doc.text(
-        `  Results: ${report.findings.envSwabbing.results || "N/A"}, Organism: ${report.findings.envSwabbing.organism || "N/A"}, Date: ${report.findings.envSwabbing.collectionDate || "N/A"}`,
-        25,
-        currentYVal,
-      );
-      currentYVal += 5;
+      const swabResLines = doc.splitTextToSize(sanitizeText(`  Results: ${report.findings.envSwabbing.results || "N/A"}, Organism: ${report.findings.envSwabbing.organism || "N/A"}, Date: ${report.findings.envSwabbing.collectionDate || "N/A"}`), pageWidth - 35);
+      doc.text(swabResLines, 25, currentYVal);
+      currentYVal += (swabResLines.length * 5);
     }
 
     doc.text(
@@ -602,12 +706,9 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
       report.findings?.waterTesting.status &&
       report.findings.waterTesting.status !== "Not Indicated"
     ) {
-      doc.text(
-        `  Results: ${report.findings.waterTesting.results || "N/A"}, Organism: ${report.findings.waterTesting.organism || "N/A"}, Date: ${report.findings.waterTesting.collectionDate || "N/A"}`,
-        25,
-        currentYVal,
-      );
-      currentYVal += 5;
+      const waterResLines = doc.splitTextToSize(sanitizeText(`  Results: ${report.findings.waterTesting.results || "N/A"}, Organism: ${report.findings.waterTesting.organism || "N/A"}, Date: ${report.findings.waterTesting.collectionDate || "N/A"}`), pageWidth - 35);
+      doc.text(waterResLines, 25, currentYVal);
+      currentYVal += (waterResLines.length * 5);
     }
 
     doc.setFont("helvetica", "bold");
@@ -623,58 +724,64 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
       20,
       currentYVal + 20,
     );
-    doc.text(
-      `- Actions: ${(report.controlMeasures?.actions || []).join(", ")}`,
-      20,
-      currentYVal + 25,
-      { maxWidth: 170 },
-    );
+    const actionsText = sanitizeText(`- Actions: ${(report.controlMeasures?.actions || []).join(", ")}`);
+    const actionsLines = doc.splitTextToSize(actionsText, 170);
+    doc.text(actionsLines, 20, currentYVal + 25);
+    
+    currentYVal = currentYVal + 25 + (actionsLines.length * 5);
 
-    // Section 4: Team, Conclusion & Recommendations
-    const finalY = currentYVal + 40;
-    if (finalY > 230) doc.addPage();
-    const currY = finalY > 230 ? 20 : finalY;
+    // Section 7: Team, Conclusion & Recommendations
+    let finalY = currentYVal + 10;
+    if (finalY > 260) { doc.addPage(); finalY = 20; }
+    let currY = finalY;
 
     doc.setFontSize(12);
     doc.setTextColor(15, 118, 110);
-    doc.text("4. CONCLUSION & RECOMMENDATIONS", 15, currY);
+    doc.text("7. CONCLUSION & RECOMMENDATIONS", 15, currY);
 
+    currY += 10;
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
-    doc.text("Conclusion:", 15, currY + 10);
+    doc.text("Conclusion:", 15, currY);
+    
+    currY += 5;
     doc.setFont("helvetica", "normal");
-    doc.text(report.conclusion || "No conclusion documented.", 15, currY + 15, {
-      maxWidth: 180,
-    });
+    const concText = sanitizeText(report.conclusion || "No conclusion documented.");
+    const concLines = doc.splitTextToSize(concText, 180);
+    if (currY + (concLines.length * 5) > 280) { doc.addPage(); currY = 20; }
+    doc.text(concLines, 15, currY);
+    currY += (concLines.length * 5) + 5;
 
     doc.setFont("helvetica", "bold");
-    doc.text("Recommendations:", 15, currY + 35);
+    if (currY > 270) { doc.addPage(); currY = 20; }
+    doc.text("Recommendations:", 15, currY);
+    currY += 5;
     doc.setFont("helvetica", "normal");
-    doc.text(
-      report.recommendations || "No recommendations documented.",
-      15,
-      currY + 40,
-      { maxWidth: 180 },
-    );
+    const recText = sanitizeText(report.recommendations || "No recommendations documented.");
+    const recLines = doc.splitTextToSize(recText, 180);
+    if (currY + (recLines.length * 5) > 280) { doc.addPage(); currY = 20; }
+    doc.text(recLines, 15, currY);
+    currY += (recLines.length * 5) + 5;
 
     doc.setFont("helvetica", "bold");
-    doc.text("Investigation Team:", 15, currY + 65);
+    if (currY > 270) { doc.addPage(); currY = 20; }
+    doc.text("Investigation Team:", 15, currY);
+    currY += 5;
     doc.setFont("helvetica", "normal");
-    doc.text(
-      (report.investigationTeam || []).join("; ") || "N/A",
-      15,
-      currY + 70,
-      { maxWidth: 180 },
-    );
+    const teamText = sanitizeText((report.investigationTeam || []).join("; ") || "N/A");
+    const teamLines = doc.splitTextToSize(teamText, 180);
+    if (currY + (teamLines.length * 5) > 280) { doc.addPage(); currY = 20; }
+    doc.text(teamLines, 15, currY);
+    currY += (teamLines.length * 5) + 5;
 
-    // Section 5: Validation
+    // Section 8: Validation
     if (report.validation) {
        doc.addPage();
        doc.setFontSize(12);
        doc.setTextColor(15, 118, 110);
        doc.setFont("helvetica", "bold");
-       doc.text("5. VALIDATION & SIGN-OFF", 15, 20);
+       doc.text("8. VALIDATION & SIGN-OFF", 15, 20);
 
        doc.setTextColor(0, 0, 0);
        doc.setFontSize(10);
@@ -694,7 +801,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
        doc.text("Basis:", 15, currentY);
        currentY += 5;
        doc.setFont("helvetica", "normal");
-       const basisText = report.validation.basis?.join(", ") || "N/A";
+       const basisText = sanitizeText(report.validation.basis?.join(", ") || "N/A");
        const basisLines = doc.splitTextToSize(basisText, 180);
        doc.text(basisLines, 15, currentY);
        currentY += basisLines.length * 5 + 5;
@@ -710,8 +817,8 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
            currentY += 5;
            return;
          }
-         // Clean non-breaking spaces that can break jsPDF word wrapping
-         const cleanP = p.replace(/\t/g, "    ").replace(/[\u200B-\u200D\uFEFF]/g, "").replace(/[\u00A0]/g, " ");
+         // Clean non-breaking spaces and normalize horizontal whitespace
+         const cleanP = sanitizeText(p);
          const lines = doc.splitTextToSize(cleanP, 180);
          doc.text(lines, 15, currentY);
          currentY += lines.length * 5;
@@ -1157,6 +1264,53 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            {/* Outbreak Case Definition */}
+            <div className="p-8 bg-white rounded-[3rem] border border-slate-100 shadow-sm space-y-6">
+              <div className="flex items-center gap-3">
+                <ShieldCheck className="w-5 h-5 text-brand-primary" />
+                <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">
+                  Outbreak Case Definition
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Outbreak Organism
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-brand-primary/20"
+                    placeholder="e.g. Serratia marcescens"
+                    value={formData.organism || ""}
+                    onChange={(e) =>
+                      setFormData({ ...formData, organism: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Outbreak Period
+                  </label>
+                  <div className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-xs font-bold text-slate-600">
+                    {formData.detectedAt ? new Date(formData.detectedAt).toLocaleDateString() : "Pending"} – Present
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Case Definition
+                </label>
+                <textarea
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-xs font-bold outline-none min-h-[100px] focus:ring-2 focus:ring-brand-primary/20"
+                  placeholder="e.g. A confirmed case is any patient with Serratia marcescens isolated from blood ≥48 hours after admission during the outbreak period."
+                  value={formData.caseDefinition || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, caseDefinition: e.target.value })
+                  }
+                />
               </div>
             </div>
 
@@ -2687,11 +2841,154 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                         </div>
                       </section>
 
-                      {/* Section 2: Onset & Isolation */}
+                      {/* Section 2: Case Scoring & Classification */}
                       <section className="space-y-6">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-black">
                             02
+                          </div>
+                          <h4 className="text-sm font-black uppercase tracking-widest text-slate-900">
+                            Case Scoring & Classification
+                          </h4>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <div className="space-y-3">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              A. Laboratory Criteria
+                            </label>
+                            <select
+                              className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-brand-primary/20"
+                              value={caseData.caseScore?.labScore ?? ""}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                const newScore = { ...(caseData.caseScore || { labScore:0, clinicalScore:0, epiLinkScore:0, totalScore:0, classification:'POSSIBLE CASE', isPossibleLabAssoc:false, labCriteria:'', clinicalCriteria:'', epiLinkCriteria:'', possibleLabAssocCriteria:[] }) };
+                                newScore.labScore = isNaN(val) ? 0 : val;
+                                newScore.labCriteria = e.target.options[e.target.selectedIndex].text;
+                                newScore.totalScore = newScore.labScore + newScore.clinicalScore + newScore.epiLinkScore;
+                                newScore.classification = newScore.totalScore >= 7 ? 'CONFIRMED CASE' : newScore.totalScore >= 4 ? 'PROBABLE CASE' : 'POSSIBLE CASE';
+                                handleDetailedCaseUpdate(selectedCaseIndex, { caseScore: newScore });
+                              }}
+                            >
+                              <option value="">Select Criteria...</option>
+                              <option value="4">4 - Outbreak organism isolated from sterile site</option>
+                              <option value="2">2 - Outbreak organism isolated from non-sterile site</option>
+                              <option value="1">1 - Lab pending / inconclusive</option>
+                              <option value="0">0 - No lab evidence</option>
+                            </select>
+                          </div>
+                          <div className="space-y-3">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              B. Clinical Criteria
+                            </label>
+                            <select
+                              className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-brand-primary/20"
+                              value={caseData.caseScore?.clinicalScore ?? ""}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                const newScore = { ...(caseData.caseScore || { labScore:0, clinicalScore:0, epiLinkScore:0, totalScore:0, classification:'POSSIBLE CASE', isPossibleLabAssoc:false, labCriteria:'', clinicalCriteria:'', epiLinkCriteria:'', possibleLabAssocCriteria:[] }) };
+                                newScore.clinicalScore = isNaN(val) ? 0 : val;
+                                newScore.clinicalCriteria = e.target.options[e.target.selectedIndex].text;
+                                newScore.totalScore = newScore.labScore + newScore.clinicalScore + newScore.epiLinkScore;
+                                newScore.classification = newScore.totalScore >= 7 ? 'CONFIRMED CASE' : newScore.totalScore >= 4 ? 'PROBABLE CASE' : 'POSSIBLE CASE';
+                                handleDetailedCaseUpdate(selectedCaseIndex, { caseScore: newScore });
+                              }}
+                            >
+                              <option value="">Select Criteria...</option>
+                              <option value="3">3 - Strong clinical syndrome</option>
+                              <option value="2">2 - Mild or non-specific symptoms</option>
+                              <option value="0">0 - Asymptomatic</option>
+                            </select>
+                          </div>
+                          <div className="space-y-3">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              C. Epidemiologic Link
+                            </label>
+                            <select
+                              className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-brand-primary/20"
+                              value={caseData.caseScore?.epiLinkScore ?? ""}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                const newScore = { ...(caseData.caseScore || { labScore:0, clinicalScore:0, epiLinkScore:0, totalScore:0, classification:'POSSIBLE CASE', isPossibleLabAssoc:false, labCriteria:'', clinicalCriteria:'', epiLinkCriteria:'', possibleLabAssocCriteria:[] }) };
+                                newScore.epiLinkScore = isNaN(val) ? 0 : val;
+                                newScore.epiLinkCriteria = e.target.options[e.target.selectedIndex].text;
+                                newScore.totalScore = newScore.labScore + newScore.clinicalScore + newScore.epiLinkScore;
+                                newScore.classification = newScore.totalScore >= 7 ? 'CONFIRMED CASE' : newScore.totalScore >= 4 ? 'PROBABLE CASE' : 'POSSIBLE CASE';
+                                handleDetailedCaseUpdate(selectedCaseIndex, { caseScore: newScore });
+                              }}
+                            >
+                              <option value="">Select Criteria...</option>
+                              <option value="3">3 - Direct exposure (same bed, device, staff, product)</option>
+                              <option value="2">2 - Indirect exposure (same unit/shift)</option>
+                              <option value="1">1 - Weak exposure</option>
+                              <option value="0">0 - No known exposure</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+                          <div>
+                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Score</div>
+                            <div className="text-2xl font-black text-slate-900">{caseData.caseScore?.totalScore || 0} / 10</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Classification</div>
+                            <div className={cn("text-xl font-black uppercase",
+                              caseData.caseScore?.classification === 'CONFIRMED CASE' ? 'text-rose-500' :
+                              caseData.caseScore?.classification === 'PROBABLE CASE' ? 'text-amber-500' :
+                              'text-emerald-500'
+                            )}>
+                              {caseData.caseScore?.classification || 'POSSIBLE CASE'}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4 pt-4">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            Possible Lab-Associated Case (Auto-Flag if ANY selected)
+                          </label>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {[
+                              "Only 1 blood culture bottle positive",
+                              "Unusual organism",
+                              "Same bottle lot number as other cases",
+                              "Same technologist or BSC",
+                              "No clinical symptoms",
+                              "NICU + adult cases share same lot",
+                              "Organism known for pseudo-bacteremia"
+                            ].map(criteria => (
+                              <label key={criteria} className="flex items-start gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-all">
+                                <input
+                                  type="checkbox"
+                                  className="mt-1 w-4 h-4 rounded-lg border-slate-300 text-brand-primary"
+                                  checked={caseData.caseScore?.possibleLabAssocCriteria?.includes(criteria)}
+                                  onChange={(e) => {
+                                    const currentCrit = caseData.caseScore?.possibleLabAssocCriteria || [];
+                                    const newCrit = e.target.checked ? [...currentCrit, criteria] : currentCrit.filter(c => c !== criteria);
+                                    const newScore = { ...(caseData.caseScore || { labScore:0, clinicalScore:0, epiLinkScore:0, totalScore:0, classification:'POSSIBLE CASE', isPossibleLabAssoc:false, labCriteria:'', clinicalCriteria:'', epiLinkCriteria:'', possibleLabAssocCriteria:[] }) };
+                                    newScore.possibleLabAssocCriteria = newCrit;
+                                    newScore.isPossibleLabAssoc = newCrit.length > 0;
+                                    handleDetailedCaseUpdate(selectedCaseIndex, { caseScore: newScore });
+                                  }}
+                                />
+                                <span className="text-[11px] font-bold text-slate-700 leading-tight">
+                                  {criteria}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                          {caseData.caseScore?.isPossibleLabAssoc && (
+                            <div className="p-3 bg-rose-50 text-rose-600 rounded-xl text-xs font-black uppercase tracking-widest border border-rose-100 flex items-center gap-2 mt-4">
+                              <AlertCircle className="w-4 h-4" /> Flagged as Possible Lab-Associated Case
+                            </div>
+                          )}
+                        </div>
+                      </section>
+
+                      {/* Section 3: Onset & Isolation */}
+                      <section className="space-y-6">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-black">
+                            03
                           </div>
                           <h4 className="text-sm font-black uppercase tracking-widest text-slate-900">
                             Symptom & Onset Timeline
@@ -2842,178 +3139,179 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                       </section>
 
                       {/* Section 4: Pathology Details */}
-                      <section className="p-8 bg-blue-50/50 rounded-[3rem] border border-blue-100 space-y-6">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-black">
-                            04
-                          </div>
-                          <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 font-sans">
-                            Lab & Pathology Details
-                          </h4>
-                        </div>
-                        <div className="space-y-1.5 pt-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">
-                            General Lab Results Summary
-                          </label>
-                          <textarea
-                            className="w-full bg-white border border-blue-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20 h-20"
-                            value={caseData.labResults || ""}
-                            onChange={(e) =>
-                              handleDetailedCaseUpdate(selectedCaseIndex, {
-                                labResults: e.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">
-                              Date of Positive Specimen
-                            </label>
-                            <input
-                              type="date"
-                              className="w-full bg-white border border-blue-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20"
-                              value={
-                                caseData.pathologyDetails
-                                  ?.dateOfPositiveSpecimen || ""
-                              }
-                              onChange={(e) =>
-                                handleDetailedCaseUpdate(selectedCaseIndex, {
-                                  pathologyDetails: {
-                                    ...(caseData.pathologyDetails || {
-                                      labNumber: "",
-                                      organismsIsolated: "",
-                                    }),
-                                    dateOfPositiveSpecimen: e.target.value,
-                                  },
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">
-                              Lab Number
-                            </label>
-                            <input
-                              className="w-full bg-white border border-blue-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none"
-                              value={caseData.pathologyDetails?.labNumber || ""}
-                              onChange={(e) =>
-                                handleDetailedCaseUpdate(selectedCaseIndex, {
-                                  pathologyDetails: {
-                                    ...(caseData.pathologyDetails || {
-                                      dateOfPositiveSpecimen: "",
-                                      organismsIsolated: "",
-                                    }),
-                                    labNumber: e.target.value,
-                                  },
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-1.5 md:col-span-2">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">
-                              Organisms Isolated
-                            </label>
-                            <textarea
-                              className="w-full bg-white border border-blue-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none"
-                              value={
-                                caseData.pathologyDetails?.organismsIsolated ||
-                                ""
-                              }
-                              onChange={(e) =>
-                                handleDetailedCaseUpdate(selectedCaseIndex, {
-                                  pathologyDetails: {
-                                    ...(caseData.pathologyDetails || {
-                                      dateOfPositiveSpecimen: "",
-                                      labNumber: "",
-                                    }),
-                                    organismsIsolated: e.target.value,
-                                  },
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">
-                              Ribotyping (if available)
-                            </label>
-                            <input
-                              className="w-full bg-white border border-blue-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none"
-                              value={
-                                caseData.pathologyDetails?.ribotyping || ""
-                              }
-                              onChange={(e) =>
-                                handleDetailedCaseUpdate(selectedCaseIndex, {
-                                  pathologyDetails: {
-                                    ...(caseData.pathologyDetails || {
-                                      dateOfPositiveSpecimen: "",
-                                      labNumber: "",
-                                      organismsIsolated: "",
-                                    }),
-                                    ribotyping: e.target.value,
-                                  },
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="p-4 bg-white rounded-2xl border border-blue-100 flex items-center justify-between">
-                            <label className="flex items-center gap-3 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                className="w-4 h-4 rounded border-blue-300"
-                                checked={
-                                  caseData.pathologyDetails?.sentForWGS?.done ||
-                                  false
-                                }
+                      {(() => {
+                        let mappedResults = caseData.pathologyDetails?.results;
+                        if (!mappedResults || mappedResults.length === 0) {
+                          if (caseData.pathologyDetails?.dateOfPositiveSpecimen || caseData.pathologyDetails?.labNumber || caseData.pathologyDetails?.organismsIsolated) {
+                            mappedResults = [{
+                              date: caseData.pathologyDetails.dateOfPositiveSpecimen || "",
+                              labNumber: caseData.pathologyDetails.labNumber || "",
+                              specimen: caseData.pathologyDetails.specimenSubmitted || "",
+                              organism: caseData.pathologyDetails.organismsIsolated || "",
+                              susceptibility: caseData.pathologyDetails.ribotyping || "", // mapped legacy ribotyping
+                            }];
+                          } else {
+                            mappedResults = [{ date: "", labNumber: "", specimen: "", organism: "", susceptibility: "" }];
+                          }
+                        }
+                        return (
+                          <section className="p-8 bg-blue-50/50 rounded-[3rem] border border-blue-100 space-y-6">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-black">
+                                04
+                              </div>
+                              <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 font-sans">
+                                Lab & Pathology Details
+                              </h4>
+                            </div>
+                            <div className="space-y-1.5 pt-2">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">
+                                General Lab Results Summary
+                              </label>
+                              <textarea
+                                className="w-full bg-white border border-blue-200 rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20 h-20"
+                                value={caseData.labResults || ""}
                                 onChange={(e) =>
                                   handleDetailedCaseUpdate(selectedCaseIndex, {
-                                    pathologyDetails: {
-                                      ...(caseData.pathologyDetails || {
-                                        dateOfPositiveSpecimen: "",
-                                        labNumber: "",
-                                        organismsIsolated: "",
-                                      }),
-                                      sentForWGS: {
-                                        done: e.target.checked,
-                                        date: caseData.pathologyDetails
-                                          ?.sentForWGS?.date,
-                                      },
-                                    },
+                                    labResults: e.target.value,
                                   })
                                 }
                               />
-                              <span className="text-[11px] font-black uppercase tracking-widest text-slate-700">
-                                Sent for Whole Genome Sequencing?
-                              </span>
-                            </label>
-                            {caseData.pathologyDetails?.sentForWGS?.done && (
-                              <input
-                                type="date"
-                                className="bg-blue-50 border-none rounded-lg px-3 py-1 text-xs font-bold"
-                                value={
-                                  caseData.pathologyDetails?.sentForWGS?.date ||
-                                  ""
-                                }
-                                onChange={(e) =>
+                            </div>
+                            <div className="space-y-4">
+                              {mappedResults.map((res, rIdx) => (
+                                <div key={rIdx} className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 flex flex-col gap-4 relative">
+                                  {rIdx > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const curr = [...mappedResults!];
+                                        curr.splice(rIdx, 1);
+                                        handleDetailedCaseUpdate(selectedCaseIndex, {
+                                          pathologyDetails: {
+                                            ...caseData.pathologyDetails,
+                                            results: curr,
+                                          },
+                                        });
+                                      }}
+                                      className="absolute top-4 right-4 text-slate-400 hover:text-rose-500"
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="space-y-1.5">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Date</label>
+                                      <input
+                                        type="date"
+                                        className="w-full bg-white border border-blue-200 rounded-xl px-3 py-2 text-xs font-bold outline-none"
+                                        value={res.date}
+                                        onChange={(e) => {
+                                          const curr = [...mappedResults!];
+                                          curr[rIdx] = { ...curr[rIdx], date: e.target.value };
+                                          handleDetailedCaseUpdate(selectedCaseIndex, {
+                                            pathologyDetails: {
+                                              ...caseData.pathologyDetails,
+                                              results: curr,
+                                            },
+                                          });
+                                        }}
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Lab Number</label>
+                                      <input
+                                        className="w-full bg-white border border-blue-200 rounded-xl px-3 py-2 text-xs font-bold outline-none"
+                                        value={res.labNumber}
+                                        onChange={(e) => {
+                                          const curr = [...mappedResults!];
+                                          curr[rIdx] = { ...curr[rIdx], labNumber: e.target.value };
+                                          handleDetailedCaseUpdate(selectedCaseIndex, {
+                                            pathologyDetails: {
+                                              ...caseData.pathologyDetails,
+                                              results: curr,
+                                            },
+                                          });
+                                        }}
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Specimen</label>
+                                      <input
+                                        className="w-full bg-white border border-blue-200 rounded-xl px-3 py-2 text-xs font-bold outline-none"
+                                        value={res.specimen}
+                                        onChange={(e) => {
+                                          const curr = [...mappedResults!];
+                                          curr[rIdx] = { ...curr[rIdx], specimen: e.target.value };
+                                          handleDetailedCaseUpdate(selectedCaseIndex, {
+                                            pathologyDetails: {
+                                              ...caseData.pathologyDetails,
+                                              results: curr,
+                                            },
+                                          });
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Organism Isolated</label>
+                                      <input
+                                        className="w-full bg-white border border-blue-200 rounded-xl px-3 py-2 text-xs font-bold outline-none"
+                                        value={res.organism}
+                                        onChange={(e) => {
+                                          const curr = [...mappedResults!];
+                                          curr[rIdx] = { ...curr[rIdx], organism: e.target.value };
+                                          handleDetailedCaseUpdate(selectedCaseIndex, {
+                                            pathologyDetails: {
+                                              ...caseData.pathologyDetails,
+                                              results: curr,
+                                            },
+                                          });
+                                        }}
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-blue-400">Susceptibility / Resistance</label>
+                                      <input
+                                        className="w-full bg-white border border-blue-200 rounded-xl px-3 py-2 text-xs font-bold outline-none"
+                                        value={res.susceptibility}
+                                        placeholder="e.g. MRSA, CRE"
+                                        onChange={(e) => {
+                                          const curr = [...mappedResults!];
+                                          curr[rIdx] = { ...curr[rIdx], susceptibility: e.target.value };
+                                          handleDetailedCaseUpdate(selectedCaseIndex, {
+                                            pathologyDetails: {
+                                              ...caseData.pathologyDetails,
+                                              results: curr,
+                                            },
+                                          });
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const curr = [...mappedResults!];
+                                  curr.push({ date: "", labNumber: "", specimen: "", organism: "", susceptibility: "" });
                                   handleDetailedCaseUpdate(selectedCaseIndex, {
                                     pathologyDetails: {
-                                      ...(caseData.pathologyDetails || {
-                                        dateOfPositiveSpecimen: "",
-                                        labNumber: "",
-                                        organismsIsolated: "",
-                                      }),
-                                      sentForWGS: {
-                                        done: true,
-                                        date: e.target.value,
-                                      },
+                                      ...caseData.pathologyDetails,
+                                      results: curr,
                                     },
-                                  })
-                                }
-                              />
-                            )}
-                          </div>
-                        </div>
-                      </section>
+                                  });
+                                }}
+                                className="bg-blue-100 text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-blue-200 transition-colors w-full"
+                              >
+                                <Plus className="w-3 h-3" /> Add Specimen Result
+                              </button>
+                            </div>
+                          </section>
+                        );
+                      })()}
 
                       {/* Section 5: Exposure & Outcome */}
                       <section className="space-y-8">

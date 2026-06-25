@@ -175,6 +175,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     }
   };
   const [isAdding, setIsAdding] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeFilter, setActiveFilter] = useState<AMSStatus | 'ALL'>('ALL');
   const [formData, setFormData] = useState<Partial<AMSRequest>>({
     type: 'RESTRICTED_USE',
@@ -241,10 +242,10 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     const baseQuery = collection(db, 'ams_requests');
     let q;
 
-    if (user.role === 'ADMIN' || user.role === 'IPCN' || user.role === 'APPROVER' || user.role === 'PHARMACY') {
+    if (user.role === 'ADMIN' || user.role === 'IPCN' || user.role === 'APPROVER' || user.role === 'PHARMACY' || user.role === 'PHYSICIAN') {
       q = query(baseQuery, orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
-        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AMSRequest));
+        const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AMSRequest));
         const sortedData = data.sort((a, b) => {
           const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
           const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
@@ -264,16 +265,15 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       const q2 = query(baseQuery, where('unit', '==', user.unit || 'General'));
 
       const updateRequests = (snapshot1: any, snapshot2: any) => {
-        const data1 = snapshot1.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as AMSRequest));
-        const data2 = snapshot2.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as AMSRequest));
+        const data1 = snapshot1?.docs ? snapshot1.docs.map((doc: any) => ({ ...doc.data(), id: doc.id } as AMSRequest)) : [];
+        const data2 = snapshot2?.docs ? snapshot2.docs.map((doc: any) => ({ ...doc.data(), id: doc.id } as AMSRequest)) : [];
         
         // Combine and deduplicate
-        const combined = [...data1];
-        data2.forEach((item: any) => {
-          if (!combined.find(x => x.id === item.id)) {
-            combined.push(item);
-          }
-        });
+        const mergedMap = new Map();
+        data1.forEach((item: any) => mergedMap.set(item.id, item));
+        data2.forEach((item: any) => mergedMap.set(item.id, item));
+        
+        const combined = Array.from(mergedMap.values());
 
         const sortedData = combined.sort((a, b) => {
           const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
@@ -312,20 +312,21 @@ export default function AMS({ user }: { user: UserProfile | null }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || isSubmitting) return;
 
     if (!formData.antimicrobialsRequested || formData.antimicrobialsRequested.length === 0) {
-      setErrorMessage("Please select at least one antimicrobial.");
-      return;
+       setErrorMessage("Please select at least one antimicrobial.");
+       return;
     }
 
     const isExtension = checkExtensionNeeded(formData.hospNo || '', formData.antimicrobialsRequested || []);
     if (isExtension && formData.type !== 'EXTENSION_7D') {
-      setErrorMessage("This patient already has an active request for the same antibiotic. This must be filed as an EXTENSION.");
-      setFormData(prev => ({ ...prev, type: 'EXTENSION_7D' }));
-      return;
+       setErrorMessage("This patient already has an active request for the same antibiotic. This must be filed as an EXTENSION.");
+       setFormData(prev => ({ ...prev, type: 'EXTENSION_7D' }));
+       return;
     }
 
+    setIsSubmitting(true);
     try {
       const patientName = `${formData.firstName} ${formData.middleName ? formData.middleName + ' ' : ''}${formData.lastName}`;
       const dateTimeRequested = new Date().toISOString();
@@ -382,8 +383,16 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       }
       setIsAdding(false);
       resetForm();
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'ams_requests');
+    } catch (error: any) {
+      console.error("Submit error:", error);
+      const msg = error?.message || String(error);
+      if (msg.includes("No document to update") || msg.includes("not-found")) {
+         alert("The request you are trying to edit no longer exists (it may have been deleted).");
+      } else {
+         handleFirestoreError(error, OperationType.WRITE, 'ams_requests');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -495,6 +504,14 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     }
   };
 
+  const getDefaultApprovedDays = (r: AMSRequest) => {
+    if (r.durationRequested) {
+      const parsed = parseInt(r.durationRequested, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    return 7;
+  };
+
   const handleAction = async (requestId: string, status: AMSStatus) => {
     if (!user) return;
     const req = requests.find(r => r.id === requestId);
@@ -502,7 +519,8 @@ export default function AMS({ user }: { user: UserProfile | null }) {
 
     const remarks = reviewRemarks[requestId] || '';
     const reviewerNameOverride = reviewPhysicians[requestId] || '';
-    const daysApproved = reviewDays[requestId] || 7; // Default to 7 days if not specified
+    const defaultDays = getDefaultApprovedDays(req);
+    const daysApproved = reviewDays[requestId] || defaultDays;
     const now = new Date();
     const dateTimeApproved = `${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     
@@ -511,8 +529,8 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         status,
         remarks,
         reviewerId: user.uid,
-        reviewerEmail: user.email,
-        reviewerName: reviewerNameOverride || user.name,
+        reviewerEmail: user.email || '',
+        reviewerName: reviewerNameOverride || user.name || 'Anonymous Reviewer',
         reviewedAt: new Date().toISOString(),
         updatedAt: serverTimestamp()
       };
@@ -559,8 +577,15 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         delete next[requestId];
         return next;
       });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `ams_requests/${requestId}`);
+    } catch (error: any) {
+      console.error("Action error:", error);
+      const msg = error?.message || String(error);
+      if (msg.includes("No document to update") || msg.includes("not-found")) {
+         alert("This request no longer exists. It may have been deleted by another user.");
+      } else {
+         alert("Failed to update status. Error details: " + msg);
+         handleFirestoreError(error, OperationType.WRITE, `ams_requests/${requestId}`);
+      }
     }
   };
 
@@ -664,6 +689,13 @@ export default function AMS({ user }: { user: UserProfile | null }) {
   // Automatic Creatinine Clearance Calculation (Cockcroft-Gault)
   useEffect(() => {
     if (formData.age && formData.weight && formData.serumCreatinine && formData.sex) {
+      if (formData.serumCreatinine.toLowerCase() === 'pending') {
+        if (formData.creatinineClearance !== 'Pending') {
+          setFormData(prev => ({ ...prev, creatinineClearance: 'Pending' }));
+        }
+        return;
+      }
+
       const age = parseFloat(formData.age);
       const weight = parseFloat(formData.weight);
       const creatinine = parseFloat(formData.serumCreatinine);
@@ -912,7 +944,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     }
   };
 
-  const isApprover = user?.role === 'APPROVER' || user?.role === 'ADMIN' || user?.role === 'IPCN';
+  const isApprover = user?.role === 'APPROVER' || user?.role === 'ADMIN' || user?.role === 'IPCN' || user?.role === 'PHYSICIAN';
 
   const filteredRequests = requests.filter(req => {
     const matchesFilter = activeFilter === 'ALL' || req.status === activeFilter;
@@ -1193,21 +1225,27 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                             />
                           </div>
                         </div>
-                        {req.status === 'PENDING' && isApprover && (
-                          <div className="flex items-center gap-2 mb-2 w-full max-w-[240px] sm:max-w-xs bg-emerald-50/50 p-2 rounded-xl border border-emerald-100 mt-2">
-                             <Clock className="w-3 h-3 text-emerald-600" />
-                             <span className="text-[9px] font-black uppercase text-emerald-700 tracking-widest">Approve for:</span>
-                             <select 
-                               value={reviewDays[req.id!] || 7}
-                               onChange={(e) => setReviewDays(prev => ({ ...prev, [req.id!]: parseInt(e.target.value) }))}
-                               className="ml-auto bg-white border border-emerald-200 rounded-lg text-[9px] font-bold px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-500"
-                             >
-                                {[1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30].map(d => (
-                                   <option key={d} value={d}>{d} Days</option>
-                                ))}
-                             </select>
-                          </div>
-                        )}
+                        {req.status === 'PENDING' && isApprover && (() => {
+                          const itemDefaultDays = getDefaultApprovedDays(req);
+                          const dynamicOptions = Array.from(new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 21, 30, itemDefaultDays]))
+                            .filter(val => !isNaN(val) && val > 0)
+                            .sort((a, b) => a - b);
+                          return (
+                            <div className="flex items-center gap-2 mb-2 w-full max-w-[240px] sm:max-w-xs bg-emerald-50/50 p-2 rounded-xl border border-emerald-100 mt-2">
+                               <Clock className="w-3 h-3 text-emerald-600" />
+                               <span className="text-[9px] font-black uppercase text-emerald-700 tracking-widest">Approve for:</span>
+                               <select 
+                                 value={reviewDays[req.id!] || itemDefaultDays}
+                                 onChange={(e) => setReviewDays(prev => ({ ...prev, [req.id!]: parseInt(e.target.value, 10) }))}
+                                 className="ml-auto bg-white border border-emerald-200 rounded-lg text-[9px] font-bold px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-500"
+                               >
+                                  {dynamicOptions.map(d => (
+                                     <option key={d} value={d}>{d} Days</option>
+                                  ))}
+                               </select>
+                            </div>
+                          );
+                        })()}
                         <div className="flex gap-2 bg-slate-100 p-1 rounded-xl">
                           <button 
                             onClick={(e) => { e.stopPropagation(); handleAction(req.id!, 'APPROVED'); }}
@@ -1246,8 +1284,15 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                   dispensedBy: user?.name || user?.email,
                                   dispensedAt: serverTimestamp()
                                 });
-                              } catch (error) {
-                                handleFirestoreError(error, OperationType.UPDATE, `ams_requests/${req.id}`);
+                              } catch (error: any) {
+                                console.error("Dispense error:", error);
+                                const msg = error?.message || String(error);
+                                if (msg.includes("No document to update") || msg.includes("not-found")) {
+                                   alert("This request no longer exists. It may have been deleted.");
+                                } else {
+                                   alert("Failed to mark antimicrobial request as dispensed. Error details: " + msg);
+                                   handleFirestoreError(error, OperationType.UPDATE, `ams_requests/${req.id}`);
+                                }
                               }
                             }}
                             className="px-3 py-1.5 bg-sky-600 text-white text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg shadow-lg shadow-sky-600/30 hover:bg-sky-500 active:scale-95 transition-all flex items-center gap-1.5"
@@ -1697,15 +1742,46 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                     <div className="space-y-4">
                        <div className="grid grid-cols-2 gap-2">
                           <div className="space-y-1">
-                             <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Serum Creatinine <span className="text-rose-500">*</span></label>
-                             <input required className="text-input" placeholder="mg/dL" value={formData.serumCreatinine} onChange={e => setFormData({...formData, serumCreatinine: e.target.value})} />
+                             <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Serum Creatinine <span className="text-rose-500">*</span></label>
+                                <button
+                                  type="button"
+                                  onClick={() => setFormData(prev => ({ 
+                                    ...prev, 
+                                    serumCreatinine: prev.serumCreatinine?.toLowerCase() === 'pending' ? '' : 'Pending',
+                                    creatinineClearance: prev.serumCreatinine?.toLowerCase() === 'pending' ? '' : 'Pending'
+                                  }))}
+                                  className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded transition-all ${
+                                    formData.serumCreatinine?.toLowerCase() === 'pending'
+                                      ? 'bg-amber-100 text-amber-700'
+                                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  {formData.serumCreatinine?.toLowerCase() === 'pending' ? 'Pending ✓' : 'Set Pending'}
+                                </button>
+                             </div>
+                             <input 
+                               required 
+                               className="text-input" 
+                               placeholder="mg/dL" 
+                               value={formData.serumCreatinine} 
+                               onChange={e => setFormData({...formData, serumCreatinine: e.target.value})} 
+                               disabled={formData.serumCreatinine?.toLowerCase() === 'pending'}
+                             />
                           </div>
                           <div className="space-y-1">
                              <div className="flex items-center justify-between">
                                 <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Cr. Clearance <span className="text-rose-500">*</span></label>
                                 <span className="text-[8px] font-bold text-brand-primary uppercase tracking-widest bg-brand-primary/10 px-1.5 py-0.5 rounded">Auto-Calculated</span>
                              </div>
-                             <input required className="text-input" placeholder="mL/min" value={formData.creatinineClearance} onChange={e => setFormData({...formData, creatinineClearance: e.target.value})} />
+                             <input 
+                               required 
+                               className="text-input" 
+                               placeholder="mL/min" 
+                               value={formData.creatinineClearance} 
+                               onChange={e => setFormData({...formData, creatinineClearance: e.target.value})} 
+                               disabled={formData.serumCreatinine?.toLowerCase() === 'pending'}
+                             />
                           </div>
                        </div>
                     </div>
@@ -1713,12 +1789,56 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                     <div className="space-y-4">
                        <div className="grid grid-cols-2 gap-2">
                           <div className="space-y-1">
-                             <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">SGPT (IU/L) <span className="text-rose-500">*</span></label>
-                             <input required className="text-input" value={formData.sgpt} onChange={e => setFormData({...formData, sgpt: e.target.value})} />
+                             <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">SGPT (IU/L) <span className="text-rose-500">*</span></label>
+                                <button
+                                  type="button"
+                                  onClick={() => setFormData(prev => ({ 
+                                    ...prev, 
+                                    sgpt: prev.sgpt?.toLowerCase() === 'pending' ? '' : 'Pending'
+                                  }))}
+                                  className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded transition-all ${
+                                    formData.sgpt?.toLowerCase() === 'pending'
+                                      ? 'bg-amber-100 text-amber-700'
+                                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  {formData.sgpt?.toLowerCase() === 'pending' ? 'Pending ✓' : 'Set Pending'}
+                                </button>
+                             </div>
+                             <input 
+                               required 
+                               className="text-input" 
+                               value={formData.sgpt} 
+                               onChange={e => setFormData({...formData, sgpt: e.target.value})} 
+                               disabled={formData.sgpt?.toLowerCase() === 'pending'}
+                             />
                           </div>
                           <div className="space-y-1">
-                             <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">SGOT (IU/L) <span className="text-rose-500">*</span></label>
-                             <input required className="text-input" value={formData.sgot} onChange={e => setFormData({...formData, sgot: e.target.value})} />
+                             <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">SGOT (IU/L) <span className="text-rose-500">*</span></label>
+                                <button
+                                  type="button"
+                                  onClick={() => setFormData(prev => ({ 
+                                    ...prev, 
+                                    sgot: prev.sgot?.toLowerCase() === 'pending' ? '' : 'Pending'
+                                  }))}
+                                  className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded transition-all ${
+                                    formData.sgot?.toLowerCase() === 'pending'
+                                      ? 'bg-amber-100 text-amber-700'
+                                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  {formData.sgot?.toLowerCase() === 'pending' ? 'Pending ✓' : 'Set Pending'}
+                                </button>
+                             </div>
+                             <input 
+                               required 
+                               className="text-input" 
+                               value={formData.sgot} 
+                               onChange={e => setFormData({...formData, sgot: e.target.value})} 
+                               disabled={formData.sgot?.toLowerCase() === 'pending'}
+                             />
                           </div>
                        </div>
                     </div>
@@ -2496,9 +2616,20 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                     </button>
                     <button 
                       type="submit"
-                      className="flex-[2] sm:flex-none btn-primary px-10 py-4 shadow-xl shadow-teal-900/10 font-black uppercase tracking-widest text-[10px] active:scale-[0.98] transition-transform"
+                      disabled={isSubmitting}
+                      className={cn(
+                        "flex-[2] sm:flex-none btn-primary px-10 py-4 shadow-xl shadow-teal-900/10 font-black uppercase tracking-widest text-[10px] active:scale-[0.98] transition-transform",
+                        isSubmitting && "opacity-50 cursor-not-allowed"
+                      )}
                     >
-                      {editingId ? 'Update Antimicrobial Order' : 'Process Antimicrobial Order'}
+                      {isSubmitting ? (
+                        <span className="flex items-center gap-2 justify-center">
+                          <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Processing...
+                        </span>
+                      ) : (
+                        editingId ? 'Update Antimicrobial Order' : 'Process Antimicrobial Order'
+                      )}
                     </button>
                    </div>
                 </div>
@@ -2635,7 +2766,7 @@ function AMSDashboard({ stats }: { stats: any }) {
                        <div className="flex justify-between items-start mb-1 gap-4 pl-1">
                          <span className="text-[10px] font-bold text-slate-900 truncate">{ext.antibiotic} <span className="text-slate-400 font-medium">({ext.unit})</span></span>
                          <span className="text-[8px] font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">
-                           {ext.dateTimeRequested ? new Date(ext.dateTimeRequested).toLocaleDateString() : 'N/A'}
+                           {ext.dateTimeRequested && !isNaN(new Date(ext.dateTimeRequested).getTime()) ? new Date(ext.dateTimeRequested).toLocaleDateString() : 'N/A'}
                          </span>
                        </div>
                        <p className="text-[10px] text-slate-600 italic line-clamp-2 pl-1">"{ext.justification || 'No reason provided'}"</p>

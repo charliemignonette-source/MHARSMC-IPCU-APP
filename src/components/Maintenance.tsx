@@ -50,6 +50,7 @@ export default function Maintenance({ user }: MaintenanceProps) {
     unit: 'General'
   });
   const [editingStaff, setEditingStaff] = useState<any | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const isAdmin = user?.role === 'IPCN' || user?.role === 'ADMIN';
 
@@ -59,8 +60,8 @@ export default function Maintenance({ user }: MaintenanceProps) {
     const q = query(collection(db, 'user_roles'), orderBy('role'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
+        ...doc.data(),
+        id: doc.id
       }));
       setStaffList(docs);
     });
@@ -167,7 +168,6 @@ export default function Maintenance({ user }: MaintenanceProps) {
   };
 
   const handleDeleteStaff = async (id: string) => {
-    if (!window.confirm('Delete this staff record?')) return;
     try {
       await deleteDoc(doc(db, 'user_roles', id));
     } catch (err) {
@@ -475,8 +475,16 @@ export default function Maintenance({ user }: MaintenanceProps) {
                               <Edit3 className="w-4 h-4" />
                             </button>
                             <button 
-                              onClick={() => handleDeleteStaff(staff.id)}
-                              className="p-2 hover:bg-white hover:text-rose-500 rounded-xl transition-all text-slate-400"
+                              onClick={() => {
+                                if (confirmDeleteId === staff.id) {
+                                  setConfirmDeleteId(null);
+                                  handleDeleteStaff(staff.id);
+                                } else {
+                                  setConfirmDeleteId(staff.id);
+                                }
+                              }}
+                              onMouseLeave={() => setConfirmDeleteId(null)}
+                              className={cn("p-2 rounded-xl transition-all", confirmDeleteId === staff.id ? "bg-rose-500 text-white" : "hover:bg-white hover:text-rose-500 text-slate-400")}
                             >
                               <UserMinus className="w-4 h-4" />
                             </button>

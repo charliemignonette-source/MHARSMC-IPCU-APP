@@ -27,3 +27,34 @@
     @apply bg-brand-primary text-white font-black uppercase tracking-widest py-4 px-8 rounded-2xl shadow-lg shadow-teal-900/20 active:scale-95 transition-all disabled:opacity-50;
   }
 }
+
+@media print {
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background-color: white !important;
+  }
+  
+  .bento-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none !important;
+    border: 1px solid #e2e8f0 !important;
+  }
+  
+  /* Ensure charts, maps or large blocks do not split */
+  canvas, svg, img, table {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  
+  /* Hide UI elements that shouldn't be printed */
+  nav, button, .btn-primary, .no-print {
+    display: none !important;
+  }
+
+  /* Optimize margins for PDF layout */
+  @page {
+    margin: 20mm;
+  }
+}

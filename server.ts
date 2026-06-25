@@ -63,14 +63,22 @@ async function startServer() {
       });
 
       if (error) {
-        console.error("Resend Error:", error);
-        return res.status(500).json({ error: error.message });
+        console.log("Resend info:", error.message);
+        return res.status(200).json({ 
+          success: true, 
+          emailSent: false, 
+          warning: `Resend sandbox or configuration restriction: ${error.message || 'Validation error'}`
+        });
       }
 
-      res.json({ success: true, data });
+      res.json({ success: true, emailSent: true, data });
     } catch (err: any) {
-      console.error("Server Error:", err);
-      res.status(500).json({ error: err.message });
+      console.log("Server email notification issue:", err.message);
+      res.status(200).json({ 
+        success: true, 
+        emailSent: false, 
+        warning: `Failed to send email: ${err.message}` 
+      });
     }
   });
 

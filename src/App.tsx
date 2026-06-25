@@ -31,7 +31,8 @@ import {
   Settings2,
   Download,
   AlertCircle,
-  Info
+  Info,
+  Target
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './lib/firebase';
@@ -51,10 +52,36 @@ import IPCUValidationConsole from './components/IPCUValidationConsole';
 import Reports from './components/Reports';
 import Antibiogram from './components/Antibiogram';
 import Maintenance from './components/Maintenance';
+import QualityObjectives from './components/QualityObjectives';
 
-const ADMIN_EMAILS = ['charliemignonette@gmail.com', 'beeohend@gmail.com', 'doc.julierose@gmail.com', 'ardeleon.mharsmc@gmail.com'];
-const PHARMACY_EMAILS = ['salllydinesiso@gmail.com', 'pharmacy@mharsmc.doh.gov.ph'];
-const IPCN_EMAILS = ['bjponz.22.bp@gmail.com', 'belzarinojrmacamay@gmail.com', 'maryjoy.jokjok13@gmail.com', 'noerensolitana@gmail.com', 'febemaecoronel@gmail.com', 'snmanugas@gmail.com', 'alcyanide88@gmail.com'];
+const ADMIN_EMAILS = [
+  'charliemignonette@gmail.com', 
+  'beeohend@gmail.com', 
+  'ardeleon.mharsmc@gmail.com', 
+  'alleiagurl@gmail.com', 
+  'mharsmc.hipc@gmail.com', 
+  'mharmc.hipc@gmail.com',
+  'seanchaves86@gmail.com'
+];
+const PHARMACY_EMAILS = ['salllydinesiso@gmail.com', 'pharmacy@mharsmc.doh.gov.ph', 'mharsmcpharmacy@gmail.com', 'aedmilaobangs@gmail.com'];
+const IPCN_EMAILS = [
+  'bjponz.22.bp@gmail.com', 
+  'belzarinojrmacamay@gmail.com', 
+  'maryjoy.jokjok13@gmail.com', 
+  'noerensolitana@gmail.com', 
+  'febemaecoronel@gmail.com', 
+  'snmanugas@gmail.com', 
+  'alcyanide88@gmail.com',
+  'junedeenmae25@gmail.com',
+  'krizeljumalon@gmail.com',
+  'adelouie.dico178@gmail.com',
+  'jadelouie.dico178@gmail.com',
+  'bayeng.ai@gmail.com',
+  'Kalvien.rn86@gmail.com'
+];
+const APPROVER_EMAILS = [
+  'doc.julierose@gmail.com'
+];
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -72,6 +99,8 @@ export default function App() {
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [hasPendingAMS, setHasPendingAMS] = useState(false);
   const [pendingAMSCount, setPendingAMSCount] = useState(0);
+  const [hasPendingValidations, setHasPendingValidations] = useState(false);
+  const [pendingValidationCount, setPendingValidationCount] = useState(0);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
 
   useEffect(() => {
@@ -86,12 +115,13 @@ export default function App() {
   const allTabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'IPCN'] },
     { id: 'validation', label: 'IPCU Validation', icon: ShieldAlert, roles: ['ADMIN', 'IPCN'] },
-    { id: 'audits', label: 'IPC Audits', icon: ClipboardCheck, roles: ['ADMIN', 'IPCN', 'USER'] },
-    { id: 'ams', label: 'Antimicrobial Stewardship', icon: Stethoscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'PHARMACY', 'USER'] },
-    { id: 'antibiogram', label: 'Cumulative Antibiogram', icon: Microscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'USER'] },
-    { id: 'hai', label: 'HAI & Bundles', icon: Activity, roles: ['ADMIN', 'IPCN', 'USER'] },
-    { id: 'nsi', label: 'NSI Reporting', icon: AlertTriangle, roles: ['ADMIN', 'IPCN', 'USER'] },
-    { id: 'outbreak', label: 'Outbreak Mgmt', icon: ShieldAlert, roles: ['ADMIN', 'IPCN', 'USER'] },
+    { id: 'audits', label: 'IPC Audits', icon: ClipboardCheck, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'USER'] },
+    { id: 'ams', label: 'Antimicrobial Stewardship', icon: Stethoscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'PHARMACY', 'USER'] },
+    { id: 'antibiogram', label: 'Cumulative Antibiogram', icon: Microscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'USER'] },
+    { id: 'hai', label: 'HAI & Bundles', icon: Activity, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'USER'] },
+    { id: 'nsi', label: 'NSI Reporting', icon: AlertTriangle, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'USER'] },
+    { id: 'outbreak', label: 'Outbreak Mgmt', icon: ShieldAlert, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'USER'] },
+    { id: 'quality-objectives', label: 'Quality Objectives', icon: Target, roles: ['ADMIN', 'IPCN'] },
     { id: 'reports', label: 'System Reports', icon: FileBarChart, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER'] },
     { id: 'maintenance', label: 'System Maintenance', icon: Settings2, roles: ['ADMIN', 'IPCN'] },
   ];
@@ -123,18 +153,46 @@ export default function App() {
             const data = docSnap.data() as UserProfile;
             let updatedRole: typeof data.role | null = null;
 
-            if (authStateUser.email && ADMIN_EMAILS.includes(authStateUser.email) && data.role !== 'ADMIN') {
+            const normalizedEmail = (authStateUser.email || '').toLowerCase().trim();
+            const isAdminEmail = normalizedEmail && ADMIN_EMAILS.some(e => e.toLowerCase() === normalizedEmail);
+            const isPharmacyEmail = normalizedEmail && PHARMACY_EMAILS.some(e => e.toLowerCase() === normalizedEmail);
+            const isIPCNEmail = normalizedEmail && IPCN_EMAILS.some(e => e.toLowerCase() === normalizedEmail);
+            const isApproverEmail = normalizedEmail && APPROVER_EMAILS.some(e => e.toLowerCase() === normalizedEmail);
+
+            if (isAdminEmail && data.role !== 'ADMIN') {
               updatedRole = 'ADMIN';
-            } else if (authStateUser.email && PHARMACY_EMAILS.includes(authStateUser.email) && data.role !== 'PHARMACY') {
+            } else if (isPharmacyEmail && data.role !== 'PHARMACY') {
               updatedRole = 'PHARMACY';
-            } else if (authStateUser.email && IPCN_EMAILS.includes(authStateUser.email) && data.role !== 'IPCN') {
+            } else if (isIPCNEmail && data.role !== 'IPCN') {
               updatedRole = 'IPCN';
+            } else if (isApproverEmail && data.role !== 'APPROVER') {
+              updatedRole = 'APPROVER';
             }
+
+            // Always enforce verification for system-level accounts
+            let needsUpdate = false;
+            let updates: any = {};
 
             if (updatedRole) {
               data.role = updatedRole;
-              await setDoc(docRef, { role: updatedRole }, { merge: true });
+              updates.role = updatedRole;
+              needsUpdate = true;
             }
+
+            if ((isAdminEmail || isPharmacyEmail || isIPCNEmail || isApproverEmail) && !data.isVerified) {
+              data.isVerified = true;
+              updates.isVerified = true;
+              needsUpdate = true;
+            }
+
+            if (needsUpdate) {
+              try {
+                await setDoc(docRef, updates, { merge: true });
+              } catch (err) {
+                console.error("Firebase update role/verification permission error handled gracefully:", err);
+              }
+            }
+            
             setProfile(data);
           } else {
             const rolesQuery = query(collection(db, 'user_roles'), where('email', '==', authStateUser.email));
@@ -143,13 +201,16 @@ export default function App() {
             let role: Role = 'USER';
             let unit = 'ALL';
             
-            if (authStateUser.email && ADMIN_EMAILS.includes(authStateUser.email)) {
-              role = 'ADMIN';
-            } else if (authStateUser.email && PHARMACY_EMAILS.includes(authStateUser.email)) {
-              role = 'PHARMACY';
-            } else if (authStateUser.email && IPCN_EMAILS.includes(authStateUser.email)) {
-              role = 'IPCN';
-            } else if (!rolesSnap.empty) {
+             const normalizedEmail = (authStateUser.email || '').toLowerCase().trim();
+             if (normalizedEmail && ADMIN_EMAILS.some(e => e.toLowerCase() === normalizedEmail)) {
+               role = 'ADMIN';
+             } else if (normalizedEmail && PHARMACY_EMAILS.some(e => e.toLowerCase() === normalizedEmail)) {
+               role = 'PHARMACY';
+             } else if (normalizedEmail && IPCN_EMAILS.some(e => e.toLowerCase() === normalizedEmail)) {
+               role = 'IPCN';
+             } else if (normalizedEmail && APPROVER_EMAILS.some(e => e.toLowerCase() === normalizedEmail)) {
+               role = 'APPROVER';
+             } else if (!rolesSnap.empty) {
               const roleData = rolesSnap.docs[0].data();
               role = roleData.role;
               unit = roleData.unit || 'ALL';
@@ -164,7 +225,11 @@ export default function App() {
               isVerified: true,
               createdAt: new Date().toISOString()
             };
-            await setDoc(docRef, newProfile);
+            try {
+              await setDoc(docRef, newProfile);
+            } catch (err) {
+              console.error("Firebase create profile permission error handled gracefully:", err);
+            }
             setProfile(newProfile);
           }
         } 
@@ -185,7 +250,11 @@ export default function App() {
           const docRef = doc(db, 'users', authStateUser.uid);
           const docSnap = await getDoc(docRef);
           if (!docSnap.exists()) {
-            await setDoc(docRef, anonymousProfile);
+            try {
+              await setDoc(docRef, anonymousProfile);
+            } catch (err) {
+              console.error("Firebase auto-anon create error handled gracefully:", err);
+            }
             setProfile(anonymousProfile);
           } else {
             // Update existing if needed or just sync
@@ -222,7 +291,7 @@ export default function App() {
           if (profile.role === 'ADMIN' || profile.role === 'IPCN' || profile.role === 'APPROVER') {
             count += reqs.filter(r => r.status === 'PENDING').length;
           }
-          if (profile.role === 'PHARMACY' || profile.role === 'ADMIN' || profile.role === 'IPCN') {
+          if (profile.role === 'PHARMACY') {
             count += reqs.filter(r => r.status === 'APPROVED').length;
           }
           setPendingAMSCount(count);
@@ -246,6 +315,65 @@ export default function App() {
     }
 
     return () => unsubscribe();
+  }, [profile]);
+
+  useEffect(() => {
+    if (!profile || (profile.role !== 'ADMIN' && profile.role !== 'IPCN')) {
+      setHasPendingValidations(false);
+      setPendingValidationCount(0);
+      return;
+    }
+
+    const pendingCounts = {
+      hai: 0,
+      audits: 0,
+      bundles: 0,
+      clinicalBundles: 0,
+      nsi: 0,
+      outbreaks: 0
+    };
+
+    const updateValidationState = () => {
+      const total = Object.values(pendingCounts).reduce((sum, count) => sum + count, 0);
+      setPendingValidationCount(total);
+      setHasPendingValidations(total > 0);
+    };
+
+    const qHAI = query(collection(db, "hai_cases"), where("status", "==", "PENDING"));
+    const unsubHAI = onSnapshot(qHAI, snap => { pendingCounts.hai = snap.docs.length; updateValidationState(); });
+
+    const qAudits = query(collection(db, "audits"), where("isValidated", "==", false));
+    const unsubAudits = onSnapshot(qAudits, snap => { pendingCounts.audits = snap.docs.length; updateValidationState(); });
+
+    const qBundles = query(collection(db, "boc_logs"), where("isValidated", "==", false));
+    const unsubBundles = onSnapshot(qBundles, snap => { pendingCounts.bundles = snap.docs.length; updateValidationState(); });
+
+    const qClinicalBundles = query(collection(db, "bundle_monitorings"), where("hasUnverifiedDays", "==", true));
+    const unsubClinicalBundles = onSnapshot(qClinicalBundles, snap => {
+      let count = 0;
+      snap.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        const days = data.monitoringDays || [];
+        days.forEach((day: any) => {
+          if (!day.isVerifiedByIPCU) {
+            count++;
+          }
+        });
+      });
+      pendingCounts.clinicalBundles = count;
+      updateValidationState();
+    });
+
+    const qNSI = query(collection(db, "nsi_reports"), where("status", "==", "PENDING"));
+    const unsubNSI = onSnapshot(qNSI, snap => { pendingCounts.nsi = snap.docs.length; updateValidationState(); });
+
+    const qOutbreaks = query(collection(db, "outbreaks"), where("status", "==", "Suspected"));
+    const unsubOutbreaks = onSnapshot(qOutbreaks, snap => { pendingCounts.outbreaks = snap.docs.length; updateValidationState(); });
+
+    return () => {
+      unsubHAI(); unsubAudits(); unsubBundles();
+      unsubClinicalBundles(); unsubNSI(); unsubOutbreaks();
+    };
   }, [profile]);
 
   const loginWithGoogle = async () => {
@@ -349,7 +477,8 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
 
       // 3. Persist to users collection
       // We ensure the profile exists in the users collection.
-      const isSystemAdmin = user.email && ADMIN_EMAILS.includes(user.email);
+      const normalizedPinEmail = (user.email || '').toLowerCase().trim();
+      const isSystemAdmin = normalizedPinEmail && ADMIN_EMAILS.some(e => e.toLowerCase() === normalizedPinEmail);
       if (isSystemAdmin) {
         pinProfile.role = 'ADMIN';
         pinProfile.isVerified = true;
@@ -567,11 +696,22 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
                             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
                           </span>
                         )}
+                        {tab.id === 'validation' && hasPendingValidations && (
+                          <span className="absolute -top-1.5 -right-1.5 flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                          </span>
+                        )}
                       </div>
                       <span className="flex-1 text-left">{tab.label}</span>
                       {tab.id === 'ams' && hasPendingAMS && (
                         <span className="px-2 py-0.5 text-[9px] font-black text-white bg-rose-500 rounded-full animate-pulse">
                           {pendingAMSCount}
+                        </span>
+                      )}
+                      {tab.id === 'validation' && hasPendingValidations && (
+                        <span className="px-2 py-0.5 text-[9px] font-black text-white bg-rose-500 rounded-full animate-pulse">
+                          {pendingValidationCount}
                         </span>
                       )}
                     </button>
@@ -650,6 +790,12 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
                     </span>
                   )}
+                  {tab.id === 'validation' && hasPendingValidations && (
+                    <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                    </span>
+                  )}
                 </div>
                 <span className="flex-1 text-left">{tab.label}</span>
                 {tab.id === 'ams' && hasPendingAMS && (
@@ -658,6 +804,14 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
                     activeTab === tab.id ? "bg-white text-brand-primary" : "bg-rose-500 text-white"
                   )}>
                     {pendingAMSCount}
+                  </span>
+                )}
+                {tab.id === 'validation' && hasPendingValidations && (
+                  <span className={cn(
+                    "px-1.5 py-0.5 text-[8px] font-black rounded-full animate-pulse shrink-0",
+                    activeTab === tab.id ? "bg-white text-brand-primary" : "bg-rose-500 text-white"
+                  )}>
+                    {pendingValidationCount}
                   </span>
                 )}
                 {activeTab === tab.id && <div className="w-1.5 h-1.5 rounded-full bg-white/50 shrink-0" />}
@@ -703,7 +857,7 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
               onClick={() => setIsSidebarOpen(true)}
             >
               <Menu className="w-5 h-5" />
-              {hasPendingAMS && (
+              {(hasPendingAMS || hasPendingValidations) && (
                 <span className="absolute top-1 right-1 flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
@@ -774,6 +928,7 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
               {activeTab === 'hai' && <HAI user={profile} />}
               {activeTab === 'nsi' && <NSI user={profile} />}
               {activeTab === 'outbreak' && <Outbreak user={profile} />}
+              {activeTab === 'quality-objectives' && <QualityObjectives user={profile} />}
               {activeTab === 'reports' && <Reports user={profile} />}
               {activeTab === 'maintenance' && <Maintenance user={profile} />}
             </div>

@@ -551,14 +551,22 @@ export interface OutbreakCase {
     monthPriorToOnset?: string;
   };
   pathologyDetails?: {
-    dateOfPositiveSpecimen: string;
-    labNumber: string;
-    organismsIsolated: string;
+    dateOfPositiveSpecimen?: string;
+    labNumber?: string;
+    specimenSubmitted?: string;
+    organismsIsolated?: string;
     ribotyping?: string;
     sentForWGS?: {
       done: boolean;
       date?: string;
     };
+    results?: {
+      date: string;
+      labNumber: string;
+      specimen: string;
+      organism: string;
+      susceptibility: string;
+    }[];
   };
   exposureClassification?: {
     healthcareAssociatedFacility?: string;
@@ -593,13 +601,26 @@ export interface OutbreakCase {
     pathology: string;
     symptoms: string;
   }>;
+  caseScore?: {
+    labScore: number;
+    clinicalScore: number;
+    epiLinkScore: number;
+    totalScore: number;
+    classification: string;
+    isPossibleLabAssoc: boolean;
+    labCriteria: string;
+    clinicalCriteria: string;
+    epiLinkCriteria: string;
+    possibleLabAssocCriteria: string[];
+  };
 }
 
 export interface OutbreakReport {
   id?: string;
   detectedAt: string;
   detectedTime: string;
-  dateClosed?: string;
+  organism?: string;
+  caseDefinition?: string;
   reportedBy: string;
   reportingSrc: string[];
   reportingSrcOther?: string;
