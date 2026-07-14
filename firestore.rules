@@ -18,7 +18,7 @@ service cloud.firestore {
     function getUser() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
 
     function isEmailAdmin(email) {
-      return email != null && email.lower() in [
+      return email != null && email != '' && email.lower() in [
         'charliemignonette@gmail.com',
         'beeohend@gmail.com',
         'ardeleon.mharsmc@gmail.com',
@@ -32,7 +32,7 @@ service cloud.firestore {
     }
 
     function isEmailIPCN(email) {
-      return email != null && email.lower() in [
+      return email != null && email != '' && email.lower() in [
         'bjponz.22.bp@gmail.com', 'belzarinojrmacamay@gmail.com', 'maryjoy.jokjok13@gmail.com',
         'noerensolitana@gmail.com', 'febemaecoronel@gmail.com', 'snmanugas@gmail.com',
         'alcyanide88@gmail.com', 'junedeenmae25@gmail.com', 'krizeljumalon@gmail.com',
@@ -42,33 +42,33 @@ service cloud.firestore {
     }
 
     function isEmailPharmacy(email) {
-      return email != null && email.lower() in [
+      return email != null && email != '' && email.lower() in [
         'pharmacy@mharsmc.doh.gov.ph', 'salllydinesiso@gmail.com', 'mharsmcpharmacy@gmail.com', 'aedmilaobangs@gmail.com'
       ];
     }
 
     function isEmailApprover(email) {
-      return email != null && email.lower() in [
+      return email != null && email != '' && email.lower() in [
         'doc.julierose@gmail.com'
       ];
     }
 
     function isAdmin() { 
       return isSignedIn() && (
-        isEmailAdmin(request.auth.token.email) || (userExists() && getUser().get('role', '') == 'ADMIN')
+        isEmailAdmin(request.auth.token.get('email', '')) || (userExists() && getUser().get('role', '') == 'ADMIN')
       ); 
     }
     function isIPCN() { 
       return isSignedIn() && (
         isAdmin() || 
-        isEmailIPCN(request.auth.token.email) ||
+        isEmailIPCN(request.auth.token.get('email', '')) ||
         (userExists() && getUser().get('role', '') == 'IPCN')
       ); 
     }
     function isPharmacy() { 
       return isSignedIn() && (
         isAdmin() || 
-        isEmailPharmacy(request.auth.token.email) ||
+        isEmailPharmacy(request.auth.token.get('email', '')) ||
         (userExists() && getUser().get('role', '') == 'PHARMACY')
       ); 
     }
@@ -76,7 +76,7 @@ service cloud.firestore {
       return isSignedIn() && (
         isAdmin() || 
         isIPCN() || 
-        isEmailApprover(request.auth.token.email) ||
+        isEmailApprover(request.auth.token.get('email', '')) ||
         (userExists() && (getUser().get('role', '') == 'APPROVER' || getUser().get('role', '') == 'PHYSICIAN'))
       ); 
     }
@@ -155,7 +155,7 @@ service cloud.firestore {
       allow get: if isSignedIn();
       allow create: if isSignedIn() && (userId == request.auth.uid) && isValidUser(incoming()) && (
         incoming().get('role', 'USER') == 'USER' ||
-        (request.auth.token.email != null && isEmailAuthorizedForRole(request.auth.token.email, incoming().get('role', 'USER')))
+        (request.auth.token.get('email', '') != '' && isEmailAuthorizedForRole(request.auth.token.get('email', ''), incoming().get('role', 'USER')))
       );
       allow update: if isSignedIn() && (userId == request.auth.uid || isAdmin()) && 
                     isValidUser(incoming()) && (
@@ -163,7 +163,7 @@ service cloud.firestore {
                         incoming().get('role', 'USER') == existing().get('role', 'USER') || 
                         incoming().get('role', 'USER') == 'USER' || 
                         isAdmin() ||
-                        (request.auth.token.email != null && isEmailAuthorizedForRole(request.auth.token.email, incoming().get('role', 'USER')))
+                        (request.auth.token.get('email', '') != '' && isEmailAuthorizedForRole(request.auth.token.get('email', ''), incoming().get('role', 'USER')))
                       ))
                     );
       allow list: if isAdmin() || isIPCN();
@@ -178,7 +178,7 @@ service cloud.firestore {
                       'status', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 'reason', 'notes', 
                       'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 
                       'monitoringMethod', 'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 
-                      'validationRemarks', 'date', 'time', 'updatedAt'
+                      'validationRemarks', 'date', 'time', 'updatedAt', 'validationStatus'
                     ]);
       allow delete: if isAdmin() || isIPCN();
     }
@@ -226,7 +226,7 @@ service cloud.firestore {
       allow list: if isSignedIn() && (resource.data.get('staffId', '') == request.auth.uid || isIPCN() || isAdmin());
       allow create: if isSignedIn() && isValidBOCLog(incoming()) && incoming().get('staffId', '') == request.auth.uid && isValidId(logId);
       allow update: if (isIPCN() || isAdmin()) && 
-                   incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'verification', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'validationRemarks', 'date', 'time', 'updatedAt']);
+                   incoming().diff(existing()).affectedKeys().hasOnly(['isValidated', 'verification', 'validatedBy', 'validatedAt', 'validatorName', 'status', 'reason', 'notes', 'basis', 'rootCauses', 'contributingFactors', 'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus', 'clinicalAccuracy', 'complianceAccuracy', 'validationRemarks', 'date', 'time', 'updatedAt', 'validationStatus']);
       allow delete: if isAdmin() || isIPCN();
     }
 

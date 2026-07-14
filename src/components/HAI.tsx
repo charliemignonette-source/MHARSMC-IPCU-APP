@@ -1334,8 +1334,8 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                              <Plus className="w-5 h-5" />
                            </button>
                          )}
-                         {selectedPatient.status === 'ACTIVE' ? (
-                           isAdmin && (
+                         {selectedPatient.status === 'ACTIVE' && (
+                           (isAdmin || isIPCU) && (
                              <button 
                                onClick={() => setIsEndingMonitoring(true)}
                                className="p-4 bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border border-rose-500/20 rounded-2xl transition-all group"
@@ -1344,30 +1344,29 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                                <XCircle className="w-5 h-5" />
                              </button>
                            )
-                         ) : (
-                            (isIPCU || isAdmin || selectedPatient.staffId === user?.uid) && (
-                              <button 
-                                onClick={async (e) => {
-                                  if (confirmDeleteId === selectedPatient.id) {
-                                    setConfirmDeleteId(null);
-                                    try {
-                                      await deleteDoc(doc(db, 'bundle_monitorings', selectedPatient.id!));
-                                      setSelectedPatient(null);
-                                      showToast('Patient record permanently deleted');
-                                    } catch (err) {
-                                      handleFirestoreError(err, OperationType.DELETE, 'bundle_monitorings');
-                                    }
-                                  } else {
-                                    setConfirmDeleteId(selectedPatient.id!);
+                         )}
+                         {(isIPCU || isAdmin || selectedPatient.staffId === user?.uid) && (
+                            <button 
+                              onClick={async (e) => {
+                                if (confirmDeleteId === selectedPatient.id) {
+                                  setConfirmDeleteId(null);
+                                  try {
+                                    await deleteDoc(doc(db, 'bundle_monitorings', selectedPatient.id!));
+                                    setSelectedPatient(null);
+                                    showToast('Patient record permanently deleted');
+                                  } catch (err) {
+                                    handleFirestoreError(err, OperationType.DELETE, 'bundle_monitorings');
                                   }
-                                }}
-                                onMouseLeave={() => setConfirmDeleteId(null)}
-                                className={cn("p-4 rounded-2xl transition-all group flex items-center justify-center border", confirmDeleteId === selectedPatient.id ? "bg-rose-500 text-white border-rose-600" : "bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border-rose-500/20")}
-                                title={confirmDeleteId === selectedPatient.id ? "Click again to confirm delete" : "Delete Permanently"}
-                              >
-                                <Trash2 className="w-5 h-5" />
-                              </button>
-                            )
+                                } else {
+                                  setConfirmDeleteId(selectedPatient.id!);
+                                }
+                              }}
+                              onMouseLeave={() => setConfirmDeleteId(null)}
+                              className={cn("p-4 rounded-2xl transition-all group flex items-center justify-center border", confirmDeleteId === selectedPatient.id ? "bg-rose-500 text-white border-rose-600" : "bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border-rose-500/20")}
+                              title={confirmDeleteId === selectedPatient.id ? "Click again to confirm delete" : "Delete Permanently"}
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
                           )}
                       </div>
                     </div>

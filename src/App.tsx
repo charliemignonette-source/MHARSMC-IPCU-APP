@@ -52,7 +52,6 @@ import IPCUValidationConsole from './components/IPCUValidationConsole';
 import Reports from './components/Reports';
 import Antibiogram from './components/Antibiogram';
 import Maintenance from './components/Maintenance';
-import QualityObjectives from './components/QualityObjectives';
 
 const ADMIN_EMAILS = [
   'charliemignonette@gmail.com', 
@@ -121,7 +120,6 @@ export default function App() {
     { id: 'hai', label: 'HAI & Bundles', icon: Activity, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'USER'] },
     { id: 'nsi', label: 'NSI Reporting', icon: AlertTriangle, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'USER'] },
     { id: 'outbreak', label: 'Outbreak Mgmt', icon: ShieldAlert, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'USER'] },
-    { id: 'quality-objectives', label: 'Quality Objectives', icon: Target, roles: ['ADMIN', 'IPCN'] },
     { id: 'reports', label: 'System Reports', icon: FileBarChart, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER'] },
     { id: 'maintenance', label: 'System Maintenance', icon: Settings2, roles: ['ADMIN', 'IPCN'] },
   ];
@@ -928,7 +926,6 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
               {activeTab === 'hai' && <HAI user={profile} />}
               {activeTab === 'nsi' && <NSI user={profile} />}
               {activeTab === 'outbreak' && <Outbreak user={profile} />}
-              {activeTab === 'quality-objectives' && <QualityObjectives user={profile} />}
               {activeTab === 'reports' && <Reports user={profile} />}
               {activeTab === 'maintenance' && <Maintenance user={profile} />}
             </div>

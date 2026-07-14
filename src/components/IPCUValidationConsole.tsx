@@ -103,6 +103,7 @@ export default function IPCUValidationConsole({
   const [validatedOutbreaks, setValidatedOutbreaks] = useState<
     OutbreakReport[]
   >([]);
+  const [isGroupedHistory, setIsGroupedHistory] = useState(true);
 
   useEffect(() => {
     // 1. Fetch Pending HAI Cases
@@ -360,14 +361,14 @@ export default function IPCUValidationConsole({
     OUTBREAK: [],
   });
 
-  const handleDelete = async (item: any) => {
+  const handleDelete = async (item: any, silent = false) => {
     if (!user) {
-      alert("Please log in to perform this action.");
+      if (!silent) alert("Please log in to perform this action.");
       return;
     }
 
     if (user.role !== "ADMIN" && user.role !== "IPCN") {
-      alert("Insufficient permissions: Only IPCN/Admin can delete records.");
+      if (!silent) alert("Insufficient permissions: Only IPCN/Admin can delete records.");
       return;
     }
 
@@ -381,7 +382,7 @@ export default function IPCUValidationConsole({
       (typeof item.id === "string" && item.id.includes("demo"));
 
     if (isSample) {
-      alert("This is sample data and cannot be deleted.");
+      if (!silent) alert("This is sample data and cannot be deleted.");
       return;
     }
 
@@ -413,7 +414,7 @@ export default function IPCUValidationConsole({
 
     if (!targetId) {
       console.error("Deletion failed: Could not resolve target ID", item);
-      alert("Delete failed. Try again (ID Error).");
+      if (!silent) alert("Delete failed. Try again (ID Error).");
       return;
     }
 
@@ -439,7 +440,7 @@ export default function IPCUValidationConsole({
             
             if (days.length === updatedDays.length) {
               console.warn("No match found in array filter.", { targetTypeStr });
-              alert("Delete failed: Record not found in document.");
+              if (!silent) alert("Delete failed: Record not found in document.");
               return;
             }
           } else {
@@ -457,19 +458,19 @@ export default function IPCUValidationConsole({
             
             if (days.length === updatedDays.length) {
               console.warn("No match found in array filter. Check date format.", { targetDateStr, targetTypeStr });
-              alert("Delete failed: Record not found in document.");
+              if (!silent) alert("Delete failed: Record not found in document.");
               return;
             }
           }
 
           await updateDoc(docRef, { monitoringDays: updatedDays });
-          alert("Log deleted.");
+          if (!silent) alert("Log deleted.");
         } else {
-          alert(`Delete failed. Record source (${targetId}) not found.`);
+          if (!silent) alert(`Delete failed. Record source (${targetId}) not found.`);
         }
       } catch (e) {
         console.error("IPCU Array Remove Error:", e);
-        alert("Delete failed. See console for details.");
+        if (!silent) alert("Delete failed. See console for details.");
       }
       return;
     }
@@ -477,7 +478,7 @@ export default function IPCUValidationConsole({
     // Standard Document Deletion
     try {
       await deleteDoc(doc(db, targetCollection, targetId));
-      alert("Log deleted.");
+      if (!silent) alert("Log deleted.");
     } catch (e) {
       console.error("IPCU Delete Error:", e);
       handleFirestoreError(
@@ -485,11 +486,11 @@ export default function IPCUValidationConsole({
         OperationType.DELETE,
         `${targetCollection}/${targetId}`,
       );
-      alert("Delete failed. Try again.");
+      if (!silent) alert("Delete failed. Try again.");
     }
   };
 
-  const handleReset = async (item: any) => {
+  const handleReset = async (item: any, silent = false) => {
     if (!user || (user.role !== "ADMIN" && user.role !== "IPCN")) return;
 
     // Identify collection
@@ -558,10 +559,10 @@ export default function IPCUValidationConsole({
 
         await updateDoc(doc(db, targetCollection, targetId), updatePayload);
       }
-      alert("Validation reset successfully.");
+      if (!silent) alert("Validation reset successfully.");
     } catch (e) {
       console.error("IPCU Reset Error:", e);
-      alert("Reset failed. Check permissions.");
+      if (!silent) alert("Reset failed. Check permissions.");
     }
   };
 
@@ -810,45 +811,66 @@ export default function IPCUValidationConsole({
       </div>
 
       {/* Modern Switcher */}
-      <div className="flex bg-white p-2 w-fit rounded-3xl shadow-sm border border-slate-100 mb-8">
-        {[
-          {
-            id: "pending",
-            label: "Case Verification Queue",
-            icon: Clock,
-            count: pendingItems.length,
-          },
-          { id: "history", label: "Validation Archives", icon: ClipboardList },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as any)}
-              className={cn(
-                "px-8 py-3 text-[11px] font-black uppercase tracking-widest rounded-2xl transition-all flex items-center gap-3",
-                activeSubTab === tab.id
-                  ? "bg-slate-900 text-white shadow-xl shadow-slate-900/10"
-                  : "text-slate-400 hover:text-slate-500",
-              )}
-            >
-              <Icon className="w-4 h-4" />
-              {tab.label}
-              {tab.count !== undefined && (
-                <span
-                  className={cn(
-                    "px-2 py-0.5 rounded-full text-[9px] font-black",
-                    activeSubTab === tab.id
-                      ? "bg-white/20 text-white"
-                      : "bg-slate-100 text-slate-500",
-                  )}
-                >
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex bg-white p-2 w-fit rounded-3xl shadow-sm border border-slate-100">
+          {[
+            {
+              id: "pending",
+              label: "Case Verification Queue",
+              icon: Clock,
+              count: pendingItems.length,
+            },
+            { id: "history", label: "Validation Archives", icon: ClipboardList },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveSubTab(tab.id as any)}
+                className={cn(
+                  "px-8 py-3 text-[11px] font-black uppercase tracking-widest rounded-2xl transition-all flex items-center gap-3",
+                  activeSubTab === tab.id
+                    ? "bg-slate-900 text-white shadow-xl shadow-slate-900/10"
+                    : "text-slate-400 hover:text-slate-500",
+                )}
+              >
+                <Icon className="w-4 h-4" />
+                {tab.label}
+                {tab.count !== undefined && (
+                  <span
+                    className={cn(
+                      "px-2 py-0.5 rounded-full text-[9px] font-black",
+                      activeSubTab === tab.id
+                        ? "bg-white/20 text-white"
+                        : "bg-slate-100 text-slate-500",
+                    )}
+                  >
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {activeSubTab === "history" && (
+          <button
+            onClick={() => setIsGroupedHistory(!isGroupedHistory)}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-sm text-xs font-bold text-slate-700"
+          >
+            {isGroupedHistory ? (
+              <>
+                <Layers className="w-4 h-4 text-emerald-500" />
+                <span>Grouped View Active</span>
+              </>
+            ) : (
+              <>
+                <Layers className="w-4 h-4 text-slate-400" />
+                <span>Show Grouped View</span>
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       <AnimatePresence mode="wait">
@@ -1105,61 +1127,126 @@ export default function IPCUValidationConsole({
 
             {/* Validated IPC Audits */}
             <HistorySection
-              title="Validated IPC Biosecurity Audits"
+              title={isGroupedHistory ? "Validated IPC Biosecurity Audits (Grouped)" : "Validated IPC Biosecurity Audits"}
               icon={<ClipboardList className="w-5 h-5 text-emerald-500" />}
               headers={[
                 "Audit Type",
                 "Unit",
-                "Compliance",
+                isGroupedHistory ? "Average Compliance" : "Compliance",
                 "Monitoring",
-                "Validator",
+                isGroupedHistory ? "Records" : "Validator",
                 "Date",
               ]}
-              items={validatedAudits.map((a) => [
-                a.type.replace(/_/g, " "),
-                a.unit,
-                <span className="text-xs font-black text-emerald-600">
-                  {a.score}%
-                </span>,
-                <span className="flex flex-col gap-0.5">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight leading-none">
-                    {a.monitoringMethod || "N/A"}
-                  </span>
-                  {a.monitoringStatus && (
-                    <span
-                      className={cn(
-                        "text-[9px] font-bold uppercase",
-                        a.monitoringStatus === "PASS"
-                          ? "text-emerald-500"
-                          : "text-rose-500",
-                      )}
-                    >
-                      {a.monitoringStatus === "PASS"
-                        ? "Success"
-                        : "Discrepancy"}
+              items={(() => {
+                const auditsArray = isGroupedHistory ? Object.values(validatedAudits.reduce((acc, a) => {
+                  const key = `${a.type}-${a.unit}`;
+                  if (!acc[key]) {
+                    acc[key] = { ...a, group: [a], totalScore: a.score };
+                  } else {
+                    acc[key].group.push(a);
+                    acc[key].totalScore += a.score;
+                    if (a.timestamp && new Date(a.timestamp).getTime() > new Date(acc[key].timestamp).getTime()) {
+                      acc[key].timestamp = a.timestamp;
+                    }
+                  }
+                  return acc;
+                }, {} as any)).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) : validatedAudits;
+                
+                if (isGroupedHistory) {
+                  return auditsArray.map((a: any) => [
+                    a.type.replace(/_/g, " "),
+                    a.unit,
+                    <span className="text-xs font-black text-emerald-600">
+                      {Math.round(a.totalScore / a.group.length)}%
+                    </span>,
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight leading-none">
+                        Multiple Methods
+                      </span>
+                    </span>,
+                    <span className="text-xs font-bold text-slate-500">{a.group.length} Reports</span>,
+                    "Latest: " + (a.timestamp && !isNaN(new Date(a.timestamp).getTime()) ? new Date(a.timestamp).toLocaleDateString() : '-'),
+                  ]);
+                }
+
+                return auditsArray.map((a: any) => [
+                  a.type.replace(/_/g, " "),
+                  a.unit,
+                  <span className="text-xs font-black text-emerald-600">
+                    {a.score}%
+                  </span>,
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight leading-none">
+                      {a.monitoringMethod || "N/A"}
                     </span>
-                  )}
-                </span>,
-                a.validatorName || "-",
-                a.timestamp && !isNaN(new Date(a.timestamp).getTime()) ? new Date(a.timestamp).toLocaleDateString() : '-',
-              ])}
-              onDelete={(i) =>
-                handleDelete({ ...validatedAudits[i], type: "AUDIT" })
-              }
-              onReset={(i) =>
-                handleReset({ ...validatedAudits[i], type: "AUDIT" })
-              }
+                    {a.monitoringStatus && (
+                      <span
+                        className={cn(
+                          "text-[9px] font-bold uppercase",
+                          a.monitoringStatus === "PASS"
+                            ? "text-emerald-500"
+                            : "text-rose-500",
+                        )}
+                      >
+                        {a.monitoringStatus === "PASS"
+                          ? "Success"
+                          : "Discrepancy"}
+                      </span>
+                    )}
+                  </span>,
+                  a.validatorName || "-",
+                  a.timestamp && !isNaN(new Date(a.timestamp).getTime()) ? new Date(a.timestamp).toLocaleDateString() : '-',
+                ]);
+              })()}
+              onDelete={(i) => {
+                if (isGroupedHistory) {
+                  const grouped = Object.values(validatedAudits.reduce((acc, a) => {
+                    const key = `${a.type}-${a.unit}`;
+                    if (!acc[key]) acc[key] = { ...a, group: [a], timestamp: a.timestamp };
+                    else {
+                      acc[key].group.push(a);
+                      if (a.timestamp && new Date(a.timestamp).getTime() > new Date(acc[key].timestamp).getTime()) acc[key].timestamp = a.timestamp;
+                    }
+                    return acc;
+                  }, {} as any)).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                  const target = grouped[i];
+                  if (window.confirm(`Delete all ${target.group.length} records in this group?`)) {
+                    target.group.forEach((a: any) => handleDelete({ ...a, type: "AUDIT" }, true));
+                  }
+                } else {
+                  handleDelete({ ...validatedAudits[i], type: "AUDIT" });
+                }
+              }}
+              onReset={(i) => {
+                if (isGroupedHistory) {
+                  const grouped = Object.values(validatedAudits.reduce((acc, a) => {
+                    const key = `${a.type}-${a.unit}`;
+                    if (!acc[key]) acc[key] = { ...a, group: [a], timestamp: a.timestamp };
+                    else {
+                      acc[key].group.push(a);
+                      if (a.timestamp && new Date(a.timestamp).getTime() > new Date(acc[key].timestamp).getTime()) acc[key].timestamp = a.timestamp;
+                    }
+                    return acc;
+                  }, {} as any)).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                  const target = grouped[i];
+                  if (window.confirm(`Reset validation for all ${target.group.length} records in this group?`)) {
+                    target.group.forEach((a: any) => handleReset({ ...a, type: "AUDIT" }, true));
+                  }
+                } else {
+                  handleReset({ ...validatedAudits[i], type: "AUDIT" });
+                }
+              }}
             />
 
             {/* Validated Bundle Discrepancies */}
             <HistorySection
-              title="Validated Bundle Compliance Logs"
+              title={isGroupedHistory ? "Validated Bundle Compliance Logs (Grouped)" : "Validated Bundle Compliance Logs"}
               icon={<Layers className="w-5 h-5 text-amber-500" />}
               headers={[
                 "Patient",
                 "Unit",
                 "Type",
-                "Status",
+                isGroupedHistory ? "Records" : "Status",
                 "Monitoring",
                 "IPCU Decision",
               ]}
@@ -1264,6 +1351,41 @@ export default function IPCUValidationConsole({
                     original: { ...d, type: "BUNDLE" },
                   })),
                 ].sort((a: any, b: any) => b.date - a.date);
+                
+                if (isGroupedHistory) {
+                  const grouped = Object.values(combined.reduce((acc, item) => {
+                    let baseType = item.data[2] as string;
+                    if (baseType.startsWith("Daily:")) {
+                        baseType = baseType.replace(/ \(D\d+\)/, "");
+                    }
+                    const key = `${item.data[0]}-${item.data[1]}-${baseType}`;
+                    if (!acc[key]) {
+                      acc[key] = { ...item, group: [item], baseType };
+                    } else {
+                      acc[key].group.push(item);
+                      if (item.date > acc[key].date) {
+                         acc[key].date = item.date;
+                         // Keep the latest decision block
+                         acc[key].data[5] = item.data[5];
+                      }
+                    }
+                    return acc;
+                  }, {} as any)).sort((a: any, b: any) => b.date - a.date);
+
+                  return grouped.map((g: any) => [
+                    g.data[0], // Patient
+                    g.data[1], // Unit
+                    g.baseType,
+                    <span className="text-xs font-bold text-slate-500">{g.group.length} Days/Records</span>,
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight leading-none">
+                        Grouped View
+                      </span>
+                    </span>,
+                    g.data[5] // Latest decision
+                  ]);
+                }
+                
                 return combined.map((item) => item.data);
               })()}
               onDelete={(i) => {
@@ -1275,6 +1397,7 @@ export default function IPCUValidationConsole({
                         ? new Date(b.validatedAt).getTime()
                         : 0,
                     original: { ...b, type: "AUDIT" },
+                    data: [b.patientName, b.unit, b.bundleType]
                   })),
                   ...verifiedDailyDays.map((d) => ({
                     date: d.verifiedAt?.toDate?.()
@@ -1283,9 +1406,30 @@ export default function IPCUValidationConsole({
                         ? new Date(d.verifiedAt).getTime()
                         : 0,
                     original: { ...d, type: "BUNDLE" },
+                    data: [d.patientName, d.unit, `Daily: ${d.bundleType} (D${d.dayNumber})`]
                   })),
                 ].sort((a: any, b: any) => b.date - a.date);
-                handleDelete(combined[i].original);
+
+                if (isGroupedHistory) {
+                  const grouped = Object.values(combined.reduce((acc, item) => {
+                    let baseType = item.data[2] as string;
+                    if (baseType.startsWith("Daily:")) baseType = baseType.replace(/ \(D\d+\)/, "");
+                    const key = `${item.data[0]}-${item.data[1]}-${baseType}`;
+                    if (!acc[key]) acc[key] = { ...item, group: [item], baseType };
+                    else {
+                      acc[key].group.push(item);
+                      if (item.date > acc[key].date) acc[key].date = item.date;
+                    }
+                    return acc;
+                  }, {} as any)).sort((a: any, b: any) => b.date - a.date);
+                  
+                  const target = grouped[i];
+                  if (window.confirm(`Delete all ${target.group.length} bundle records in this group?`)) {
+                    target.group.forEach((b: any) => handleDelete(b.original, true));
+                  }
+                } else {
+                  handleDelete(combined[i].original);
+                }
               }}
               onReset={(i) => {
                 const combined = [
@@ -1296,6 +1440,7 @@ export default function IPCUValidationConsole({
                         ? new Date(b.validatedAt).getTime()
                         : 0,
                     original: { ...b, type: "AUDIT" },
+                    data: [b.patientName, b.unit, b.bundleType]
                   })),
                   ...verifiedDailyDays.map((d) => ({
                     date: d.verifiedAt?.toDate?.()
@@ -1304,9 +1449,30 @@ export default function IPCUValidationConsole({
                         ? new Date(d.verifiedAt).getTime()
                         : 0,
                     original: { ...d, type: "BUNDLE" },
+                    data: [d.patientName, d.unit, `Daily: ${d.bundleType} (D${d.dayNumber})`]
                   })),
                 ].sort((a: any, b: any) => b.date - a.date);
-                handleReset(combined[i].original);
+
+                if (isGroupedHistory) {
+                  const grouped = Object.values(combined.reduce((acc, item) => {
+                    let baseType = item.data[2] as string;
+                    if (baseType.startsWith("Daily:")) baseType = baseType.replace(/ \(D\d+\)/, "");
+                    const key = `${item.data[0]}-${item.data[1]}-${baseType}`;
+                    if (!acc[key]) acc[key] = { ...item, group: [item], baseType };
+                    else {
+                      acc[key].group.push(item);
+                      if (item.date > acc[key].date) acc[key].date = item.date;
+                    }
+                    return acc;
+                  }, {} as any)).sort((a: any, b: any) => b.date - a.date);
+                  
+                  const target = grouped[i];
+                  if (window.confirm(`Reset validation for all ${target.group.length} bundle records in this group?`)) {
+                    target.group.forEach((b: any) => handleReset(b.original, true));
+                  }
+                } else {
+                  handleReset(combined[i].original);
+                }
               }}
             />
 
@@ -1526,12 +1692,18 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    if (isGroupedBundle) {
+    try {
+      if (isGroupedBundle) {
         await onSubmit({ ...decision, targetDayIndex: currentBundleData.dayIndex });
-    } else {
+      } else {
         await onSubmit(decision);
+      }
+    } catch (err) {
+      console.error("Submission error:", err);
+      alert(err instanceof Error ? err.message : "An error occurred during submission.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (

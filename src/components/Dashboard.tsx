@@ -90,6 +90,7 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
         const ams = await getDocs(collection(db, 'ams_requests'));
         const nsi = await getDocs(collection(db, 'nsi_reports'));
         const outbreaks = await getDocs(collection(db, 'outbreaks'));
+        const monitorings = await getDocs(collection(db, 'bundle_monitorings'));
 
         const now = new Date();
         const todayStr = now.toLocaleDateString('en-CA'); 
@@ -103,6 +104,48 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
         const outbreakData = outbreaks.docs.map(d => ({ ...d.data(), id: d.id } as any));
         const haiData = hais.docs.map(d => ({ ...d.data(), id: d.id } as any));
         
+        // Merge daily monitorings into bocData
+        monitorings.docs.forEach(docSnap => {
+          const data = docSnap.data();
+          const days = data.monitoringDays || [];
+          days.forEach((day: any, index: number) => {
+             const devMap: Record<string, string> = {
+               'CLABSI': 'CENTRAL_LINE',
+               'CAUTI': 'FOLEY',
+               'VAP': 'VENTILATOR',
+               'SSI': 'SURGICAL_SITE'
+             };
+             const dev = devMap[day.bundleType] || day.bundleType;
+             
+             // Create mock BOCLog
+             const mockBoc: BOCLog = {
+               id: `${docSnap.id}-${index}`,
+               date: day.date,
+               time: '00:00',
+               unit: data.unit,
+               patientName: data.patientName,
+               hospNo: data.hospitalNo || '',
+               age: data.age || '',
+               sex: data.sex || 'Male',
+               devicesPresent: [dev],
+               bundles: {
+                 [dev]: {
+                   isCompliant: day.complianceScores?.bundle === 100 || day.compliancePercentage === 100,
+                   elements: day.elementScores || {} // we might not have exact element breakdown here, but we can try
+                 } as any
+               },
+               bundleType: day.bundleType,
+               totalApplicable: 1,
+               totalCompliant: (day.complianceScores?.bundle === 100 || day.compliancePercentage === 100) ? 1 : 0,
+               compliancePercentage: day.complianceScores?.overall || day.compliancePercentage || 0,
+               staffName: data.staffName || '',
+               staffDesignation: '',
+               staffId: data.staffId || ''
+             };
+             bocData.push(mockBoc);
+          });
+        });
+
         setRawLogs({ 
           boc: bocData, 
           ams: amsData, 
