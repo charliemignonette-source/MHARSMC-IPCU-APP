@@ -35,8 +35,11 @@ import {
   Target
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { auth, db } from './lib/firebase';
-import { doc, getDoc, setDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import {  auth, db , safeOnSnapshot, safeGetDoc, safeSetDoc, safeGetDocs, isQuotaExceeded, testConnection } from './lib/firebase';
+import { doc, collection, query, where, limit } from 'firebase/firestore';
+const getDoc = safeGetDoc;
+const setDoc = safeSetDoc;
+const getDocs = safeGetDocs;
 import { UserProfile, Role } from './types';
 import { cn } from './lib/utils';
 import { seedUserRoles } from './lib/seed';
@@ -140,12 +143,13 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (authStateUser) => {
-      if (authStateUser) {
-        setUser(authStateUser);
-        // If Google user
-        if (authStateUser.providerData.length > 0) {
-          const docRef = doc(db, 'users', authStateUser.uid);
-          const docSnap = await getDoc(docRef);
+      try {
+        if (authStateUser) {
+          setUser(authStateUser);
+          // If Google user
+          if (authStateUser.providerData.length > 0) {
+            const docRef = doc(db, 'users', authStateUser.uid);
+            const docSnap = await getDoc(docRef);
           
           if (docSnap.exists()) {
             const data = docSnap.data() as UserProfile;
@@ -187,7 +191,7 @@ export default function App() {
               try {
                 await setDoc(docRef, updates, { merge: true });
               } catch (err) {
-                console.error("Firebase update role/verification permission error handled gracefully:", err);
+                console.warn("Firebase update role/verification permission error handled gracefully:", err);
               }
             }
             
@@ -226,7 +230,7 @@ export default function App() {
             try {
               await setDoc(docRef, newProfile);
             } catch (err) {
-              console.error("Firebase create profile permission error handled gracefully:", err);
+              console.warn("Firebase create profile permission error handled gracefully:", err);
             }
             setProfile(newProfile);
           }
@@ -251,7 +255,7 @@ export default function App() {
             try {
               await setDoc(docRef, anonymousProfile);
             } catch (err) {
-              console.error("Firebase auto-anon create error handled gracefully:", err);
+              console.warn("Firebase auto-anon create error handled gracefully:", err);
             }
             setProfile(anonymousProfile);
           } else {
@@ -262,9 +266,34 @@ export default function App() {
         }
       } else {
         // No user, sign in anonymously
-        signInAnonymously(auth).catch(err => console.error("Auto-anon failed:", err));
+        signInAnonymously(auth).catch(err => console.warn("Auto-anon failed:", err));
       }
-      setLoading(false);
+      } catch (err: any) {
+        console.warn("onAuthStateChanged error:", err.message);
+        if (err.message?.includes('Quota') || err.message?.includes('quota') || err.message?.includes('offline')) {
+          if (authStateUser) {
+            let role: any = 'USER';
+            const normalizedEmail = (authStateUser.email || '').toLowerCase().trim();
+            if (ADMIN_EMAILS.some(e => e.toLowerCase() === normalizedEmail)) role = 'ADMIN';
+            else if (PHARMACY_EMAILS.some(e => e.toLowerCase() === normalizedEmail)) role = 'PHARMACY';
+            else if (IPCN_EMAILS.some(e => e.toLowerCase() === normalizedEmail)) role = 'IPCN';
+            else if (APPROVER_EMAILS.some(e => e.toLowerCase() === normalizedEmail)) role = 'APPROVER';
+            
+            setProfile({
+              uid: authStateUser.uid,
+              email: authStateUser.email || '',
+              name: authStateUser.displayName || 'Offline User',
+              role,
+              unit: 'ALL',
+              isVerified: true,
+              isAnonymous: authStateUser.isAnonymous,
+              createdAt: new Date().toISOString()
+            });
+          }
+        }
+      } finally {
+        setLoading(false);
+      }
     });
 
     return () => unsubscribe();
@@ -283,7 +312,7 @@ export default function App() {
     try {
       if (profile.role === 'ADMIN' || profile.role === 'IPCN' || profile.role === 'APPROVER' || profile.role === 'PHARMACY') {
         const q = query(baseQuery);
-        unsubscribe = onSnapshot(q, (snapshot) => {
+        unsubscribe = safeOnSnapshot(q, (snapshot) => {
           const reqs = snapshot.docs.map(doc => doc.data() as any);
           let count = 0;
           if (profile.role === 'ADMIN' || profile.role === 'IPCN' || profile.role === 'APPROVER') {
@@ -295,21 +324,21 @@ export default function App() {
           setPendingAMSCount(count);
           setHasPendingAMS(count > 0);
         }, (err) => {
-          console.error("Pending AMS query error:", err);
+          console.warn("Pending AMS query error:", err);
         });
       } else {
         const q = query(baseQuery, where('prescriberId', '==', profile.uid));
-        unsubscribe = onSnapshot(q, (snapshot) => {
+        unsubscribe = safeOnSnapshot(q, (snapshot) => {
           const reqs = snapshot.docs.map(doc => doc.data() as any);
           const count = reqs.filter(r => r.status === 'MODIFY').length;
           setPendingAMSCount(count);
           setHasPendingAMS(count > 0);
         }, (err) => {
-          console.error("Physician pending ams error:", err);
+          console.warn("Physician pending ams error:", err);
         });
       }
     } catch (err) {
-      console.error("Failed to establish real-time ams listener:", err);
+      console.warn("Failed to establish real-time ams listener:", err);
     }
 
     return () => unsubscribe();
@@ -337,17 +366,19 @@ export default function App() {
       setHasPendingValidations(total > 0);
     };
 
-    const qHAI = query(collection(db, "hai_cases"), where("status", "==", "PENDING"));
-    const unsubHAI = onSnapshot(qHAI, snap => { pendingCounts.hai = snap.docs.length; updateValidationState(); });
+    const handleError = (err: any) => console.warn('Validation query quota/error:', err);
 
-    const qAudits = query(collection(db, "audits"), where("isValidated", "==", false));
-    const unsubAudits = onSnapshot(qAudits, snap => { pendingCounts.audits = snap.docs.length; updateValidationState(); });
+    const qHAI = query(collection(db, "hai_cases"), where("status", "==", "PENDING"), limit(100));
+    const unsubHAI = safeOnSnapshot(qHAI, snap => { pendingCounts.hai = snap.docs.length; updateValidationState(); }, handleError);
 
-    const qBundles = query(collection(db, "boc_logs"), where("isValidated", "==", false));
-    const unsubBundles = onSnapshot(qBundles, snap => { pendingCounts.bundles = snap.docs.length; updateValidationState(); });
+    const qAudits = query(collection(db, "audits"), where("isValidated", "==", false), limit(100));
+    const unsubAudits = safeOnSnapshot(qAudits, snap => { pendingCounts.audits = snap.docs.length; updateValidationState(); }, handleError);
 
-    const qClinicalBundles = query(collection(db, "bundle_monitorings"), where("hasUnverifiedDays", "==", true));
-    const unsubClinicalBundles = onSnapshot(qClinicalBundles, snap => {
+    const qBundles = query(collection(db, "boc_logs"), where("isValidated", "==", false), limit(100));
+    const unsubBundles = safeOnSnapshot(qBundles, snap => { pendingCounts.bundles = snap.docs.length; updateValidationState(); }, handleError);
+
+    const qClinicalBundles = query(collection(db, "bundle_monitorings"), where("hasUnverifiedDays", "==", true), limit(100));
+    const unsubClinicalBundles = safeOnSnapshot(qClinicalBundles, snap => {
       let count = 0;
       snap.docs.forEach(docSnap => {
         const data = docSnap.data();
@@ -360,13 +391,13 @@ export default function App() {
       });
       pendingCounts.clinicalBundles = count;
       updateValidationState();
-    });
+    }, handleError);
 
-    const qNSI = query(collection(db, "nsi_reports"), where("status", "==", "PENDING"));
-    const unsubNSI = onSnapshot(qNSI, snap => { pendingCounts.nsi = snap.docs.length; updateValidationState(); });
+    const qNSI = query(collection(db, "nsi_reports"), where("status", "==", "PENDING"), limit(100));
+    const unsubNSI = safeOnSnapshot(qNSI, snap => { pendingCounts.nsi = snap.docs.length; updateValidationState(); }, handleError);
 
-    const qOutbreaks = query(collection(db, "outbreaks"), where("status", "==", "Suspected"));
-    const unsubOutbreaks = onSnapshot(qOutbreaks, snap => { pendingCounts.outbreaks = snap.docs.length; updateValidationState(); });
+    const qOutbreaks = query(collection(db, "outbreaks"), where("status", "==", "Suspected"), limit(100));
+    const unsubOutbreaks = safeOnSnapshot(qOutbreaks, snap => { pendingCounts.outbreaks = snap.docs.length; updateValidationState(); }, handleError);
 
     return () => {
       unsubHAI(); unsubAudits(); unsubBundles();
@@ -382,7 +413,7 @@ export default function App() {
     try {
       await signInWithPopup(auth, provider);
     } catch (error: any) {
-      console.error("Login failed:", error);
+      console.warn("Login failed:", error);
       if (error.code === 'auth/popup-closed-by-user') {
         // Silently ignore when the user closes the popup
         setLoginError('');
@@ -425,7 +456,7 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
           user = userCred.user;
           console.log("Anonymous login success:", user.uid);
         } catch (authError: any) {
-          console.error("Anonymous auth failed:", authError);
+          console.warn("Anonymous auth failed:", authError);
           if (authError.code === 'auth/operation-not-allowed' || authError.code === 'auth/admin-restricted-operation') {
             throw new Error('ANONYMOUS LOGIN RESTRICTED: Please enable "Anonymous" in Firebase Console > Authentication > Sign-in method.');
           }
@@ -440,7 +471,7 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
       try {
         docSnap = await getDoc(docRef);
       } catch (getDocError: any) {
-        console.error("getDoc user_roles failed:", getDocError);
+        console.warn("getDoc user_roles failed:", getDocError);
         throw new Error(`PERMISSIONS ERROR (user_roles): ${getDocError.message}`);
       }
       
@@ -486,7 +517,7 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
       try {
         await setDoc(doc(db, 'users', user.uid), pinProfile, { merge: true });
       } catch (setDocError: any) {
-        console.error("setDoc users failed:", setDocError);
+        console.warn("setDoc users failed:", setDocError);
         throw new Error(`PERMISSIONS ERROR (users): ${setDocError.message}`);
       }
 
@@ -494,7 +525,7 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
       setProfile(pinProfile);
       setLoginMode('SELECT');
     } catch (error: any) {
-      console.error("PIN Login failed - Detailed info:", {
+      console.warn("PIN Login failed - Detailed info:", {
         code: error.code,
         message: error.message,
         authStatus: auth.currentUser ? `Signed in as ${auth.currentUser.email || 'Anonymous'}` : 'Not signed in'
@@ -913,6 +944,38 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
              </span>
           </div>
         </header>
+
+        {isQuotaExceeded() && (
+          <div className="bg-rose-50 border-b border-rose-200 text-rose-800 px-4 sm:px-8 py-3 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 font-semibold">
+            <div className="flex items-start sm:items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5 sm:mt-0 animate-bounce" />
+              <span>
+                <strong>Daily Cloud Storage Quota Reached.</strong> Operating in limited offline mode using local cache. Real-time updates will automatically sync and restore once the daily limit resets.
+              </span>
+            </div>
+            <button 
+              onClick={async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                const origText = btn.innerText;
+                btn.innerText = "Checking...";
+                try {
+                  await testConnection();
+                  // testConnection will reload the page if online is restored.
+                  alert("Cloud connection is still offline. The daily quota limit has not reset yet.");
+                } catch (err) {
+                  alert("Failed to reconnect: " + (err instanceof Error ? err.message : String(err)));
+                } finally {
+                  btn.disabled = false;
+                  btn.innerText = origText;
+                }
+              }}
+              className="self-end sm:self-auto px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50 shrink-0 cursor-pointer shadow-sm"
+            >
+              Check Connection
+            </button>
+          </div>
+        )}
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-4 sm:px-8 sm:py-6 lg:p-8 pb-32 sm:pb-8 no-scrollbar relative min-h-0">

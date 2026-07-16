@@ -20,8 +20,11 @@ import {
   Lock,
   UserCheck
 } from 'lucide-react';
-import { collection, getDocs, writeBatch, setDoc, deleteDoc, doc, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { collection, writeBatch, doc, query, orderBy } from 'firebase/firestore';
+import {  db , safeOnSnapshot, safeGetDocs, safeSetDoc, safeDeleteDoc } from '../lib/firebase';
+const getDocs = safeGetDocs;
+const setDoc = safeSetDoc;
+const deleteDoc = safeDeleteDoc;
 import { UserProfile, Role } from '../types';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -58,7 +61,7 @@ export default function Maintenance({ user }: MaintenanceProps) {
     if (!isAdmin) return;
     
     const q = query(collection(db, 'user_roles'), orderBy('role'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = safeOnSnapshot(q, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({
         ...doc.data(),
         id: doc.id

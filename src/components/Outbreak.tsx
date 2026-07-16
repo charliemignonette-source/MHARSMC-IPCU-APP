@@ -28,17 +28,16 @@ import {
 } from "lucide-react";
 import {
   collection,
-  addDoc,
   query,
   orderBy,
-  onSnapshot,
   serverTimestamp,
   where,
   doc,
-  updateDoc,
-  deleteDoc,
 } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import { db, handleFirestoreError, safeOnSnapshot, OperationType, safeAddDoc, safeUpdateDoc, safeDeleteDoc } from "../lib/firebase";
+const addDoc = safeAddDoc;
+const updateDoc = safeUpdateDoc;
+const deleteDoc = safeDeleteDoc;
 import {
   UserProfile,
   OutbreakReport,
@@ -215,7 +214,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     } else {
       q = query(baseQuery, where("reporterId", "==", user.uid));
     }
-    const unsub = onSnapshot(
+    const unsub = safeOnSnapshot(
       q,
       (snap) => {
         const data = snap.docs.map(

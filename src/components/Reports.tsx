@@ -6,8 +6,9 @@ import {
   Building2
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { collection, query, getDocs, where, orderBy, Timestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { collection, query, where, orderBy, Timestamp, limit } from 'firebase/firestore';
+import { db, safeGetDocs } from '../lib/firebase';
+const getDocs = safeGetDocs;
 import { UserProfile } from '../types';
 import { cn } from '../lib/utils';
 import { UNITS, BUNDLE_ELEMENTS } from '../constants';
@@ -569,7 +570,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           }
         }
 
-        const q = query(collRef, ...constraints);
+        const q = query(collRef, ...constraints, limit(200));
         const querySnapshot = await getDocs(q);
         return querySnapshot.docs.map(doc => ({ __source: collName, ...doc.data() as any, id: doc.id }));
       };
@@ -957,8 +958,8 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         // 7. Bundle Compliance Issues
         let bundleMissedElements: Record<string, number> = {};
         let bundleClinicalCriteria: Record<string, number> = {
-            'Complete': 0,
-            'Incomplete / Not Done': 0
+            'With Clinical Criteria': 0,
+            'No Clinical Criteria Documented': 0
         };
 
         const targetBundles = bocLogs.filter(d => {
@@ -969,10 +970,15 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         targetBundles.forEach((log: any) => {
             if (log.monitoringDays && Array.isArray(log.monitoringDays)) {
                 log.monitoringDays.forEach((day: any) => {
-                    if (day.isVerifiedByIPCU) {
-                        bundleClinicalCriteria['Complete']++;
+                    let hasCriteria = false;
+                    if (day.clinicalCriteria && Object.keys(day.clinicalCriteria).length > 0) {
+                        hasCriteria = Object.values(day.clinicalCriteria).some(v => v === true || v === 'Present');
+                    }
+                    
+                    if (hasCriteria) {
+                        bundleClinicalCriteria['With Clinical Criteria']++;
                     } else {
-                        bundleClinicalCriteria['Incomplete / Not Done']++;
+                        bundleClinicalCriteria['No Clinical Criteria Documented']++;
                     }
                     if (day.bundleChecklist && Object.keys(day.bundleChecklist).length > 0) {
                         Object.entries(day.bundleChecklist).forEach(([el, status]) => {
@@ -1430,7 +1436,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                         constraints.push(where('reporterId', '==', user.uid));
                       }
                    }
-                   const q = query(collRef, ...constraints);
+                   const q = query(collRef, ...constraints, limit(200));
                    const snap = await getDocs(q);
                    if (snap.empty) {
                      masterContent += "No records found.\n\n";

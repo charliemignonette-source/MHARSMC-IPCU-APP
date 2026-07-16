@@ -21,8 +21,11 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, addDoc, serverTimestamp, query, where, onSnapshot, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { collection, limit, serverTimestamp, query, where, orderBy, doc } from 'firebase/firestore';
+import {  db, handleFirestoreError, OperationType , safeOnSnapshot, safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../lib/firebase';
+const addDoc = safeAddDoc;
+const updateDoc = safeUpdateDoc;
+const deleteDoc = safeDeleteDoc;
 import { UserProfile, AuditType, Audit } from '../types';
 import { UNITS, STAFF_TYPES } from '../constants';
 import { cn, formatDate } from '../lib/utils';
@@ -117,12 +120,12 @@ export default function Audits({ user }: { user: UserProfile | null }) {
     const isIPCU = user.role === 'ADMIN' || user.role === 'IPCN';
     
     if (isIPCU) {
-      q = query(collection(db, 'audits'), orderBy('createdAt', 'desc'));
+      q = query(collection(db, 'audits'), orderBy('createdAt', 'desc'), limit(100));
     } else {
-      q = query(collection(db, 'audits'), where('auditorId', '==', user.uid), orderBy('createdAt', 'desc'));
+      q = query(collection(db, 'audits'), where('auditorId', '==', user.uid), orderBy('createdAt', 'desc'), limit(100));
     }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = safeOnSnapshot(q, (snapshot) => {
       const auditData = snapshot.docs.map(doc => ({
         ...doc.data(),
         id: doc.id

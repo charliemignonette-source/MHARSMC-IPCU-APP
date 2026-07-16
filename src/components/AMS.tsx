@@ -35,8 +35,11 @@ import {
   ClipboardList
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy, or } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { collection, query, where, limit, doc, serverTimestamp, orderBy, or } from 'firebase/firestore';
+import {  db, handleFirestoreError, OperationType , safeOnSnapshot, safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../lib/firebase';
+const addDoc = safeAddDoc;
+const updateDoc = safeUpdateDoc;
+const deleteDoc = safeDeleteDoc;
 import { UserProfile, AMSRequest, AMSStatus } from '../types';
 import { UNITS, DEPARTMENTS, ANTIBIOTICS, CULTURE_SPECIMENS } from '../constants';
 import { cn, formatDate } from '../lib/utils';
@@ -243,8 +246,8 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     let q;
 
     if (user.role === 'ADMIN' || user.role === 'IPCN' || user.role === 'APPROVER' || user.role === 'PHARMACY' || user.role === 'PHYSICIAN') {
-      q = query(baseQuery, orderBy('createdAt', 'desc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      q = query(baseQuery, orderBy('createdAt', 'desc'), limit(100));
+      const unsubscribe = safeOnSnapshot(q, (snapshot) => {
         const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AMSRequest));
         const sortedData = data.sort((a, b) => {
           const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
@@ -261,8 +264,8 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     } else {
       // Regular users see their own requests OR requests from their unit
       // Split into two queries to avoid "Missing or insufficient permissions" with complex OR queries in rules
-      const q1 = query(baseQuery, where('prescriberId', '==', user.uid));
-      const q2 = query(baseQuery, where('unit', '==', user.unit || 'General'));
+      const q1 = query(baseQuery, where('prescriberId', '==', user.uid), limit(50));
+      const q2 = query(baseQuery, where('unit', '==', user.unit || 'General'), limit(50));
 
       const updateRequests = (snapshot1: any, snapshot2: any) => {
         const data1 = snapshot1?.docs ? snapshot1.docs.map((doc: any) => ({ ...doc.data(), id: doc.id } as AMSRequest)) : [];
@@ -287,7 +290,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       let snap1: any = { docs: [] };
       let snap2: any = { docs: [] };
       
-      const unsub1 = onSnapshot(q1, (s) => {
+      const unsub1 = safeOnSnapshot(q1, (s) => {
         snap1 = s;
         updateRequests(snap1, snap2);
       }, (err) => {
@@ -295,7 +298,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         handleFirestoreError(err, OperationType.LIST, 'ams_requests');
       });
 
-      const unsub2 = onSnapshot(q2, (s) => {
+      const unsub2 = safeOnSnapshot(q2, (s) => {
         snap2 = s;
         updateRequests(snap1, snap2);
       }, (err) => {

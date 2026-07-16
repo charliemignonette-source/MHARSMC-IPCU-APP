@@ -26,16 +26,16 @@ import {
   collection,
   query,
   where,
-  onSnapshot,
   doc,
-  updateDoc,
-  addDoc,
-  deleteDoc,
+  limit,
   serverTimestamp,
   orderBy,
-  getDoc,
 } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import { db, handleFirestoreError, safeOnSnapshot, OperationType, safeAddDoc, safeUpdateDoc, safeDeleteDoc, safeGetDoc } from "../lib/firebase";
+const addDoc = safeAddDoc;
+const updateDoc = safeUpdateDoc;
+const deleteDoc = safeDeleteDoc;
+const getDoc = safeGetDoc;
 import {
   UserProfile,
   HAICase,
@@ -109,9 +109,9 @@ export default function IPCUValidationConsole({
     // 1. Fetch Pending HAI Cases
     const qHAI = query(
       collection(db, "hai_cases"),
-      where("status", "==", "PENDING"),
+      where("status", "==", "PENDING"), limit(50),
     );
-    const unsubHAI = onSnapshot(qHAI, (snap) => {
+    const unsubHAI = safeOnSnapshot(qHAI, (snap) => {
       const items = snap.docs.map((d) => {
         const data = d.data() as HAICase;
         return {
@@ -131,9 +131,9 @@ export default function IPCUValidationConsole({
     // 3. Fetch Pending Audits
     const qAudits = query(
       collection(db, "audits"),
-      where("isValidated", "==", false),
+      where("isValidated", "==", false), limit(50),
     );
-    const unsubAudits = onSnapshot(qAudits, (snap) => {
+    const unsubAudits = safeOnSnapshot(qAudits, (snap) => {
       const items = snap.docs.map((d) => {
         const data = d.data() as Audit;
         return {
@@ -151,9 +151,9 @@ export default function IPCUValidationConsole({
     // 4. Fetch Pending Bundle Audits (boc_logs)
     const qBundles = query(
       collection(db, "boc_logs"),
-      where("isValidated", "==", false),
+      where("isValidated", "==", false), limit(50),
     );
-    const unsubBundles = onSnapshot(qBundles, (snap) => {
+    const unsubBundles = safeOnSnapshot(qBundles, (snap) => {
       const items = snap.docs.map((d) => {
         const data = d.data() as BOCLog;
         return {
@@ -172,9 +172,9 @@ export default function IPCUValidationConsole({
     // 5. Fetch Pending Daily Bundle Monitoring Days
     const qClinicalBundles = query(
       collection(db, "bundle_monitorings"),
-      where("hasUnverifiedDays", "==", true),
+      where("hasUnverifiedDays", "==", true), limit(50),
     );
-    const unsubClinicalBundles = onSnapshot(qClinicalBundles, (snap) => {
+    const unsubClinicalBundles = safeOnSnapshot(qClinicalBundles, (snap) => {
       const items: PendingItem[] = [];
       snap.docs.forEach((docSnap) => {
         const data = docSnap.data();
@@ -216,9 +216,9 @@ export default function IPCUValidationConsole({
     // 6. Fetch Pending NSI Reports
     const qNSI = query(
       collection(db, "nsi_reports"),
-      where("status", "==", "PENDING"),
+      where("status", "==", "PENDING"), limit(50),
     );
-    const unsubNSI = onSnapshot(qNSI, (snap) => {
+    const unsubNSI = safeOnSnapshot(qNSI, (snap) => {
       const items = snap.docs.map((d) => {
         const data = d.data() as NSIReport;
         return {
@@ -237,9 +237,9 @@ export default function IPCUValidationConsole({
     // 6. Fetch Pending Outbreaks
     const qOutbreaks = query(
       collection(db, "outbreaks"),
-      where("status", "in", ["Suspected", "Under Investigation"]),
+      where("status", "in", ["Suspected", "Under Investigation"]), limit(50),
     );
-    const unsubOutbreaks = onSnapshot(qOutbreaks, (snap) => {
+    const unsubOutbreaks = safeOnSnapshot(qOutbreaks, (snap) => {
       const items = snap.docs.map((d) => {
         const data = d.data() as OutbreakReport;
         return {
@@ -257,9 +257,9 @@ export default function IPCUValidationConsole({
     // History Queries (Validated MTD)
     const qConfirmedHAI = query(
       collection(db, "hai_cases"),
-      where("status", "==", "CONFIRMED"),
+      where("status", "==", "CONFIRMED"), limit(50),
     );
-    const unsubConfirmedHAI = onSnapshot(qConfirmedHAI, (snap) => {
+    const unsubConfirmedHAI = safeOnSnapshot(qConfirmedHAI, (snap) => {
       setConfirmedHAI(
         snap.docs.map((d) => ({ ...d.data(), id: d.id }) as HAICase),
       );
@@ -267,9 +267,9 @@ export default function IPCUValidationConsole({
 
     const qValidatedAudits = query(
       collection(db, "audits"),
-      where("isValidated", "==", true),
+      where("isValidated", "==", true), limit(50),
     );
-    const unsubValidatedAudits = onSnapshot(qValidatedAudits, (snap) => {
+    const unsubValidatedAudits = safeOnSnapshot(qValidatedAudits, (snap) => {
       setValidatedAudits(
         snap.docs.map((d) => ({ ...d.data(), id: d.id }) as Audit),
       );
@@ -277,9 +277,9 @@ export default function IPCUValidationConsole({
 
     const qValidatedBundles = query(
       collection(db, "boc_logs"),
-      where("isValidated", "==", true),
+      where("isValidated", "==", true), limit(50),
     );
-    const unsubValidatedBundles = onSnapshot(qValidatedBundles, (snap) => {
+    const unsubValidatedBundles = safeOnSnapshot(qValidatedBundles, (snap) => {
       setValidatedBundles(
         snap.docs.map((d) => ({ ...d.data(), id: d.id }) as BOCLog),
       );
@@ -287,7 +287,7 @@ export default function IPCUValidationConsole({
 
     // 7. Fetch Verified Daily Monitoring Days
     const qVerifiedDaily = query(collection(db, "bundle_monitorings"));
-    const unsubVerifiedDaily = onSnapshot(qVerifiedDaily, (snap) => {
+    const unsubVerifiedDaily = safeOnSnapshot(qVerifiedDaily, (snap) => {
       const allVerified: any[] = [];
       snap.docs.forEach((docSnap) => {
         const data = docSnap.data();
@@ -318,9 +318,9 @@ export default function IPCUValidationConsole({
 
     const qValidatedNSI = query(
       collection(db, "nsi_reports"),
-      where("status", "!=", "PENDING"),
+      where("status", "!=", "PENDING"), limit(50),
     );
-    const unsubValidatedNSI = onSnapshot(qValidatedNSI, (snap) => {
+    const unsubValidatedNSI = safeOnSnapshot(qValidatedNSI, (snap) => {
       setValidatedNSI(
         snap.docs.map((d) => ({ ...d.data(), id: d.id }) as NSIReport),
       );
@@ -328,9 +328,9 @@ export default function IPCUValidationConsole({
 
     const qValidatedOutbreaks = query(
       collection(db, "outbreaks"),
-      where("status", "in", ["Confirmed", "Closed", "Controlled"]),
+      where("status", "in", ["Confirmed", "Closed", "Controlled"]), limit(50),
     );
-    const unsubValidatedOutbreaks = onSnapshot(qValidatedOutbreaks, (snap) => {
+    const unsubValidatedOutbreaks = safeOnSnapshot(qValidatedOutbreaks, (snap) => {
       setValidatedOutbreaks(
         snap.docs.map((d) => ({ ...d.data(), id: d.id }) as OutbreakReport),
       );
@@ -413,7 +413,7 @@ export default function IPCUValidationConsole({
     console.log(`Resolved Target ID: ${targetId} for type: ${item.type} in collection: ${targetCollection}`);
 
     if (!targetId) {
-      console.error("Deletion failed: Could not resolve target ID", item);
+      console.warn("Deletion failed: Could not resolve target ID", item);
       if (!silent) alert("Delete failed. Try again (ID Error).");
       return;
     }
@@ -469,7 +469,7 @@ export default function IPCUValidationConsole({
           if (!silent) alert(`Delete failed. Record source (${targetId}) not found.`);
         }
       } catch (e) {
-        console.error("IPCU Array Remove Error:", e);
+        console.warn("IPCU Array Remove Error:", e);
         if (!silent) alert("Delete failed. See console for details.");
       }
       return;
@@ -480,7 +480,7 @@ export default function IPCUValidationConsole({
       await deleteDoc(doc(db, targetCollection, targetId));
       if (!silent) alert("Log deleted.");
     } catch (e) {
-      console.error("IPCU Delete Error:", e);
+      console.warn("IPCU Delete Error:", e);
       handleFirestoreError(
         e,
         OperationType.DELETE,
@@ -561,7 +561,7 @@ export default function IPCUValidationConsole({
       }
       if (!silent) alert("Validation reset successfully.");
     } catch (e) {
-      console.error("IPCU Reset Error:", e);
+      console.warn("IPCU Reset Error:", e);
       if (!silent) alert("Reset failed. Check permissions.");
     }
   };
@@ -1138,7 +1138,7 @@ export default function IPCUValidationConsole({
                 "Date",
               ]}
               items={(() => {
-                const auditsArray = isGroupedHistory ? Object.values(validatedAudits.reduce((acc, a) => {
+                const auditsArray = isGroupedHistory ? (Object.values(validatedAudits.reduce((acc, a) => {
                   const key = `${a.type}-${a.unit}`;
                   if (!acc[key]) {
                     acc[key] = { ...a, group: [a], totalScore: a.score };
@@ -1150,7 +1150,7 @@ export default function IPCUValidationConsole({
                     }
                   }
                   return acc;
-                }, {} as any)).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) : validatedAudits;
+                }, {} as any)) as any[]).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) : validatedAudits;
                 
                 if (isGroupedHistory) {
                   return auditsArray.map((a: any) => [
@@ -1200,7 +1200,7 @@ export default function IPCUValidationConsole({
               })()}
               onDelete={(i) => {
                 if (isGroupedHistory) {
-                  const grouped = Object.values(validatedAudits.reduce((acc, a) => {
+                  const grouped = (Object.values(validatedAudits.reduce((acc, a) => {
                     const key = `${a.type}-${a.unit}`;
                     if (!acc[key]) acc[key] = { ...a, group: [a], timestamp: a.timestamp };
                     else {
@@ -1208,7 +1208,7 @@ export default function IPCUValidationConsole({
                       if (a.timestamp && new Date(a.timestamp).getTime() > new Date(acc[key].timestamp).getTime()) acc[key].timestamp = a.timestamp;
                     }
                     return acc;
-                  }, {} as any)).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                  }, {} as any)) as any[]).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
                   const target = grouped[i];
                   if (window.confirm(`Delete all ${target.group.length} records in this group?`)) {
                     target.group.forEach((a: any) => handleDelete({ ...a, type: "AUDIT" }, true));
@@ -1219,7 +1219,7 @@ export default function IPCUValidationConsole({
               }}
               onReset={(i) => {
                 if (isGroupedHistory) {
-                  const grouped = Object.values(validatedAudits.reduce((acc, a) => {
+                  const grouped = (Object.values(validatedAudits.reduce((acc, a) => {
                     const key = `${a.type}-${a.unit}`;
                     if (!acc[key]) acc[key] = { ...a, group: [a], timestamp: a.timestamp };
                     else {
@@ -1227,7 +1227,7 @@ export default function IPCUValidationConsole({
                       if (a.timestamp && new Date(a.timestamp).getTime() > new Date(acc[key].timestamp).getTime()) acc[key].timestamp = a.timestamp;
                     }
                     return acc;
-                  }, {} as any)).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                  }, {} as any)) as any[]).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
                   const target = grouped[i];
                   if (window.confirm(`Reset validation for all ${target.group.length} records in this group?`)) {
                     target.group.forEach((a: any) => handleReset({ ...a, type: "AUDIT" }, true));
@@ -1353,7 +1353,7 @@ export default function IPCUValidationConsole({
                 ].sort((a: any, b: any) => b.date - a.date);
                 
                 if (isGroupedHistory) {
-                  const grouped = Object.values(combined.reduce((acc, item) => {
+                  const grouped = (Object.values(combined.reduce((acc, item) => {
                     let baseType = item.data[2] as string;
                     if (baseType.startsWith("Daily:")) {
                         baseType = baseType.replace(/ \(D\d+\)/, "");
@@ -1370,7 +1370,7 @@ export default function IPCUValidationConsole({
                       }
                     }
                     return acc;
-                  }, {} as any)).sort((a: any, b: any) => b.date - a.date);
+                  }, {} as any)) as any[]).sort((a: any, b: any) => b.date - a.date);
 
                   return grouped.map((g: any) => [
                     g.data[0], // Patient
@@ -1411,7 +1411,7 @@ export default function IPCUValidationConsole({
                 ].sort((a: any, b: any) => b.date - a.date);
 
                 if (isGroupedHistory) {
-                  const grouped = Object.values(combined.reduce((acc, item) => {
+                  const grouped = (Object.values(combined.reduce((acc, item) => {
                     let baseType = item.data[2] as string;
                     if (baseType.startsWith("Daily:")) baseType = baseType.replace(/ \(D\d+\)/, "");
                     const key = `${item.data[0]}-${item.data[1]}-${baseType}`;
@@ -1421,7 +1421,7 @@ export default function IPCUValidationConsole({
                       if (item.date > acc[key].date) acc[key].date = item.date;
                     }
                     return acc;
-                  }, {} as any)).sort((a: any, b: any) => b.date - a.date);
+                  }, {} as any)) as any[]).sort((a: any, b: any) => b.date - a.date);
                   
                   const target = grouped[i];
                   if (window.confirm(`Delete all ${target.group.length} bundle records in this group?`)) {
@@ -1454,7 +1454,7 @@ export default function IPCUValidationConsole({
                 ].sort((a: any, b: any) => b.date - a.date);
 
                 if (isGroupedHistory) {
-                  const grouped = Object.values(combined.reduce((acc, item) => {
+                  const grouped = (Object.values(combined.reduce((acc, item) => {
                     let baseType = item.data[2] as string;
                     if (baseType.startsWith("Daily:")) baseType = baseType.replace(/ \(D\d+\)/, "");
                     const key = `${item.data[0]}-${item.data[1]}-${baseType}`;
@@ -1464,7 +1464,7 @@ export default function IPCUValidationConsole({
                       if (item.date > acc[key].date) acc[key].date = item.date;
                     }
                     return acc;
-                  }, {} as any)).sort((a: any, b: any) => b.date - a.date);
+                  }, {} as any)) as any[]).sort((a: any, b: any) => b.date - a.date);
                   
                   const target = grouped[i];
                   if (window.confirm(`Reset validation for all ${target.group.length} bundle records in this group?`)) {
@@ -1699,7 +1699,7 @@ function ValidationModal({ item, user, onClose, onSubmit }: any) {
         await onSubmit(decision);
       }
     } catch (err) {
-      console.error("Submission error:", err);
+      console.warn("Submission error:", err);
       alert(err instanceof Error ? err.message : "An error occurred during submission.");
     } finally {
       setLoading(false);

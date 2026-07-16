@@ -8,8 +8,10 @@ import {
   Users, Calendar, ArrowDownRight, Download, Trash2
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { collection, query, getDocs, limit, orderBy, where, doc, deleteDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { collection, query, limit, orderBy, where, doc } from 'firebase/firestore';
+import { db, safeGetDocs, safeDeleteDoc } from '../lib/firebase';
+const getDocs = safeGetDocs;
+const deleteDoc = safeDeleteDoc;
 import { UserProfile, BOCLog } from '../types';
 import { cn, getComplianceColor, formatDate } from '../lib/utils';
 import { 
@@ -84,13 +86,14 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
         return;
       }
       try {
-        const audits = await getDocs(collection(db, 'audits'));
-        const hais = await getDocs(collection(db, 'hai_cases'));
-        const boc = await getDocs(collection(db, 'boc_logs'));
-        const ams = await getDocs(collection(db, 'ams_requests'));
-        const nsi = await getDocs(collection(db, 'nsi_reports'));
-        const outbreaks = await getDocs(collection(db, 'outbreaks'));
-        const monitorings = await getDocs(collection(db, 'bundle_monitorings'));
+        // Fetch only the most recent records to prevent quota exhaustion
+        const audits = await getDocs(query(collection(db, 'audits'), limit(50)));
+        const hais = await getDocs(query(collection(db, 'hai_cases'), limit(50)));
+        const boc = await getDocs(query(collection(db, 'boc_logs'), limit(50)));
+        const ams = await getDocs(query(collection(db, 'ams_requests'), limit(50)));
+        const nsi = await getDocs(query(collection(db, 'nsi_reports'), limit(50)));
+        const outbreaks = await getDocs(query(collection(db, 'outbreaks'), limit(50)));
+        const monitorings = await getDocs(query(collection(db, 'bundle_monitorings'), limit(50)));
 
         const now = new Date();
         const todayStr = now.toLocaleDateString('en-CA'); 
@@ -423,7 +426,7 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
           }
         }));
       } catch (error) {
-        console.error('Stats error:', error);
+        console.warn('Stats error:', error);
       }
     }
     fetchStats();
@@ -444,7 +447,7 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
       alert(`Purge Complete! ${count} documents removed.`);
       window.location.reload();
     } catch (error) {
-      console.error("Purge failed:", error);
+      console.warn("Purge failed:", error);
       alert(`Purge failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
@@ -454,49 +457,30 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
       <div className="flex items-center justify-between">
          <div className="hidden md:block" />
          {(user?.role === 'ADMIN' || user?.role === 'IPCN') && (
-            <button 
-              onClick={() => {
-                if (confirmPurge) {
-                  setConfirmPurge(false);
-                  purgeData();
-                } else {
-                  setConfirmPurge(true);
-                }
-              }} 
-              onMouseLeave={() => setConfirmPurge(false)}
-              className={`flex items-center gap-2 px-4 py-2 border rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm ${confirmPurge ? "bg-rose-600 border-rose-700 text-white" : "bg-rose-50 border-rose-100 text-rose-600 hover:bg-rose-100"}`}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              {confirmPurge ? "Click again to confirm" : "Reset All Beta Data"}
-            </button>
-         )}
+            <div />
+        )}
       </div>
 
       {/* 🚀 COMMAND CENTER LAUNCHPAD */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { id: 'validation', dashboardTab: 'IPCU', label: 'IPC Validation', color: 'bg-indigo-600', icon: ShieldCheck, desc: 'Daily Bundle Audits' },
-          { id: 'antibiogram', dashboardTab: 'OVERALL', label: 'Antibiogram', color: 'bg-emerald-600', icon: Database, desc: 'Resistance Patterns 2025' },
-          { id: 'ams', dashboardTab: 'AMS', label: 'Antimicrobial Stewardship', color: 'bg-teal-600', icon: FlaskConical, desc: 'Drug Request Console' },
-          { id: 'audits', dashboardTab: 'AUDITS', label: 'IPC Audits', color: 'bg-amber-600', icon: ClipboardCheck, desc: 'HH, PPE & ENV' }
+          { id: 'validation', activeTab: 'IPCU', label: 'IPC Validation', color: 'bg-indigo-600', icon: ShieldCheck, desc: 'Daily Bundle Audits' },
+          { id: 'antibiogram', activeTab: 'OVERALL', label: 'Antibiogram', color: 'bg-emerald-600', icon: Database, desc: 'Resistance Patterns 2025' },
+          { id: 'ams', activeTab: 'AMS', label: 'Antimicrobial Stewardship', color: 'bg-teal-600', icon: FlaskConical, desc: 'Drug Request Console' },
+          { id: 'audits', activeTab: 'AUDITS', label: 'IPC Audits', color: 'bg-amber-600', icon: ClipboardCheck, desc: 'HH, PPE & ENV' }
         ].map((tile) => (
           <button
             key={tile.id}
             onClick={() => {
-               if (onNavigate) onNavigate(tile.id);
+              if (tile.id === 'validation') setActiveTab('VALIDATION');
+              else if (tile.id === 'antibiogram') setActiveTab('ANTIBIOGRAM');
+              else setActiveTab(tile.activeTab as any);
             }}
-            className="group p-5 bg-white border border-slate-100 rounded-[2rem] shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all text-left flex items-start gap-4"
+            className={`flex flex-col items-start p-5 rounded-3xl text-left transition-all hover:scale-105 active:scale-95 text-white ${tile.color} shadow-lg shadow-${tile.color.replace('bg-', '')}/30`}
           >
-            <div className={cn("w-12 h-12 flex items-center justify-center rounded-2xl text-white shadow-lg", tile.color)}>
-              <tile.icon className="w-6 h-6" />
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <p className="text-xs font-black text-slate-900 uppercase tracking-tight group-hover:text-brand-primary transition-colors truncate">{tile.label}</p>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5 truncate">{tile.desc}</p>
-              <div className="flex items-center gap-1 mt-2 text-[9px] font-black text-brand-primary opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                 LAUNCH <ArrowUpRight className="w-3 h-3" />
-              </div>
-            </div>
+            <tile.icon className="w-8 h-8 mb-4 opacity-80" />
+            <h3 className="font-black text-lg leading-tight">{tile.label}</h3>
+            <p className="text-xs font-medium opacity-80 mt-1">{tile.desc}</p>
           </button>
         ))}
       </div>
@@ -523,10 +507,7 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={cn(
-                  "px-3 sm:px-4 py-2 text-[9px] sm:text-[10px] font-black uppercase tracking-widest rounded-xl transition-all whitespace-nowrap",
-                  activeTab === tab.id ? "bg-white text-brand-primary shadow-sm" : "text-slate-400 hover:text-slate-600"
-                )}
+                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold uppercase tracking-widest transition-all shrink-0 ${activeTab === tab.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
               >
                 {tab.label}
               </button>

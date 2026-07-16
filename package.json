@@ -36,9 +36,6 @@
     "tailwindcss": "^4.1.14",
     "vite": "^6.2.0"
   },
-  "overrides": {
-    "node-domexception": "1.0.0"
-  },
   "devDependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
     "@types/express": "^4.17.21",

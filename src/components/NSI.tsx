@@ -25,19 +25,11 @@ import {
   Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  collection, 
-  query, 
-  where, 
-  onSnapshot, 
-  addDoc, 
-  serverTimestamp, 
-  orderBy, 
-  doc, 
-  updateDoc,
-  deleteDoc 
-} from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { collection, query, where, serverTimestamp, orderBy, doc, limit } from 'firebase/firestore';
+import {  db, handleFirestoreError, OperationType , safeOnSnapshot, safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../lib/firebase';
+const addDoc = safeAddDoc;
+const updateDoc = safeUpdateDoc;
+const deleteDoc = safeDeleteDoc;
 import { UserProfile, NSIReport, NSIStatus, NSIExposureType, NSIDevice, NSIActivity } from '../types';
 import { UNITS, NSI_CONSTANTS } from '../constants';
 import { cn, formatDate } from '../lib/utils';
@@ -122,12 +114,12 @@ export default function NSI({ user }: NSIProps) {
     let q;
     
     if (isValidator) {
-      q = query(baseQuery, orderBy('createdAt', 'desc'));
+      q = query(baseQuery, orderBy('createdAt', 'desc'), limit(100));
     } else {
       q = query(baseQuery, where('reporterId', '==', user.uid));
     }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = safeOnSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as NSIReport));
       const sortedData = data.sort((a, b) => {
         const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();

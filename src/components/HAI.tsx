@@ -14,11 +14,16 @@ import {
   XCircle,
   Trash2,
   Calculator,
-  FileDown
+  FileDown,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, orderBy, doc, updateDoc, deleteDoc, limit, getDocs } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { collection, query, where, serverTimestamp, orderBy, doc, limit } from 'firebase/firestore';
+import {  db, handleFirestoreError, OperationType , safeOnSnapshot, safeAddDoc, safeUpdateDoc, safeDeleteDoc, safeGetDocs } from '../lib/firebase';
+const addDoc = safeAddDoc;
+const updateDoc = safeUpdateDoc;
+const deleteDoc = safeDeleteDoc;
+const getDocs = safeGetDocs;
 import { UserProfile, HAICase, BOCLog, HAIType, IPCUAction, BundleMonitoring, Population, MonitoringDay } from '../types';
 import { UNITS, DEVICES, BUNDLE_ELEMENTS, IPCU_CORRECTIVE_ACTIONS, CLABSI_DETAILED_BUNDLES, CAUTI_BUNDLES, VAP_BUNDLES, SSI_BUNDLES as SSI_BUNDLES_CONST, CLINICAL_CRITERIA_DETAILED, CLABSI_RECOGNIZED_PATHOGENS, CLABSI_COMMON_COMMENSALS, CAUTI_ORGANISMS, VAE_ANTIMICROBIALS } from '../constants';
 import { cn, formatDate } from '../lib/utils';
@@ -199,23 +204,51 @@ export default function HAI({ user }: { user: UserProfile | null }) {
   };
 
   const handleDownloadBundleCSV = () => {
-    const data = monitorings.flatMap(p => (p.monitoringDays || []).map(day => {
+    let filteredMonitorings = monitorings;
+    if (exportFilters.unit !== 'ALL') {
+      filteredMonitorings = filteredMonitorings.filter(p => p.unit === exportFilters.unit);
+    }
+    
+    let flatData = filteredMonitorings.flatMap(p => (p.monitoringDays || []).map(day => ({ p, day })));
+    
+    if (exportFilters.month) {
+      flatData = flatData.filter(item => item.day.date?.startsWith(exportFilters.month));
+    }
+    
+    const data = flatData.map(({ p, day }) => {
        const reqValues = Object.values(day.bundleChecklist || {});
        const compliantCount = reqValues.filter((v: any) => v === 'Done' || v === 'N/A').length;
        const reqCount = reqValues.length;
        const compPct = reqCount > 0 ? ((compliantCount / reqCount) * 100).toFixed(1) + '%' : '0%';
+       const isBundleDone = reqCount > 0 ? (compliantCount === reqCount ? 'Yes' : 'No') : 'N/A';
+       
+       let clinicalCriteriaStr = 'None';
+       if (day.clinicalCriteria && Object.keys(day.clinicalCriteria).length > 0) {
+           clinicalCriteriaStr = Object.entries(day.clinicalCriteria)
+              .filter(([_, v]) => v === true || v === 'Present')
+              .map(([k]) => k)
+              .join(', ');
+           if (!clinicalCriteriaStr) clinicalCriteriaStr = 'None';
+       }
+
        return {
           'Date': day.date,
           'Unit': p.unit,
           'Patient Name': p.patientName,
           'Hosp Number': p.hospitalNo || '',
           'Device/Subtype': `${day.bundleType || ''} - ${day.bundleSubtype || ''}`,
+          'Bundle Done': isBundleDone,
           'Compliance %': (day.complianceScores?.overall || compPct.replace('%', '')) + '%',
+          'Clinical Criteria Entries': clinicalCriteriaStr,
+          'Attending Physician': p.attendingPhysician || 'N/A',
+          'IPCN Monitor': day.monitor?.name || p.assignedMonitor?.name || 'N/A',
           'Staff Reporter': day.staffName || p.staffName || 'System',
           'Missed Reason': day.missedReason || '',
        }
-    }));
-    downloadCSV(data, 'Bundle_Compliance_Logs');
+    });
+    
+    downloadCSV(data, `Bundle_Compliance_Logs_${exportFilters.unit}_${exportFilters.month}`);
+    setIsExportingCSV(false);
   };
 
   const handleDownloadHAICasesCSV = () => {
@@ -288,6 +321,8 @@ export default function HAI({ user }: { user: UserProfile | null }) {
   const [isEnrollingDevice, setIsEnrollingDevice] = useState(false);
   const [selectedMonitoring, setSelectedMonitoring] = useState<BundleMonitoring | null>(null);
   const [isViewingDailyChecks, setIsViewingDailyChecks] = useState(false);
+  const [isExportingCSV, setIsExportingCSV] = useState(false);
+  const [exportFilters, setExportFilters] = useState({ unit: 'ALL', month: new Date().toISOString().slice(0, 7) });
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | null } | null>(null);
   const [selectedDayToVerify, setSelectedDayToVerify] = useState<{ patient: BundleMonitoring, day: any, index: number } | null>(null);
   const [isVerifyingDay, setIsVerifyingDay] = useState(false);
@@ -368,39 +403,39 @@ export default function HAI({ user }: { user: UserProfile | null }) {
     // 1. HAI Cases
     let q1;
     if (isIPCU) {
-      q1 = query(collection(db, 'hai_cases'), orderBy('createdAt', 'desc'));
+      q1 = query(collection(db, 'hai_cases'), orderBy('createdAt', 'desc'), limit(100));
     } else {
-      q1 = query(collection(db, 'hai_cases'), where('auditorId', '==', user.uid), orderBy('createdAt', 'desc'));
+      q1 = query(collection(db, 'hai_cases'), where('auditorId', '==', user.uid), orderBy('createdAt', 'desc'), limit(100));
     }
-    const unsub1 = onSnapshot(q1, (snap) => {
+    const unsub1 = safeOnSnapshot(q1, (snap) => {
       setCases(snap.docs.map(d => ({ ...d.data(), id: d.id } as HAICase)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'hai_cases'));
 
     // 2. BOC Logs
     let q2;
     if (isIPCU) {
-      q2 = query(collection(db, 'boc_logs'), orderBy('createdAt', 'desc'));
+      q2 = query(collection(db, 'boc_logs'), orderBy('createdAt', 'desc'), limit(100));
     } else {
-      q2 = query(collection(db, 'boc_logs'), where('staffId', '==', user.uid), orderBy('createdAt', 'desc'));
+      q2 = query(collection(db, 'boc_logs'), where('staffId', '==', user.uid), orderBy('createdAt', 'desc'), limit(100));
     }
-    const unsub2 = onSnapshot(q2, (snap) => {
+    const unsub2 = safeOnSnapshot(q2, (snap) => {
       setBundleLogs(snap.docs.map(d => ({ ...d.data(), id: d.id } as BOCLog)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'boc_logs'));
 
     // 3. Bundle Monitorings
     let qM;
     if (isIPCU) {
-      qM = query(collection(db, 'bundle_monitorings'), orderBy('createdAt', 'desc'));
+      qM = query(collection(db, 'bundle_monitorings'), orderBy('createdAt', 'desc'), limit(100));
     } else {
       // Allow unit staff to see all monitorings in their unit, or at least their own
-      qM = query(collection(db, 'bundle_monitorings'), orderBy('createdAt', 'desc')); 
+      qM = query(collection(db, 'bundle_monitorings'), orderBy('createdAt', 'desc'), limit(100)); 
     }
-    const unsubM = onSnapshot(qM, (snap) => {
+    const unsubM = safeOnSnapshot(qM, (snap) => {
       setMonitorings(snap.docs.map(d => ({ ...d.data(), id: d.id } as BundleMonitoring)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'bundle_monitorings'));
 
     const q3 = query(collection(db, 'hai_denominators'), orderBy('month', 'desc'), limit(12));
-    const unsub3 = onSnapshot(q3, (snap) => {
+    const unsub3 = safeOnSnapshot(q3, (snap) => {
       setDenominators(snap.docs.map(d => ({ ...d.data(), id: d.id })));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'hai_denominators'));
 
@@ -692,7 +727,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
               {activeView === 'monitoring' && (
                 <>
                   <button 
-                    onClick={handleDownloadBundleCSV}
+                    onClick={() => setIsExportingCSV(true)}
                     className="flex-1 sm:flex-none px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 flex items-center justify-center gap-2 rounded-xl transition-all shadow-sm"
                   >
                     <FileDown className="w-4 h-4 text-slate-400" />
@@ -1661,6 +1696,78 @@ export default function HAI({ user }: { user: UserProfile | null }) {
         />
       )}
 
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isExportingCSV && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 sm:p-6 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden"
+            >
+              <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center">
+                    <FileDown className="w-5 h-5 text-teal-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Download Compliance Logs</h3>
+                    <p className="text-[11px] font-medium text-slate-500 uppercase tracking-widest mt-0.5">Filter Data</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsExportingCSV(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200/50 text-slate-500 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-5">
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Select Unit/Ward</label>
+                  <select
+                    value={exportFilters.unit}
+                    onChange={(e) => setExportFilters({ ...exportFilters, unit: e.target.value })}
+                    className="w-full h-11 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all outline-none"
+                  >
+                    <option value="ALL">All Units & Wards</option>
+                    {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Select Month</label>
+                  <input
+                    type="month"
+                    value={exportFilters.month}
+                    onChange={(e) => setExportFilters({ ...exportFilters, month: e.target.value })}
+                    className="w-full h-11 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all outline-none"
+                  />
+                  <p className="text-[10px] text-slate-400 font-medium">Leave empty to download all-time data</p>
+                </div>
+              </div>
+
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                <button
+                  onClick={() => setIsExportingCSV(false)}
+                  className="px-5 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-200/50 rounded-xl transition-all uppercase tracking-widest"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDownloadBundleCSV}
+                  className="btn-primary px-6 py-2.5 flex items-center gap-2"
+                >
+                  <FileDown className="w-4 h-4" />
+                  <span className="text-xs font-bold uppercase tracking-widest">Download CSV</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
 
       <AnimatePresence>
