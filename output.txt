@@ -1,0 +1,41 @@
+   980	                                      </button>
+   981	                                    ) : (
+   982	                                      <button 
+   983	                                        onClick={() => { setSelectedCase(c); setIsValidating(true); }}
+   984	                                        className="text-[9px] font-black uppercase tracking-widest text-slate-400 p-2 hover:bg-slate-100 rounded-lg"
+   985	                                      >
+   986	                                        View
+   987	                                      </button>
+   988	                                    )}
+   989	                                  </div>
+   990	                                </div>
+   991	                              </td>
+   992	                            </tr>
+   993	                          ))}
+   994	                        </React.Fragment>
+   995	                      ))}
+   996	
+   997	                        <tr>
+   998	                          <td colSpan={6} className="px-6 py-12 text-center">
+   999	                            <div className="flex flex-col items-center gap-2 opacity-30">
+  1000	                              <ClipboardList className="w-8 h-8" />
+  1001	                              <span className="text-[10px] font-black uppercase tracking-widest">No cases found in this category</span>
+  1002	                            </div>
+  1003	                          </td>
+  1004	                        </tr>
+  1005	                      )}
+  1006	                    </tbody>
+  1007	                  </table>
+  1008	                </div>
+  1009	              </div>
+  1010	
+  1011	
+  1012	            {/* Daily Bundle Compliance Audit Queue */}
+  1013	            <div className="space-y-4 pb-12">
+  1014	              <div className="flex items-center gap-3">
+  1015	                <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Daily Bundle Compliance Logs (From Units)</h3>
+  1016	                <div className="h-px flex-1 bg-slate-200" />
+  1017	                <span className="px-3 py-1 bg-teal-50 text-teal-600 text-[10px] font-black uppercase rounded-full">Recent Activity</span>
+  1018	              </div>
+  1019	              <div className="bento-card bg-white overflow-hidden">
+  1020	                <div className="overflow-x-auto">

@@ -1,0 +1,2 @@
+sed -i '/<\/AnimatePresence>/a \
+      <AnimatePresence>\n        {selectedReportForValidation && (\n          <OutbreakValidationModal\n            report={selectedReportForValidation}\n            onClose={() => setSelectedReportForValidation(null)}\n            onSubmit={handleValidateSubmit}\n            user={user}\n          />\n        )}\n      </AnimatePresence>' src/components/Outbreak.tsx

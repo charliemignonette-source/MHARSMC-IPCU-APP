@@ -1,0 +1,2 @@
+sed -i '358c\
+          pendingReports: allDocs.filter((d: any) => { if (d.__type === '"'"'AMS'"'"' && d.status === '"'"'APPROVED'"'"') return true; return !(d.isValidated || d.status === '"'"'VALIDATED'"'"' || d.status === '"'"'APPROVED'"'"' || d.status === '"'"'REJECTED'"'"' || d.status === '"'"'RESOLVED'"'"' || !!d.validation?.decision); }).sort((a: any, b: any) => b.__date.getTime() - a.__date.getTime()),' src/components/Dashboard.tsx

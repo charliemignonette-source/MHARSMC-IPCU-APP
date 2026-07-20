@@ -1,0 +1,61 @@
+                                      title="Download PDF Report"
+                                    >
+                                      <FileDown className="w-4 h-4" />
+                                    </button>
+                                    {isIPCU && c.status === 'PENDING' ? (
+                                      <button 
+                                        onClick={() => { setSelectedCase(c); setIsValidating(true); }}
+                                        className="text-[9px] font-black uppercase tracking-widest text-brand-primary p-2 hover:bg-teal-50 rounded-lg transition-colors border border-transparent hover:border-teal-100"
+                                      >
+                                        Validate
+                                      </button>
+                                    ) : (
+                                      <button 
+                                        onClick={() => { setSelectedCase(c); setIsValidating(true); }}
+                                        className="text-[9px] font-black uppercase tracking-widest text-slate-400 p-2 hover:bg-slate-100 rounded-lg"
+                                      >
+                                        View
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      ))}
+
+                      {cases.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-6 py-12 text-center">
+                            <div className="flex flex-col items-center gap-2 opacity-30">
+                              <ClipboardList className="w-8 h-8" />
+                              <span className="text-[10px] font-black uppercase tracking-widest">No cases found in this category</span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+
+            {/* Daily Bundle Compliance Audit Queue */}
+            <div className="space-y-4 pb-12">
+              <div className="flex items-center gap-3">
+                <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Daily Bundle Compliance Logs (From Units)</h3>
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className="px-3 py-1 bg-teal-50 text-teal-600 text-[10px] font-black uppercase rounded-full">Recent Activity</span>
+              </div>
+              <div className="bento-card bg-white overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse border-spacing-0 min-w-[800px]">
+                    <thead>
+                      <tr className="bg-slate-50/50 border-b border-slate-100">
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Date / Patient</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Unit / Bundle</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Score</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Monitor</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Clinical Signs</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Status</th>

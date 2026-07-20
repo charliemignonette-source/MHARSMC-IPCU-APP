@@ -1,0 +1,1 @@
+sed -i '/const \[searchTerm, setSearchTerm\] = useState('"'"''"'"');/a \  const [validationFilter, setValidationFilter] = useState<'"'"'All'"'"' | '"'"'Pending Validation'"'"' | '"'"'Verified'"'"'>('"'"'All'"'"');' src/components/Audits.tsx

@@ -15,6 +15,29 @@ import { UNITS, BUNDLE_ELEMENTS } from '../constants';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+const getBase64ImageFromUrl = (imageUrl: string): Promise<string | null> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      } else {
+        resolve(null);
+      }
+    };
+    img.onerror = () => {
+      resolve(null);
+    };
+    img.src = imageUrl;
+  });
+};
+
 type ReportType = 'COMPLIANCE' | 'AUDITS' | 'AMS' | 'HAI' | 'NSI' | 'OUTBREAK' | 'CLINICAL_SYSTEMS' | 'WARD_SUMMARY';
 type TimeFrame = 'DAILY' | 'MONTHLY' | 'ALL_TIME';
 
@@ -723,18 +746,46 @@ export default function Reports({ user }: { user: UserProfile | null }) {
 
         const doc = new jsPDF();
         
+        try {
+          const dohLogo = await getBase64ImageFromUrl('/doh-logo.png');
+          const bagongPilipinas = await getBase64ImageFromUrl('/bagongpilipinas-logo.png');
+          const mharsmcLogo = await getBase64ImageFromUrl('/mharsmc-logo.png'); 
+          
+          if (dohLogo) doc.addImage(dohLogo, 'PNG', 15, 10, 22, 22);
+          if (mharsmcLogo) doc.addImage(mharsmcLogo, 'PNG', 40, 10, 22, 22);
+          if (bagongPilipinas) doc.addImage(bagongPilipinas, 'PNG', 65, 10, 26, 26);
+        } catch (e) {
+          console.warn("Could not load header logos", e);
+        }
+        
+        // --- HEADER ---
+        doc.setFontSize(11);
+        doc.setTextColor(0, 0, 0);
+        doc.setFont('times', 'bold');
+        doc.text('Republic of the Philippines', 100, 15);
+        doc.text('Department of Health', 100, 20);
+        doc.setFontSize(12);
+        doc.text('Mayor Hilarion A. Ramiro Sr. Medical Center', 100, 25);
+        doc.setFontSize(11);
+        doc.setFont('times', 'normal');
+        doc.text('Maningcol, Ozamiz City 7200', 100, 30);
+        doc.text('Tel. No. (088) 521-0440; Telefax (088) 521-0022', 100, 35);
+        doc.text('Email Address: mharsmc@mharsmc.doh.gov.ph', 100, 40);
+        
         doc.setFontSize(18);
         doc.setTextColor(15, 23, 42); // slate-900
-        doc.text(`Ward Analytics Report: ${selectedWard}`, 14, 22);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Ward Analytics Report: ${selectedWard}`, 14, 55);
         
         doc.setFontSize(11);
         doc.setTextColor(100, 116, 139); // slate-500
+        doc.setFont('helvetica', 'normal');
         const periodStr = timeFrame === 'MONTHLY' ? selectedMonth : (timeFrame === 'DAILY' ? selectedDate : 'All Time');
-        doc.text(`Period: ${timeFrame} (${periodStr})   |   Generated: ${new Date().toLocaleDateString()}`, 14, 30);
+        doc.text(`Period: ${timeFrame} (${periodStr})`, 14, 63);
         
         autoTable(doc, {
-          startY: 40,
-          margin: { top: 20, right: 14, bottom: 20, left: 14 },
+          startY: 70,
+          margin: { top: 20, right: 14, bottom: 25, left: 14 },
           pageBreak: 'auto',
           rowPageBreak: 'avoid',
           head: [['Metric', `Target (${selectedWard})`, 'Rest of Hospital', 'Comparison']],
@@ -1050,6 +1101,73 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         renderIssueTable('Environmental Cleaning Missed Surfaces', envCleaningIssues, 'No missed surfaces recorded.');
         renderIssueTable('Device Bundles: Frequently Missed Elements', bundleMissedElements, 'No missed bundle elements recorded.');
         renderIssueTable('Device Bundles: Clinical Criteria Checks', bundleClinicalCriteria, 'No clinical criteria checks recorded.', ['Documentation Status', 'Log Count']);
+
+        // 8. Signature Block
+        if (currentY > 220) {
+           doc.addPage();
+           currentY = 20;
+        }
+
+        currentY += 10;
+        doc.setDrawColor(203, 213, 225); // slate-300
+        doc.setLineWidth(0.5);
+
+        // Monitored By Section
+        doc.setFontSize(10);
+        doc.setTextColor(100, 116, 139); // slate-500
+        doc.setFont('helvetica', 'normal');
+        doc.text('Monitored By:', 14, currentY);
+
+        doc.line(14, currentY + 18, 90, currentY + 18); // line for writing/signature
+
+        doc.setFontSize(9);
+        doc.setTextColor(148, 163, 184); // slate-400
+        doc.text('(Signature over Printed Name)', 14, currentY + 24);
+
+        // Verified By Section
+        doc.setFontSize(10);
+        doc.setTextColor(100, 116, 139); // slate-500
+        doc.text('Verified By:', 114, currentY);
+
+        doc.line(114, currentY + 18, 190, currentY + 18); // line for signature
+
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42); // slate-900
+        doc.setFont('helvetica', 'bold');
+        doc.text('Mishelle Vonnabie O. Bala, MD, FPCP, FPSMID', 114, currentY + 24);
+
+        doc.setFontSize(9);
+        doc.setTextColor(100, 116, 139); // slate-500
+        doc.setFont('helvetica', 'normal');
+        doc.text('IPCU Manager', 114, currentY + 29);
+
+        // Add Footer to all pages
+        const pageCount = (doc as any).internal.getNumberOfPages();
+        for (let i = 1; i <= pageCount; i++) {
+          doc.setPage(i);
+          
+          // Motto at the bottom (slightly raised)
+          doc.setFontSize(13);
+          doc.setFont('times', 'italic');
+          doc.setTextColor(21, 128, 61); // green-700
+          doc.text('"Serbisyong Kasaligan, MHARSMC imong kauban"', doc.internal.pageSize.getWidth() / 2, doc.internal.pageSize.getHeight() - 15, { align: 'center' });
+
+          // Thin divider line for ISO footer block
+          doc.setDrawColor(226, 232, 240); // slate-200
+          doc.setLineWidth(0.3);
+          doc.line(14, doc.internal.pageSize.getHeight() - 11, doc.internal.pageSize.getWidth() - 14, doc.internal.pageSize.getHeight() - 11);
+
+          // ISO Document Control Block and Page Numbering
+          doc.setFontSize(8);
+          doc.setFont('times', 'normal');
+          doc.setTextColor(100, 116, 139); // slate-500
+          
+          // Left aligned ISO document code with system generation trace
+          doc.text('Document Control No. HIPC-FM-040 / Rev. 0 / 1 June 2026 | Generated via IPC Guard', 14, doc.internal.pageSize.getHeight() - 7);
+          
+          // Right aligned page numbering
+          doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.getWidth() - 14, doc.internal.pageSize.getHeight() - 7, { align: 'right' });
+        }
 
         doc.save(`${selectedWard.replace(/\s+/g, '_')}_Report_${periodStr}.pdf`);
         setMessage({ type: 'success', text: `Ward PDF Report for ${selectedWard} downloaded successfully.` });

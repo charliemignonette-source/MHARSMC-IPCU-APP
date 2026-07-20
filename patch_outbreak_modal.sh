@@ -1,0 +1,1 @@
+sed -i 's/const \[view, setView\] = useState<"LIST" | "FORM">("LIST");/const [selectedReportForValidation, setSelectedReportForValidation] = useState<OutbreakReport | null>(null);\n  const [view, setView] = useState<"LIST" | "FORM">("LIST");/' src/components/Outbreak.tsx

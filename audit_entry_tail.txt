@@ -1,0 +1,251 @@
+          </div>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="w-full mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col gap-3 font-sans overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Response Checklist Findings</span>
+              <span className="text-[9px] font-bold text-slate-500 bg-slate-200/50 px-2.5 py-1 rounded-full uppercase">{type.replace('_', ' ')} Details</span>
+            </div>
+
+            {/* Hand hygiene detail render */}
+            {type === 'HH_AVAILABILITY' && details && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {details.abhr && (
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-black uppercase text-slate-400">ABHR & Soap Dispenser</span>
+                    <div className="space-y-1 text-xs text-slate-700">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.abhr.poc ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>ABHR at Point of Care: {details.abhr.poc ? 'Yes' : 'No'}</span>
+                      </div>
+                      {!details.abhr.poc && (
+                        <div className="flex items-center gap-1.5 font-bold pl-3 border-l border-slate-200">
+                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", details.abhr.personnelHasPortableABHR ? "bg-emerald-500" : "bg-rose-500")} />
+                          <span className="text-[11px] text-slate-500">Personnel with Portable ABHR: {details.abhr.personnelHasPortableABHR ? 'Yes' : 'No'}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.abhr.notEmpty ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Bottle Not Empty: {details.abhr.notEmpty ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.abhr.functional ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Pump Functional: {details.abhr.functional ? 'Yes' : 'No'}</span>
+                      </div>
+                      {!details.abhr.functional && details.abhr.alternativeDeliveryMethod && (
+                        <div className="flex items-center gap-1.5 font-bold pl-3 border-l border-slate-200 text-[11px] text-slate-500">
+                          <span>Delivery Method: {details.abhr.alternativeDeliveryMethod}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.abhr.mounted ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Properly Mounted: {details.abhr.mounted ? 'Yes' : 'No'}</span>
+                      </div>
+                      {details.abhr.expiry && <div className="text-[9px] font-bold text-slate-400 mt-1 uppercase">Expiry Date: {details.abhr.expiry}</div>}
+                    </div>
+                  </div>
+                )}
+                {details.sink && (
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-black uppercase text-slate-400">Sink & Water Supply</span>
+                    <div className="space-y-1 text-xs text-slate-700">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.sink.sink ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Sink Available: {details.sink.sink ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.sink.water ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Clean Water Supply: {details.sink.water ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.sink.soap ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Soap Available: {details.sink.soap ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.sink.towels ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Paper Towels Available: {details.sink.towels ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.sink.notClogged ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Sink Not Clogged: {details.sink.notClogged ? 'Yes' : 'No'}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* PPE detail render */}
+            {type === 'PPE_AVAILABILITY' && details?.ppe && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {Object.entries(details.ppe).map(([itemName, fields]: [string, any]) => (
+                  <div key={itemName} className="space-y-1">
+                    <span className="text-[9px] font-black uppercase text-slate-400">{itemName.replace(/([A-Z])/g, " $1")}</span>
+                    <div className="space-y-1 text-xs text-slate-700">
+                      {Object.entries(fields).map(([kf, vf]: [string, any]) => {
+                        if (kf === 'expiry') {
+                          return vf ? <div key={kf} className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">Expiry: {vf}</div> : null;
+                        }
+                        if (typeof vf === 'boolean') {
+                          return (
+                            <div key={kf} className="flex items-center gap-1.5 font-bold">
+                              <span className={cn("w-2 h-2 rounded-full shrink-0", vf ? "bg-emerald-500" : "bg-rose-500")} />
+                              <span className="capitalize">{kf.replace(/([A-Z])/g, " $1")}: {vf ? 'Yes' : 'No'}</span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* PPE Behavior/Compliance detail render */}
+            {type === 'PPE_COMPLIANCE' && details?.ppeCompliance && (
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 flex flex-col gap-3 text-xs">
+                <span className="text-[9px] font-black uppercase text-slate-400">PPE Behavior & Compliance Checklist</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Assessment Elements</span>
+                    <div className="space-y-1 text-xs text-slate-700">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.correctPPE ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Wearing correct PPE: {details.ppeCompliance.correctPPE ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.appropriatePPEPerIsolation ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Appropriate PPE per transmission isolation: {details.ppeCompliance.appropriatePPEPerIsolation ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.properDonning ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Proper Donning Observed: {details.ppeCompliance.properDonning ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.properDoffing ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>Proper Doffing Observed: {details.ppeCompliance.properDoffing ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.ppeIntact ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>PPE Intact/Free of Damage: {details.ppeCompliance.ppeIntact ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", details.ppeCompliance.ppeFits ? "bg-emerald-500" : "bg-rose-500")} />
+                        <span>PPE Fits Properly: {details.ppeCompliance.ppeFits ? 'Yes' : 'No'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {details.ppeCompliance.incorrectPPE && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-100 rounded-xl text-rose-700 font-semibold self-start text-[10px]">
+                        ⚠️ Non-compliant PPE behavior observed
+                      </div>
+                    )}
+                    {details.ppeCompliance.missingItems && (
+                      <div>
+                        <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Missing Items</span>
+                        <span className="text-[10px] font-black text-rose-600 block">{details.ppeCompliance.missingItems}</span>
+                      </div>
+                    )}
+                    {details.ppeCompliance.nonComplianceReason && (
+                      <div>
+                        <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Reason for Non-Compliance</span>
+                        <span className="text-[10px] font-semibold text-slate-600 block italic">"{details.ppeCompliance.nonComplianceReason}"</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Direct Inventory Audit Output */}
+            {(type === 'HH_AVAILABILITY' || type === 'PPE_AVAILABILITY') && details?.inventory && (
+              <div className="bg-white p-3 rounded-2xl border border-slate-100 flex flex-col gap-2 text-xs">
+                <span className="text-[9px] font-black uppercase text-slate-400">Inventory & Replenishment Findings</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Inventory Audited?</span>
+                    <span className={cn("text-[9px] font-black uppercase inline-block mt-0.5 px-2 py-0.5 rounded-lg", details.inventory.audited ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600")}>
+                      {details.inventory.audited ? "Yes" : "No"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Inventory Stock Level:</span>
+                    <span className={cn("text-[9px] font-black uppercase inline-block mt-0.5 px-2 py-0.5 rounded-lg", details.inventory.status === "Adequate" ? "bg-emerald-50 text-emerald-600" : details.inventory.status === "Low" ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600")}>
+                      {details.inventory.status}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Replenished?</span>
+                    <span className="text-[10px] font-black text-slate-700 uppercase block mt-1">
+                      {details.inventory.replenished === 'Yes' ? 'Yes, Replenished' : details.inventory.replenished === 'No' ? 'No, Unreplenished' : details.inventory.replenished === 'Requested' ? 'Replenishment Requested' : 'Not Needed'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-bold block text-[9px] uppercase tracking-wider">Assigned Personnel:</span>
+                    <span className="text-[10px] font-extrabold text-slate-700 uppercase block mt-1">
+                      {details.inventory.assignedPersonnel || "None Specified"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {type === 'ENV_CLEANING' && details?.surfaces && (
+              <div className="space-y-2">
+                <span className="text-[9px] font-black uppercase text-slate-400">Surface Cleanliness Checklist</span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-[150px] overflow-y-auto pr-1">
+                  {Object.entries(details.surfaces).map(([key, value]: [string, any]) => (
+                    <div key={key} className="flex justify-between items-center p-1.5 bg-white border border-slate-100 rounded-lg text-[10px] font-bold">
+                      <span className="capitalize">{key.replace(/([A-Z])/g, " $1")}</span>
+                      <span className={cn("font-bold text-[9px] uppercase px-1.5 py-0.5 rounded", value === 'cleaned' ? "bg-emerald-50 text-emerald-600" : value === 'notCleaned' ? "bg-rose-50 text-rose-600" : "bg-slate-50 text-slate-400")}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {type === 'HH_COMPLIANCE' && details?.hhObs && (
+              <div className="space-y-2">
+                <div className="flex gap-1.5 flex-wrap">
+                  <span className={cn(
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase border",
+                    details.hhObs.shortNaturalNails !== false 
+                      ? "bg-slate-50 text-slate-400 border-slate-100" 
+                      : "bg-rose-50 text-rose-600 border-rose-100"
+                  )}>
+                    Nails Short/Natural: {details.hhObs.shortNaturalNails !== false ? "PASS" : "FAIL"}
+                  </span>
+                  <span className={cn(
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase border",
+                    details.hhObs.noArtificialNails !== false 
+                      ? "bg-slate-50 text-slate-400 border-slate-100" 
+                      : "bg-rose-50 text-rose-600 border-rose-100"
+                  )}>
+                    No Artificial Nails: {details.hhObs.noArtificialNails !== false ? "PASS" : "FAIL"}
+                  </span>
+                  <span className={cn(
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase border",
+                    details.hhObs.noNailPolish !== false 
+                      ? "bg-slate-50 text-slate-400 border-slate-100" 
+                      : "bg-rose-50 text-rose-600 border-rose-100"
+                  )}>
+                    No Polish/Color: {details.hhObs.noNailPolish !== false ? "PASS" : "FAIL"}
+                  </span>
+                  <span className={cn(
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase border",
+                    details.hhObs.noJewelry !== false 
+                      ? "bg-slate-50 text-slate-400 border-slate-100" 
+                      : "bg-rose-50 text-rose-600 border-rose-100"
+                  )}>
+                    No Wrist/Finger Jewelry: {details.hhObs.noJewelry !== false ? "PASS" : "FAIL"}

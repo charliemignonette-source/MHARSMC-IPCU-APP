@@ -1,0 +1,1 @@
+sed -i '/allReports:/a \          pendingReports: allDocs.filter((d: any) => !(d.isValidated || d.status === '"'"'VALIDATED'"'"' || d.status === '"'"'APPROVED'"'"' || d.status === '"'"'REJECTED'"'"' || d.status === '"'"'RESOLVED'"'"' || !!d.validation?.decision)).sort((a: any, b: any) => b.__date.getTime() - a.__date.getTime()),' src/components/Dashboard.tsx

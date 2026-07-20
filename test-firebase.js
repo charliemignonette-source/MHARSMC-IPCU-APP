@@ -1,0 +1,10 @@
+import { collection, query, where, limit, getFirestore } from 'firebase/firestore';
+import { initializeApp } from 'firebase/app';
+const app = initializeApp({ projectId: 'test' });
+const db = getFirestore(app);
+const q = query(collection(db, 'audits'), limit(50));
+console.log("q.path:", q.path);
+console.log("q.type:", q.type);
+console.log("q keys:", Object.keys(q));
+import util from 'util';
+console.log(util.inspect(q, { depth: 2 }));

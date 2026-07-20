@@ -1,0 +1,1 @@
+sed -i 's/report.__type === '"'"'BUNDLE'"'"' ? '"'"'hai'"'"' : report.__type.toLowerCase()/report.__type === '"'"'BUNDLE'"'"' ? '"'"'hai'"'"' : report.__type === '"'"'AUDIT'"'"' ? '"'"'audits'"'"' : report.__type.toLowerCase()/' src/components/Dashboard.tsx

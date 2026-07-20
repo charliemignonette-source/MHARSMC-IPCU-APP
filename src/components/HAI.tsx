@@ -175,6 +175,8 @@ export default function HAI({ user }: { user: UserProfile | null }) {
   const isAdmin = user?.role === 'ADMIN';
   const [activeView, setActiveView] = useState<'surveillance' | 'monitoring'>(isIPCU ? 'surveillance' : 'monitoring');
   const [searchTerm, setSearchTerm] = useState('');
+  const [bundleValidationFilter, setBundleValidationFilter] = useState<'All' | 'Pending Validation' | 'Verified'>('All');
+  const [caseValidationFilter, setCaseValidationFilter] = useState<'All' | 'Pending Validation' | 'Verified'>('All');
 
   const downloadCSV = (data: any[], filename: string) => {
     if (data.length === 0) {
@@ -315,7 +317,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
   const [cases, setCases] = useState<HAICase[]>([]);
   const [bundleLogs, setBundleLogs] = useState<BOCLog[]>([]);
   const [monitorings, setMonitorings] = useState<BundleMonitoring[]>([]);
-  const [caseFilter, setCaseFilter] = useState<'PENDING' | 'VALIDATED'>('PENDING');
+  
   const [denominators, setDenominators] = useState<any[]>([]);
   const [isManagingDenominators, setIsManagingDenominators] = useState(false);
   const [isEnrollingDevice, setIsEnrollingDevice] = useState(false);
@@ -830,32 +832,41 @@ export default function HAI({ user }: { user: UserProfile | null }) {
             </div>
 
             {/* HAI Case Register Wrapper */}
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">HAI Case Surveillance Register</h3>
-                  <div className="h-px w-12 bg-slate-200 hidden sm:block" />
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex bg-slate-100 p-1 rounded-xl">
-                    {(['PENDING', 'VALIDATED'] as const).map(tab => (
-                      <button
-                        key={tab}
-                        onClick={() => setCaseFilter(tab)}
-                        className={cn(
-                          "px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
-                          caseFilter === tab ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-500"
-                        )}
-                      >
-                        {tab === 'PENDING' ? `Triggered (${cases.filter(c => c.status === 'PENDING').length})` : `Validated (${cases.filter(c => c.status !== 'PENDING').length})`}
-                      </button>
-                    ))}
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-none">HAI Case Surveillance Register</h3>
+                    <div className="h-px w-12 bg-slate-200 hidden sm:block" />
                   </div>
-                  <button onClick={handleDownloadHAICasesCSV} className="px-4 py-2 bg-white border border-slate-200 hover:border-slate-300 text-[9px] font-black uppercase tracking-widest text-slate-600 rounded-xl transition-all flex items-center gap-2">
-                    <FileDown className="w-3.5 h-3.5" /> CSV
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                      <div className="px-4 py-1.5 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                        Total ({cases.length})
+                      </div>
+                    </div>
+                    <button onClick={handleDownloadHAICasesCSV} className="px-4 py-2 bg-white border border-slate-200 hover:border-slate-300 text-[9px] font-black uppercase tracking-widest text-slate-600 rounded-xl transition-all flex items-center gap-2">
+                      <FileDown className="w-3.5 h-3.5" /> CSV
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
+                  {['All', 'Pending Validation', 'Verified'].map(status => (
+                    <button
+                      key={status}
+                      onClick={() => setCaseValidationFilter(status as any)}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all",
+                        caseValidationFilter === status 
+                          ? "bg-brand-primary text-white shadow-md shadow-brand-primary/20" 
+                          : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-50"
+                      )}
+                    >
+                      {status}
+                    </button>
+                  ))}
                 </div>
               </div>
+
 
               <div className="bento-card bg-white overflow-hidden">
                 <div className="overflow-x-auto">
@@ -865,7 +876,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Patient / Unit</th>
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Device / Proc</th>
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                          {caseFilter === 'PENDING' ? 'Triggered Criteria' : 'Clinical Decision'}
+                          Triggered Criteria / Decision
                         </th>
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">HAI Type</th>
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Status</th>
@@ -873,98 +884,118 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {cases
-                        .filter(c => caseFilter === 'PENDING' ? c.status === 'PENDING' : c.status !== 'PENDING')
-                        .map(c => (
-                        <tr key={c.id} className="hover:bg-slate-50/50 transition-colors group">
-                          <td className="px-6 py-4">
-                            <div className="flex flex-col">
-                              <span className="text-xs font-bold text-slate-900">{c.patientName}</span>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">{c.unit}</span>
-                                <span className="text-[8px] font-mono text-slate-300">#{c.hospNo}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                             <span className="text-xs font-medium text-slate-600">{c.deviceType || c.procedureType}</span>
-                          </td>
-                          <td className="px-6 py-4">
-                             {caseFilter === 'PENDING' ? (
-                               <div className="flex flex-wrap gap-1">
-                                  {c.triggeredCriteria?.map(cr => <span key={cr} className="px-1.5 py-0.5 bg-slate-100 text-[8px] font-bold uppercase rounded">{cr}</span>)}
-                                  {c.triggeredLabs?.map(l => <span key={l} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 [font-size:8px] font-black uppercase rounded">{l}</span>)}
-                                  {c.manualFlag && (
-                                    <span className="px-1.5 py-0.5 bg-rose-500 text-white [font-size:8px] font-black uppercase rounded shadow-sm">Flagged</span>
-                                  )}
-                               </div>
-                             ) : (
-                               <div className="flex flex-col gap-1">
-                                 <div className="flex items-center gap-2">
-                                   <span className={cn(
-                                     "px-1.5 py-0.5 text-[8px] font-black uppercase rounded",
-                                     c.status === 'CONFIRMED' ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-600"
-                                   )}>
-                                     {c.status}
-                                   </span>
-                                   {c.decisionNote && <span className="text-[9px] text-slate-500 line-clamp-1 italic">"{c.decisionNote}"</span>}
-                                 </div>
-                                 <span className="text-[8px] font-bold text-slate-400 uppercase">Validated on: {(c.validatedAt && typeof (c.validatedAt as any).toDate === 'function') ? (c.validatedAt as any).toDate().toLocaleDateString() : (c.validatedAt && !isNaN(new Date(c.validatedAt).getTime()) ? new Date(c.validatedAt).toLocaleDateString() : 'N/A')}</span>
-                               </div>
-                             )}
-                          </td>
-                          <td className="px-6 py-4">
-                             <span className="text-xs font-black text-rose-500 uppercase italic">{c.type}</span>
-                          </td>
-                          <td className="px-6 py-4">
-                             <div className="flex items-center gap-2">
-                               <span className={cn(
-                                 "w-3 h-3 rounded-full block shadow-sm",
-                                 c.riskLevel === 'RED' ? "bg-rose-500" : c.riskLevel === 'YELLOW' ? "bg-amber-400" : c.riskLevel === 'BLUE' ? "bg-blue-500" : "bg-slate-900"
-                               )} />
-                               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{c.riskLevel === 'RED' ? 'HIGH' : c.riskLevel === 'YELLOW' ? 'MODERATE' : c.riskLevel === 'BLUE' ? 'LOW' : c.riskLevel}</span>
-                             </div>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                             <div className="flex items-center justify-end gap-2">
-                               {isIPCU && (
-                                 <button 
-                                   onClick={(e) => handleDelete(e, 'hai_cases', c.id)}
-                                   className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors border border-rose-100/50"
-                                   title="Delete Entry"
-                                 >
-                                   <Trash2 className="w-4 h-4" />
-                                 </button>
-                               )}
-                               <div className="flex items-center gap-1">
-                                 <button 
-                                   onClick={() => downloadCasePDF(c)}
-                                   className="p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-500 rounded-lg transition-colors"
-                                   title="Download PDF Report"
-                                 >
-                                   <FileDown className="w-4 h-4" />
-                                 </button>
-                                 {isIPCU && c.status === 'PENDING' ? (
-                                   <button 
-                                     onClick={() => { setSelectedCase(c); setIsValidating(true); }}
-                                     className="text-[9px] font-black uppercase tracking-widest text-brand-primary p-2 hover:bg-teal-50 rounded-lg transition-colors border border-transparent hover:border-teal-100"
-                                   >
-                                     Validate
-                                   </button>
-                                 ) : (
+                      {Object.values(
+                        cases
+                          .filter(c => {
+                            const isVerified = c.status === 'CONFIRMED' || c.status === 'REJECTED';
+                            if (caseValidationFilter === 'Verified') return isVerified;
+                            if (caseValidationFilter === 'Pending Validation') return !isVerified;
+                            return true;
+                          })
+                          .reduce((acc, c) => {
+                            const key = c.hospNo || c.patientName;
+                            if (!acc[key]) acc[key] = [];
+                            acc[key].push(c);
+                            return acc;
+                          }, {} as Record<string, any[]>)
+                      ).map((group, gIdx) => (
+                        <React.Fragment key={group[0].hospNo || gIdx}>
+                          {group.map((c, idx) => (
+                            <tr key={c.id} className={cn("hover:bg-slate-50/50 transition-colors group", idx > 0 ? "border-t border-slate-50" : "")}>
+                              {idx === 0 && (
+                                <td className="px-6 py-4 align-top" rowSpan={group.length}>
+                                  <div className="flex flex-col">
+                                    <span className="text-xs font-bold text-slate-900">{c.patientName}</span>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">{c.unit}</span>
+                                      <span className="text-[8px] font-mono text-slate-300">#{c.hospNo}</span>
+                                    </div>
+                                  </div>
+                                </td>
+                              )}
+                              <td className="px-6 py-4 align-top">
+                                <span className="text-xs font-medium text-slate-600">{c.deviceType || c.procedureType}</span>
+                              </td>
+                              <td className="px-6 py-4 align-top">
+                                {c.status === 'PENDING' ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {c.triggeredCriteria?.map((cr: string) => <span key={cr} className="px-1.5 py-0.5 bg-slate-100 text-[8px] font-bold uppercase rounded">{cr}</span>)}
+                                    {c.triggeredLabs?.map((l: string) => <span key={l} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 [font-size:8px] font-black uppercase rounded">{l}</span>)}
+                                    {c.manualFlag && (
+                                      <span className="px-1.5 py-0.5 bg-rose-500 text-white [font-size:8px] font-black uppercase rounded shadow-sm">Flagged</span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-col gap-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className={cn(
+                                        "px-1.5 py-0.5 text-[8px] font-black uppercase rounded",
+                                        c.status === 'CONFIRMED' ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-600"
+                                      )}>
+                                        {c.status}
+                                      </span>
+                                      {c.decisionNote && <span className="text-[9px] text-slate-500 line-clamp-1 italic">"{c.decisionNote}"</span>}
+                                    </div>
+                                    <span className="text-[8px] font-bold text-slate-400 uppercase">Validated on: {(c.validatedAt && typeof (c.validatedAt as any).toDate === 'function') ? (c.validatedAt as any).toDate().toLocaleDateString() : (c.validatedAt && !isNaN(new Date(c.validatedAt).getTime()) ? new Date(c.validatedAt).toLocaleDateString() : 'N/A')}</span>
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 align-top">
+                                <span className="text-xs font-black text-rose-500 uppercase italic">{c.type}</span>
+                              </td>
+                              <td className="px-6 py-4 align-top">
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                    "w-3 h-3 rounded-full block shadow-sm",
+                                    c.riskLevel === 'RED' ? "bg-rose-500" : c.riskLevel === 'YELLOW' ? "bg-amber-400" : c.riskLevel === 'BLUE' ? "bg-blue-500" : "bg-slate-900"
+                                  )} />
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{c.riskLevel === 'RED' ? 'HIGH' : c.riskLevel === 'YELLOW' ? 'MODERATE' : c.riskLevel === 'BLUE' ? 'LOW' : c.riskLevel}</span>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 text-right align-top">
+                                <div className="flex items-center justify-end gap-2">
+                                  {isIPCU && (
                                     <button 
-                                      onClick={() => { setSelectedCase(c); setIsValidating(true); }}
-                                      className="text-[9px] font-black uppercase tracking-widest text-slate-400 p-2 hover:bg-slate-100 rounded-lg"
+                                      onClick={(e) => handleDelete(e, 'hai_cases', c.id)}
+                                      className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors border border-rose-100/50"
+                                      title="Delete Entry"
                                     >
-                                      View
+                                      <Trash2 className="w-4 h-4" />
                                     </button>
-                                 )}
-                               </div>
-                             </div>
-                          </td>
-                        </tr>
+                                  )}
+                                  <div className="flex items-center gap-1">
+                                    <button 
+                                      onClick={() => downloadCasePDF(c)}
+                                      className="p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-500 rounded-lg transition-colors"
+                                      title="Download PDF Report"
+                                    >
+                                      <FileDown className="w-4 h-4" />
+                                    </button>
+                                    {isIPCU && c.status === 'PENDING' ? (
+                                      <button 
+                                        onClick={() => { setSelectedCase(c); setIsValidating(true); }}
+                                        className="text-[9px] font-black uppercase tracking-widest text-brand-primary p-2 hover:bg-teal-50 rounded-lg transition-colors border border-transparent hover:border-teal-100"
+                                      >
+                                        Validate
+                                      </button>
+                                    ) : (
+                                      <button 
+                                        onClick={() => { setSelectedCase(c); setIsValidating(true); }}
+                                        className="text-[9px] font-black uppercase tracking-widest text-slate-400 p-2 hover:bg-slate-100 rounded-lg"
+                                      >
+                                        View
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
                       ))}
-                      {cases.filter(c => caseFilter === 'PENDING' ? c.status === 'PENDING' : c.status !== 'PENDING').length === 0 && (
+
+
+                      {cases.length === 0 && (
                         <tr>
                           <td colSpan={6} className="px-6 py-12 text-center">
                             <div className="flex flex-col items-center gap-2 opacity-30">
@@ -978,7 +1009,6 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                   </table>
                 </div>
               </div>
-            </div>
 
 
             {/* Daily Bundle Compliance Audit Queue */}
@@ -1042,35 +1072,37 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                           </td>
                           <td className="px-6 py-4 text-right">
                              <div className="flex items-center justify-end gap-2">
-                               {day.possibleHAI ? (
-                                  <div className="flex items-center gap-2 text-rose-500">
-                                    <AlertTriangle className="w-4 h-4 shadow-sm" />
-                                    <span className="text-[9px] font-black uppercase tracking-widest">Triggered – Possible HAI</span>
-                                  </div>
-                               ) : (day as any).isVerifiedByIPCU ? (
-                                  <div className="flex items-center gap-2 text-emerald-500">
-                                    <ShieldCheck className="w-4 h-4 shadow-sm" />
-                                    <span className="text-[9px] font-black uppercase tracking-widest">Verified</span>
-                                  </div>
-                               ) : isIPCU ? (
+                               {isIPCU && (
                                   <button 
                                     onClick={() => { setSelectedDayToVerify({ patient: day.patient, day: day, index: day.dayIndex }); setIsVerifyingDay(true); }}
                                     className="p-2 hover:bg-teal-50 rounded-lg text-teal-600 transition-all border border-teal-100 group-hover:scale-105 active:scale-95"
-                                    title="IPCU Validation"
+                                    title={day.possibleHAI || !(day as any).isVerifiedByIPCU ? "IPCU Validation" : "Review Validation"}
                                   >
                                     <ShieldCheck className="w-4 h-4" />
                                   </button>
-                               ) : (
+                               )}
+                               {day.possibleHAI ? (
+                                  <div className="flex items-center gap-2 text-rose-500">
+                                    <AlertTriangle className="w-4 h-4 shadow-sm" />
+                                    <span className="text-[9px] font-black uppercase tracking-widest hidden sm:inline">Triggered</span>
+                                  </div>
+                               ) : (day as any).isVerifiedByIPCU ? (
+                                  <div className="flex items-center gap-2 text-emerald-500">
+                                    <CheckCircle2 className="w-4 h-4 shadow-sm" />
+                                    <span className="text-[9px] font-black uppercase tracking-widest hidden sm:inline">Verified</span>
+                                  </div>
+                               ) : !isIPCU ? (
                                   <div className="flex items-center gap-2 text-slate-300">
                                     <CheckCircle2 className="w-4 h-4" />
-                                    <span className="text-[9px] font-black uppercase tracking-widest">Logged</span>
+                                    <span className="text-[9px] font-black uppercase tracking-widest hidden sm:inline">Logged</span>
                                   </div>
-                               )}
+                               ) : null}
                              </div>
                           </td>
                         </tr>
                       ))}
                       {monitorings.length === 0 && (
+
                         <tr>
                           <td colSpan={6} className="px-6 py-12 text-center text-slate-400 text-[10px] font-bold uppercase tracking-widest">No bundle compliance logs found</td>
                         </tr>
@@ -1083,14 +1115,33 @@ export default function HAI({ user }: { user: UserProfile | null }) {
 
             {/* Pending Unit Audits (BOC Logs) */}
             <div className="space-y-4 pb-20">
-              <div className="flex items-center gap-3">
-                <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Pending Unit Audits (BOC Forms)</h3>
-                <div className="h-px flex-1 bg-slate-200" />
-                <div className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                   <AlertTriangle className="w-3 h-3" />
-                   {bundleLogs.filter(l => !l.isValidated).length} Awaiting Verification
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-900 leading-none">Pending Unit Audits (BOC Forms)</h3>
+                  <div className="h-px flex-1 bg-slate-200" />
+                  <div className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                     <AlertTriangle className="w-3 h-3" />
+                     {bundleLogs.filter(l => !l.isValidated).length} Awaiting Verification
+                  </div>
+                </div>
+                <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
+                  {['All', 'Pending Validation', 'Verified'].map(status => (
+                    <button
+                      key={status}
+                      onClick={() => setBundleValidationFilter(status as any)}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all",
+                        bundleValidationFilter === status 
+                          ? "bg-brand-primary text-white shadow-md shadow-brand-primary/20" 
+                          : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-50"
+                      )}
+                    >
+                      {status}
+                    </button>
+                  ))}
                 </div>
               </div>
+
               <div className="bento-card bg-white overflow-hidden shadow-xl shadow-slate-200/50">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse border-spacing-0 min-w-[800px]">
@@ -1104,7 +1155,13 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {bundleLogs.filter(l => !l.isValidated || isIPCU).map(log => (
+                      {bundleLogs.filter(l => {
+                        if (!isIPCU && l.isValidated) return false;
+                        if (bundleValidationFilter === 'Verified') return l.isValidated;
+                        if (bundleValidationFilter === 'Pending Validation') return !l.isValidated;
+                        return true;
+                      }).map(log => (
+
                         <tr key={log.id} className={cn("hover:bg-slate-50/50 transition-colors group", log.isValidated ? "opacity-50" : "")}>
                           <td className="px-6 py-4">
                             <div className="flex flex-col">
@@ -1143,6 +1200,15 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                                </button>
                              ) : log.isValidated ? (
                                <div className="flex items-center justify-end gap-2 text-emerald-500">
+                                 {isIPCU && (
+                                   <button 
+                                     onClick={() => { setSelectedLog(log); setIsVerifying(true); }}
+                                     className="p-1 hover:bg-emerald-50 rounded-lg text-emerald-600 transition-colors mr-1 border border-emerald-100"
+                                     title="Review Verification"
+                                   >
+                                     <ShieldCheck className="w-4 h-4" />
+                                   </button>
+                                 )}
                                  <CheckCircle2 className="w-4 h-4" />
                                  <span className="text-[10px] font-black uppercase">Verified</span>
                                </div>
@@ -1153,6 +1219,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                         </tr>
                       ))}
                       {bundleLogs.length === 0 && (
+
                         <tr>
                           <td colSpan={5} className="px-6 py-12 text-center text-slate-400 text-[10px] font-bold uppercase tracking-widest">No audit logs awaiting verification</td>
                         </tr>

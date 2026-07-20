@@ -325,63 +325,6 @@ function AuditDetailsViewer({ type, details }: { type: string; details: any }) {
   );
 }
 
-function AuditValidationModal({ audit, onClose, onSubmit, user }: any) {
-  const [remarks, setRemarks] = useState('');
-  const [status, setStatus] = useState('VALIDATED');
-  
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-xl bg-white sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
-        <div className="p-4 sm:p-6 bg-brand-primary border-b border-teal-700 flex justify-between items-center text-white shrink-0">
-          <div className="flex items-center gap-3">
-             <ShieldCheck className="w-5 h-5" />
-             <h3 className="text-sm sm:text-lg font-bold uppercase tracking-tight">IPCU Audit Verification</h3>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-teal-700 rounded-full transition-colors"><XCircle className="w-6 h-6" /></button>
-        </div>
-        <form onSubmit={(e) => { e.preventDefault(); onSubmit(audit, { remarks, status }); }} className="flex-1 overflow-hidden flex flex-col bg-slate-50">
-          <div className="flex-1 p-4 sm:p-8 space-y-6 overflow-y-auto custom-scrollbar">
-            
-            <div className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm space-y-1">
-              <span className="text-[10px] font-black text-brand-primary uppercase">Audit Submission</span>
-              <h4 className="text-sm font-bold text-slate-900">{audit.type.replace('_', ' ')} • {audit.unit}</h4>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Score: {audit.score}/{audit.total} • By: {audit.auditorName || audit.auditorEmail}</p>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
-               <AuditDetailsViewer type={audit.type} details={audit.details} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-               <div className="space-y-3">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Decision Status</label>
-                  <div className="flex flex-col gap-2">
-                     {['VALIDATED', 'REJECTED'].map(s => (
-                       <button key={s} type="button" onClick={() => setStatus(s)} className={cn("px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all border", status === s ? (s === 'VALIDATED' ? "bg-brand-primary border-brand-primary text-white" : "bg-rose-500 border-rose-500 text-white") : "bg-white border-slate-200 text-slate-400")}>{s}</button>
-                     ))}
-                  </div>
-               </div>
-               <div className="space-y-3">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Validator Remarks</label>
-                  <textarea 
-                    className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs outline-none focus:border-brand-primary min-h-[80px]" 
-                    placeholder="Optional notes..." 
-                    value={remarks} 
-                    onChange={e => setRemarks(e.target.value)} 
-                  />
-               </div>
-            </div>
-
-          </div>
-          <div className="p-4 sm:p-6 bg-white border-t border-slate-100 shrink-0">
-            <button type="submit" className="w-full py-4 bg-brand-primary text-white font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-teal-900/10 active:scale-95 transition-all">Submit Verification</button>
-          </div>
-        </form>
-      </motion.div>
-    </div>
-  );
-}
-
 export default function Audits({ user }: { user: UserProfile | null }) {
   const [isAdding, setIsAdding] = useState(false);
   const [selectedType, setSelectedType] = useState<AuditType>('HH_COMPLIANCE');
@@ -402,10 +345,8 @@ export default function Audits({ user }: { user: UserProfile | null }) {
   });
 
   const [audits, setAudits] = useState<Audit[]>([]);
-  const [selectedAuditForValidation, setSelectedAuditForValidation] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [validationFilter, setValidationFilter] = useState<'All' | 'Pending Validation' | 'Verified'>('All');
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -513,24 +454,42 @@ export default function Audits({ user }: { user: UserProfile | null }) {
 
   const AUDIT_OPTIONS = AUDIT_GROUPS.flatMap(g => g.options);
 
-    
-    const handleValidateSubmit = async (audit: any, data: any) => {
-    if (!user) return;
+  const [selectedAuditForValidation, setSelectedAuditForValidation] = useState<Audit | null>(null);
+  const [validationForm, setValidationForm] = useState({
+    validatorName: '',
+    date: new Date().toISOString().split('T')[0],
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+    remarks: '',
+    monitoringMethod: '',
+    monitoringStatus: '' as 'PASS' | 'FAIL' | ''
+  });
+
+  const handleValidateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAuditForValidation || !user) return;
+
     try {
-      await updateDoc(doc(db, "audits", audit.id), {
-        isValidated: data.status === "VALIDATED",
-        validationStatus: data.status,
-        validationRemarks: data.remarks,
+      await updateDoc(doc(db, 'audits', selectedAuditForValidation.id), {
+        isValidated: true,
         validatedBy: user.email,
-        validatorName: user.name || "IPCN Validator",
-        validatedAt: new Date().toISOString(),
+        validatorName: validationForm.validatorName || user.name || 'IPCN Validator',
+        validatedAt: `${validationForm.date}T${validationForm.time}`,
+        validationRemarks: validationForm.remarks,
+        monitoringMethod: validationForm.monitoringMethod,
+        monitoringStatus: validationForm.monitoringStatus,
         updatedAt: serverTimestamp()
       });
       setSelectedAuditForValidation(null);
-      showToast(`Audit ${data.status.toLowerCase()} successfully`);
+      setValidationForm({
+        validatorName: '',
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+        remarks: '',
+        monitoringMethod: '',
+        monitoringStatus: ''
+      });
     } catch (error) {
-      console.error(error);
-      showToast("Validation failed", "error");
+      handleFirestoreError(error, OperationType.UPDATE, 'audits');
     }
   };
 
@@ -1019,44 +978,25 @@ export default function Audits({ user }: { user: UserProfile | null }) {
 
           {/* Large Feed Section */}
           <div className="col-span-full bento-card bg-white min-h-[400px] flex flex-col">
-            <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col gap-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <Search className="w-4 h-4 text-slate-400" />
-                  <input 
-                    placeholder="Search unit, auditor, or type..."
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    className="bg-transparent border-none text-[11px] font-black uppercase tracking-widest text-slate-600 w-full sm:w-64 outline-none placeholder:text-slate-300"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <button className="p-1.5 sm:p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors">
-                    <Filter className="w-3.5 h-3.5" />
-                  </button>
-                  <button className="p-1.5 sm:p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors">
-                    <Calendar className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Search className="w-4 h-4 text-slate-400" />
+                <input 
+                  placeholder="Search unit, auditor, or type..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  className="bg-transparent border-none text-[11px] font-black uppercase tracking-widest text-slate-600 w-full sm:w-64 outline-none placeholder:text-slate-300"
+                />
               </div>
-              <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
-                {['All', 'Pending Validation', 'Verified'].map(status => (
-                  <button
-                    key={status}
-                    onClick={() => setValidationFilter(status as any)}
-                    className={cn(
-                      "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all",
-                      validationFilter === status 
-                        ? "bg-brand-primary text-white shadow-md shadow-brand-primary/20" 
-                        : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                    )}
-                  >
-                    {status}
-                  </button>
-                ))}
+              <div className="flex gap-2">
+                <button className="p-1.5 sm:p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors">
+                  <Filter className="w-3.5 h-3.5" />
+                </button>
+                <button className="p-1.5 sm:p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors">
+                  <Calendar className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
-
             
             <div className="flex-1 overflow-y-auto p-2 divide-y divide-slate-50">
               {loading ? (
@@ -1064,20 +1004,14 @@ export default function Audits({ user }: { user: UserProfile | null }) {
               ) : (() => {
                 const filteredAudits = audits.filter(a => {
                   const s = searchTerm.toLowerCase();
-                  const searchMatch = (
+                  return (
                     (a.unit?.toLowerCase().includes(s)) ||
                     (a.auditorName?.toLowerCase().includes(s)) ||
                     (a.type?.toLowerCase().includes(s)) ||
                     (a.staffIdentifier?.toLowerCase().includes(s)) ||
                     (a.profession?.toLowerCase().includes(s))
                   );
-                  if (!searchMatch) return false;
-                  if (validationFilter === 'Verified') return a.isValidated;
-                  if (validationFilter === 'Pending Validation') return !a.isValidated;
-                  return true;
                 });
-
-
 
                 if (filteredAudits.length === 0) {
                   return (
@@ -1091,7 +1025,13 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                   <AuditEntry 
                     key={audit.id} 
                     {...audit} 
-                    onValidate={() => setSelectedAuditForValidation(audit)}
+                    onValidate={() => {
+                      setSelectedAuditForValidation(audit);
+                      setValidationForm({
+                         ...validationForm,
+                         validatorName: user?.name || ''
+                      });
+                    }}
                     isAdmin={user?.role === 'IPCN' || user?.role === 'ADMIN'}
                   />
                 ));
@@ -2336,8 +2276,95 @@ export default function Audits({ user }: { user: UserProfile | null }) {
           </motion.div>
         </div>
       )}
-          onSubmit={handleValidateSubmit} 
+        {selectedAuditForValidation && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full h-full sm:h-auto sm:max-w-md bg-white sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+              <div className="p-4 sm:p-6 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-3">
+                   <ShieldCheck className="w-5 h-5 text-brand-primary" />
+                   <h3 className="text-sm font-bold text-white uppercase tracking-tight">Audit Validation</h3>
+                </div>
+                <button onClick={() => setSelectedAuditForValidation(null)} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-500"><XCircle className="w-6 h-6" /></button>
+              </div>
+              <div className="overflow-y-auto custom-scrollbar flex-1">
+                 <div className="p-6 bg-slate-50 border-b border-slate-100">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-3 block">Audit Details</span>
+                    <AuditDetailsViewer type={selectedAuditForValidation.type} details={selectedAuditForValidation.details} />
+                 </div>
+                 <form onSubmit={handleValidateSubmit} className="p-6 space-y-6">
+                 <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Date</label>
+                          <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={validationForm.date} onChange={e => setValidationForm({...validationForm, date: e.target.value})} />
+                       </div>
+                       <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Time</label>
+                          <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none" value={validationForm.time} onChange={e => setValidationForm({...validationForm, time: e.target.value})} />
+                       </div>
+                    </div>
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Validator Name</label>
+                      <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none" value={validationForm.validatorName} onChange={e => setValidationForm({...validationForm, validatorName: e.target.value})} placeholder="Enter your full name" />
+                   </div>
+
+                   {selectedAuditForValidation.type === 'ENV_CLEANING' && (
+                     <div className="space-y-4 pt-2 border-t border-slate-100">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Monitoring Method</label>
+                          <select 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold outline-none"
+                            value={validationForm.monitoringMethod}
+                            onChange={e => setValidationForm({...validationForm, monitoringMethod: e.target.value})}
+                          >
+                             <option value="">Select Method</option>
+                             <option value="Visual Observation">Visual Observation</option>
+                             <option value="Fluorescent Marker">Fluorescent Marker</option>
+                             <option value="ATP Bioluminescence">ATP Bioluminescence</option>
+                             <option value="Culturing">Culturing</option>
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Result</label>
+                           <div className="flex gap-2">
+                              <button 
+                                type="button"
+                                onClick={() => setValidationForm({...validationForm, monitoringStatus: 'PASS'})}
+                                className={cn(
+                                  "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                                  validationForm.monitoringStatus === 'PASS' ? "bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-500/20" : "bg-slate-50 border-slate-200 text-slate-400"
+                                )}
+                              >
+                                Passed
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => setValidationForm({...validationForm, monitoringStatus: 'FAIL'})}
+                                className={cn(
+                                  "flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                                  validationForm.monitoringStatus === 'FAIL' ? "bg-rose-500 border-rose-500 text-white shadow-lg shadow-rose-500/20" : "bg-slate-50 border-slate-200 text-slate-400"
+                                )}
+                              >
+                                Failed
+                              </button>
+                           </div>
+                        </div>
+                     </div>
+                   )}
+
+                   <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Remarks</label>
+                       <textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs h-24 resize-none outline-none" value={validationForm.remarks} onChange={e => setValidationForm({...validationForm, remarks: e.target.value})} placeholder="Validation notes..." />
+                    </div>
+                 </div>
+                 <button type="submit" className="w-full py-4 bg-brand-primary text-white font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-teal-900/10 active:scale-95 transition-all">Submit IPCN Validation</button>
+              </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
+
       <AnimatePresence>
         {toast && (
           <motion.div
@@ -2354,14 +2381,6 @@ export default function Audits({ user }: { user: UserProfile | null }) {
           </motion.div>
         )}
       </AnimatePresence>
-      {selectedAuditForValidation && (
-        <AuditValidationModal
-          audit={selectedAuditForValidation}
-          onClose={() => setSelectedAuditForValidation(null)}
-          onSubmit={handleValidateSubmit}
-          user={user}
-        />
-      )}
     </div>
   );
 }

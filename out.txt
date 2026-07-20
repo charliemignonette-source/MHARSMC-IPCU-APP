@@ -1,0 +1,21 @@
+   975	                                      <button 
+   976	                                        onClick={() => { setSelectedCase(c); setIsValidating(true); }}
+   977	                                        className="text-[9px] font-black uppercase tracking-widest text-brand-primary p-2 hover:bg-teal-50 rounded-lg transition-colors border border-transparent hover:border-teal-100"
+   978	                                      >
+   979	                                        Validate
+   980	                                      </button>
+   981	                                    ) : (
+   982	                                      <button 
+   983	                                        onClick={() => { setSelectedCase(c); setIsValidating(true); }}
+   984	                                        className="text-[9px] font-black uppercase tracking-widest text-slate-400 p-2 hover:bg-slate-100 rounded-lg"
+   985	                                      >
+   986	                                        View
+   987	                                      </button>
+   988	                                    )}
+   989	                                  </div>
+   990	                                </div>
+   991	                              </td>
+   992	                            </tr>
+   993	                          ))}
+   994	                        </React.Fragment>
+   995	                      ))}

@@ -1,4 +1,6 @@
-import { initializeApp } from 'firebase/app';
+const fs = require('fs');
+
+const content = `import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -71,3 +73,6 @@ export async function safeUpdateDoc(docRef: any, data: any): Promise<any> {
 export async function safeDeleteDoc(docRef: any): Promise<any> {
   return deleteDoc(docRef);
 }
+`;
+
+fs.writeFileSync('src/lib/firebase.ts', content);

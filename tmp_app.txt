@@ -51,6 +51,7 @@ import AMS from './components/AMS';
 import HAI from './components/HAI';
 import NSI from './components/NSI';
 import Outbreak from './components/Outbreak';
+import IPCUValidationConsole from './components/IPCUValidationConsole';
 import Reports from './components/Reports';
 import Antibiogram from './components/Antibiogram';
 import Maintenance from './components/Maintenance';
@@ -115,6 +116,7 @@ export default function App() {
 
   const allTabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'IPCN'] },
+    { id: 'validation', label: 'IPCU Validation', icon: ShieldAlert, roles: ['ADMIN', 'IPCN'] },
     { id: 'audits', label: 'IPC Audits', icon: ClipboardCheck, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'USER'] },
     { id: 'ams', label: 'Antimicrobial Stewardship', icon: Stethoscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'PHARMACY', 'USER'] },
     { id: 'antibiogram', label: 'Cumulative Antibiogram', icon: Microscope, roles: ['ADMIN', 'IPCN', 'PHYSICIAN', 'APPROVER', 'USER'] },
@@ -938,6 +940,7 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
           <AnimatePresence mode="wait">
             <div key={activeTab}>
               {activeTab === 'dashboard' && <Dashboard user={profile} onNavigate={(tab) => setActiveTab(tab)} />}
+              {activeTab === 'validation' && <IPCUValidationConsole user={profile} />}
               {activeTab === 'audits' && <Audits user={profile} />}
               {activeTab === 'ams' && <AMS user={profile} />}
               {activeTab === 'antibiogram' && <Antibiogram user={profile} />}
