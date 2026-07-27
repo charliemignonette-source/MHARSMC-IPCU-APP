@@ -26,7 +26,7 @@ const getDocs = safeGetDocs;
 const setDoc = safeSetDoc;
 const deleteDoc = safeDeleteDoc;
 import { UserProfile, Role } from '../types';
-import { cn } from '../lib/utils';
+import { cn , mapLegacyData } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { seedUserRoles } from '../lib/seed';
 
@@ -38,6 +38,11 @@ export default function Maintenance({ user }: MaintenanceProps) {
   const [activeTab, setActiveTab] = useState<'DATA' | 'STAFF'>('DATA');
   const [isResetting, setIsResetting] = useState(false);
   const [resetStatus, setResetStatus] = useState<'IDLE' | 'PROCESSING' | 'SUCCESS' | 'ERROR'>('IDLE');
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
   const [confirmText, setConfirmText] = useState('');
   const [staffConfirmText, setStaffConfirmText] = useState('');
   const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
@@ -63,7 +68,7 @@ export default function Maintenance({ user }: MaintenanceProps) {
     const q = query(collection(db, 'user_roles'), orderBy('role'));
     const unsubscribe = safeOnSnapshot(q, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({
-        ...doc.data(),
+        ...mapLegacyData(doc.data()),
         id: doc.id
       }));
       setStaffList(docs);
@@ -110,6 +115,7 @@ export default function Maintenance({ user }: MaintenanceProps) {
       }
 
       setResetStatus('SUCCESS');
+      showToast("Changes saved successfully");
       setConfirmText('');
       setSelectedCollections([]);
       setTimeout(() => setResetStatus('IDLE'), 3000);
@@ -132,7 +138,7 @@ export default function Maintenance({ user }: MaintenanceProps) {
       
       let deleteCount = 0;
       snapshot.docs.forEach(docSnap => {
-        const role = docSnap.data().role;
+        const role = mapLegacyData(docSnap.data()).role;
         // Keep ADMIN, IPCN, and PHARMACY roles as they are "system" roles the user wants to keep
         if (role !== 'ADMIN' && role !== 'IPCN' && role !== 'PHARMACY') {
           batch.delete(docSnap.ref);
@@ -145,6 +151,7 @@ export default function Maintenance({ user }: MaintenanceProps) {
       }
       
       setResetStatus('SUCCESS');
+      showToast("Changes saved successfully");
       setStaffConfirmText('');
       setTimeout(() => setResetStatus('IDLE'), 3000);
     } catch (err) {
@@ -165,16 +172,20 @@ export default function Maintenance({ user }: MaintenanceProps) {
       });
       setIsAddingStaff(false);
       setNewStaff({ staffCode: '', pin: '', role: 'USER', unit: 'General' });
+      showToast("Changes saved successfully");
     } catch (err) {
       console.error("Save staff failed:", err);
+      showToast("Failed to save changes", "error");
     }
   };
 
   const handleDeleteStaff = async (id: string) => {
     try {
       await deleteDoc(doc(db, 'user_roles', id));
+      showToast("Changes saved successfully");
     } catch (err) {
       console.error("Delete staff failed:", err);
+      showToast("Failed to delete", "error");
     }
   };
 
@@ -411,6 +422,7 @@ export default function Maintenance({ user }: MaintenanceProps) {
                   onClick={() => {
                     setEditingStaff(null);
                     setNewStaff({ staffCode: '', pin: '', role: 'USER', unit: 'General' });
+      showToast("Changes saved successfully");
                     setIsAddingStaff(true);
                   }}
                   className="flex items-center justify-center gap-2 px-6 py-3 bg-brand-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-secondary transition-all shadow-lg shadow-brand-primary/20"
@@ -581,7 +593,7 @@ export default function Maintenance({ user }: MaintenanceProps) {
                     <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Assigned Unit</label>
                     <input 
                       required
-                      placeholder="e.g. Medical Ward, ICU"
+                      placeholder="e.g. Ward 1A, ICU"
                       className="text-input"
                       value={newStaff.unit}
                       onChange={e => setNewStaff({...newStaff, unit: e.target.value})}
@@ -631,6 +643,22 @@ export default function Maintenance({ user }: MaintenanceProps) {
           >
             <XCircle className="w-5 h-5" />
             <p className="text-xs font-black uppercase tracking-widest">System error during wipe</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+          <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-slate-900 text-white rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-800"
+          >
+            <div className={cn(
+              "w-2 h-2 rounded-full animate-pulse",
+              toast.type === 'success' ? "bg-emerald-400" : "bg-rose-400"
+            )} />
+            <span className="text-xs font-black uppercase tracking-widest">{toast.message}</span>
           </motion.div>
         )}
       </AnimatePresence>

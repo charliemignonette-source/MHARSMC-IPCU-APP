@@ -42,7 +42,8 @@ const updateDoc = safeUpdateDoc;
 const deleteDoc = safeDeleteDoc;
 import { UserProfile, AMSRequest, AMSStatus } from '../types';
 import { UNITS, DEPARTMENTS, ANTIBIOTICS, CULTURE_SPECIMENS } from '../constants';
-import { cn, formatDate } from '../lib/utils';
+import { cn, formatDate , mapLegacyData } from '../lib/utils';
+import { NameEditor } from './NameEditor';
 
 const getAwareStyles = (drugName: string) => {
   if (ANTIBIOTICS.ACCESS.includes(drugName)) {
@@ -61,18 +62,23 @@ export default function AMS({ user }: { user: UserProfile | null }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [requests, setRequests] = useState<AMSRequest[]>([]);
   const [viewMode, setViewMode] = useState<'LIST' | 'DASHBOARD'>('LIST');
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSwitchingWard, setIsSwitchingWard] = useState(false);
 
   const getDepartment = (unit: string) => {
     if (DEPARTMENTS.includes(unit)) return unit;
-    if (['ICU 1', 'ICU 2', 'NICU', 'PICU', 'HDU 1', 'HDU 2'].includes(unit)) return 'Internal Medicine';
-    if (['Ward 1A', 'Ward 1B', 'Ward 1C', 'Medical Ward', 'Acute Stroke Unit', 'RTU', 'Oncology', 'Ward 4', 'C2', 'C3', 'C4', 'TB DOTS'].includes(unit)) return 'Internal Medicine';
-    if (['Ward 2A', 'Ward 2B', 'Surgical Ward', 'OR', 'Ambulatory OR'].includes(unit)) return 'General Surgery';
-    if (['OB Ward', 'DR', 'OBER', 'Ward 5A', 'Ward 5B', 'Ward 5C', 'Ward 6', 'Labor Room', 'Delivery Room'].includes(unit)) return 'Obstetrics-Gynecology';
-    if (['Ward 3A', 'Ward 3B', 'Pedia Ward', 'NBS'].includes(unit)) return 'Pediatrics';
-    if (['ER', 'OPD 1', 'OPD 2', 'OPD Lab', '2D Echo'].includes(unit)) return 'Emergency Medicine';
+    if (['ICU', 'NICU', 'PICU', 'HDU 1', 'HDU 2'].includes(unit)) return 'Internal Medicine';
+    if (['Ward 1A', 'Ward 1B', 'Ward 1C', 'Acute Stroke Unit', 'RTU', 'Oncology', 'Ward 4', 'C2', 'C3', 'C4', 'TB DOTS'].includes(unit)) return 'Internal Medicine';
+    if (['Ward 2A', 'Ward 2B', 'OR', 'Ambulatory OR'].includes(unit)) return 'General Surgery';
+    if (['OBER', 'Ward 5A', 'Ward 5B', 'Ward 5C', 'Ward 6', 'Labor Room', 'Delivery Room'].includes(unit)) return 'Obstetrics-Gynecology';
+    if (['Ward 3A', 'Ward 3B', 'NBS'].includes(unit)) return 'Pediatrics';
+    if (['ER', 'OPD 1', 'OPD 2', 'Eye Clinic', '2D Echo'].includes(unit)) return 'Emergency Medicine';
     return unit || 'Other';
   };
 
@@ -93,14 +99,15 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       commonFocus: 'N/A',
     };
 
-    if (requests.length === 0) return stats;
+    const validRequests = requests.filter(req => !req.isDeleted && !(req as any).deleted && req.status !== ('DELETED' as any) && req.status !== ('CANCELLED' as any) && !(req as any).isArchived);
+    if (validRequests.length === 0) return stats;
 
     const abUsage: Record<string, number> = {};
     const wRequests: Record<string, number> = {};
     const dRequests: Record<string, number> = {};
     const extAbUsage: Record<string, number> = {};
 
-    requests.forEach(req => {
+    validRequests.forEach(req => {
       req.antimicrobialsRequested?.forEach(ab => {
         abUsage[ab] = (abUsage[ab] || 0) + 1;
       });
@@ -246,9 +253,9 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     let q;
 
     if (user.role === 'ADMIN' || user.role === 'IPCN' || user.role === 'APPROVER' || user.role === 'PHARMACY' || user.role === 'PHYSICIAN') {
-      q = query(baseQuery, orderBy('createdAt', 'desc'), limit(100));
+      q = query(baseQuery, orderBy('createdAt', 'desc'), limit(500));
       const unsubscribe = safeOnSnapshot(q, (snapshot) => {
-        const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AMSRequest));
+        const data = snapshot.docs.map(doc => ({ ...mapLegacyData(doc.data()), id: doc.id } as AMSRequest));
         const sortedData = data.sort((a, b) => {
           const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
           const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
@@ -264,12 +271,12 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     } else {
       // Regular users see their own requests OR requests from their unit
       // Split into two queries to avoid "Missing or insufficient permissions" with complex OR queries in rules
-      const q1 = query(baseQuery, where('prescriberId', '==', user.uid), limit(50));
-      const q2 = query(baseQuery, where('unit', '==', user.unit || 'General'), limit(50));
+      const q1 = query(baseQuery, where('prescriberId', '==', user.uid), limit(200));
+      const q2 = query(baseQuery, where('unit', '==', user.unit || 'General'), limit(200));
 
       const updateRequests = (snapshot1: any, snapshot2: any) => {
-        const data1 = snapshot1?.docs ? snapshot1.docs.map((doc: any) => ({ ...doc.data(), id: doc.id } as AMSRequest)) : [];
-        const data2 = snapshot2?.docs ? snapshot2.docs.map((doc: any) => ({ ...doc.data(), id: doc.id } as AMSRequest)) : [];
+        const data1 = snapshot1?.docs ? snapshot1.docs.map((doc: any) => ({ ...mapLegacyData(doc.data()), id: doc.id } as AMSRequest)) : [];
+        const data2 = snapshot2?.docs ? snapshot2.docs.map((doc: any) => ({ ...mapLegacyData(doc.data()), id: doc.id } as AMSRequest)) : [];
         
         // Combine and deduplicate
         const mergedMap = new Map();
@@ -503,7 +510,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     } catch (error) {
       console.error("Delete error:", error);
       handleFirestoreError(error, OperationType.DELETE, `ams_requests/${requestId}`);
-      alert("Delete failed. Try again.");
+      showToast("Delete failed. Try again.", "error");
     }
   };
 
@@ -607,7 +614,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       req.dose || '',
       req.status,
       req.indicationForUse || '',
-      req.requestingPhysician || '',
+      req.requestingPhysician || req.prescriberName || req.prescriberEmail || '',
       req.dateTimeApproved || ''
     ]);
 
@@ -616,7 +623,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
     ].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
@@ -899,7 +906,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
         startY: currentY,
         head: [['Request & Review Timeline', 'Timestamp', 'Personnel']],
         body: [
-          ['Date/Time Requested', req.dateTimeRequested || 'N/A', req.requestingPhysician || req.prescriberEmail || 'Unknown'],
+          ['Date/Time Requested', req.dateTimeRequested || 'N/A', req.requestingPhysician || req.prescriberName || req.prescriberEmail || 'Unknown'],
           ['Review Outcome', (req.status + (req.daysApproved ? ` (APPROVED FOR ${req.daysApproved} DAYS)` : '')) || 'PENDING', req.reviewerName || req.reviewerEmail || 'Awaiting Review'],
           ['Approval Date', req.dateTimeApproved || 'N/A', req.status === 'APPROVED' ? req.reviewerName || req.reviewerEmail || 'N/A' : 'N/A'],
           ['Dispensing Log', req.status === 'DISPENSED' ? 'DISPENSED' : 'N/A', req.dispensedBy || 'N/A'],
@@ -928,7 +935,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       
       doc.setFontSize(8);
       doc.setTextColor(100);
-      doc.text('Attending Physician Signature', 14, currentY + 20);
+      doc.text(`Attending Physician Signature: ${req.requestingPhysician || req.prescriberName || ''}`.trim() || 'Attending Physician Signature', 14, currentY + 20);
       doc.text('Infectious Disease Consultant / Antimicrobial Stewardship Lead', pageWidth - 80, currentY + 20);
 
       // Footer
@@ -950,6 +957,10 @@ export default function AMS({ user }: { user: UserProfile | null }) {
   const isApprover = user?.role === 'APPROVER' || user?.role === 'ADMIN' || user?.role === 'IPCN' || user?.role === 'PHYSICIAN';
 
   const filteredRequests = requests.filter(req => {
+    if (req.isDeleted || (req as any).deleted || req.status === ('DELETED' as any) || req.status === ('CANCELLED' as any) || (req as any).isArchived) {
+      return false;
+    }
+
     const matchesFilter = activeFilter === 'ALL' || req.status === activeFilter;
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch = searchTerm === '' || JSON.stringify(req).toLowerCase().includes(searchLower);
@@ -1137,7 +1148,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                       <div className="flex flex-col gap-0.5">
                          <p className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-tight opacity-80">{req.type.replace('_', ' ')} • MISSION CRITICAL</p>
                          {req.dateTimeRequested && <p className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase">Req: {formatDate(req.dateTimeRequested)}</p>}
-                         <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px] sm:max-w-none">Requesting: {req.requestingPhysician || req.prescriberEmail}</p>
+                         <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-tight truncate max-w-[150px] sm:max-w-none">Requesting: {req.requestingPhysician || req.prescriberName || req.prescriberEmail || 'Unknown'}</p>
                          {req.isValidated && (
                             <p className="text-[8px] sm:text-[9px] font-bold text-emerald-600 uppercase tracking-tight flex items-center gap-1">
                                <CheckCircle2 className="w-2.5 h-2.5" />
@@ -1281,10 +1292,12 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                           <button 
                             onClick={async (e) => {
                               e.stopPropagation();
+                              const pharmacistName = prompt("Enter Pharmacist Name:", user?.name || user?.email || "");
+                              if (pharmacistName === null) return;
                               try {
                                 await updateDoc(doc(db, 'ams_requests', req.id!), {
                                   status: 'DISPENSED',
-                                  dispensedBy: user?.name || user?.email,
+                                  dispensedBy: pharmacistName || user?.name || user?.email,
                                   dispensedAt: serverTimestamp()
                                 });
                               } catch (error: any) {
@@ -1516,17 +1529,26 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Detailed Justification</p>
                                <p className="text-xs text-slate-700 leading-relaxed font-serif italic">"{req.justification || 'No detailed justification provided.'}"</p>
                             </div>
-                            {req.requestingPhysician && (
+                            {(req.requestingPhysician || req.prescriberName) && (
                                <div>
                                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Requesting Physician</p>
-                                 <p className="text-sm font-bold text-slate-900">{req.requestingPhysician}</p>
+                                 <p className="text-sm font-bold text-slate-900">{req.requestingPhysician || req.prescriberName}</p>
                                </div>
                             )}
                             {req.reviewerName && (
                                <div>
                                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 mb-2">Reviewing/Approving Physician</p>
                                  <div className="flex items-center gap-3">
-                                   <p className="text-sm font-bold text-slate-900">{req.reviewerName}</p>
+                                   <NameEditor
+                                     currentName={req.reviewerName || ""}
+                                     fallbackName="Pending"
+                                     canEdit={!!(user?.role === 'ADMIN' || user?.role === 'IPCN' || user?.role === 'APPROVER')}
+                                     onSave={async (newName) => {
+                                       await updateDoc(doc(db, 'ams_requests', req.id!), { reviewerName: newName });
+                                     }}
+                                     textClassName="text-sm font-bold text-slate-900"
+                                     buttonClassName="hover:bg-slate-100 text-slate-400"
+                                   />
                                    {req.daysApproved && (
                                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-black rounded-full uppercase tracking-tighter">
                                         Approv. for {req.daysApproved} Days
@@ -1549,7 +1571,16 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                      </div>
                                      <div>
                                         <p className="text-[10px] font-black uppercase tracking-widest text-sky-600">Dispensed by Pharmacy</p>
-                                        <p className="text-sm font-bold text-slate-900">{req.dispensedBy}</p>
+                                        <NameEditor
+                                          currentName={req.dispensedBy || ""}
+                                          fallbackName="System"
+                                          canEdit={!!(user?.role === 'PHARMACY' || user?.role === 'ADMIN' || user?.role === 'IPCN')}
+                                          onSave={async (newName) => {
+                                            await updateDoc(doc(db, 'ams_requests', req.id!), { dispensedBy: newName });
+                                          }}
+                                          textClassName="text-sm font-bold text-slate-900"
+                                          buttonClassName="hover:bg-sky-200 text-sky-600"
+                                        />
                                      </div>
                                   </div>
                                   {req.dispensedAt && (
@@ -2093,10 +2124,10 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                             />
                                           </motion.div>
                                         )}
-                                      </AnimatePresence>
-                                    </div>
-                                  );
-                                })}
+                                            </AnimatePresence>
+                                      </div>
+                                    );
+                                  })}
                              </div>
                           )}
                        </div>
@@ -2640,6 +2671,22 @@ export default function AMS({ user }: { user: UserProfile | null }) {
             </motion.div>
           </div>
         )}
+            </AnimatePresence>
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-slate-900 text-white rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-800"
+          >
+            <div className={cn(
+              "w-2 h-2 rounded-full animate-pulse",
+              toast.type === 'success' ? "bg-emerald-400" : "bg-rose-400"
+            )} />
+            <span className="text-xs font-black uppercase tracking-widest">{toast.message}</span>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
@@ -2782,7 +2829,8 @@ function AMSDashboard({ stats }: { stats: any }) {
              )}
           </div>
         </div>
-      </div>
+            
+    </div>
     </div>
   );
 }

@@ -1,0 +1,52 @@
+--- src/components/NSI.tsx
++++ src/components/NSI.tsx
+@@ -23,7 +23,8 @@
+   ChevronDown,
+   ChevronUp,
+   Download,
+-  Trash2
++  Trash2,
++  Edit3
+ } from 'lucide-react';
+ import { motion, AnimatePresence } from 'motion/react';
+@@ -95,6 +96,7 @@
+   };
+ 
+   const [formData, setFormData] = useState(initialFormState);
++  const [editingId, setEditingId] = useState<string | null>(null);
+ 
+   // Validation State
+@@ -193,7 +195,14 @@
+       const reportData = {
+         ...formData,
+         status: 'REPORTED',
+         reportedAt: new Date().toISOString()
+       };
+-      
+-      await addDoc(collection(db, 'nsi_reports'), removeUndefined({
+-        ...reportData,
+-        reporterId: user.uid,
+-        reporterEmail: user.email,
+-        reporterName: user.name,
+-        createdAt: serverTimestamp()
+-      }));
++
++      if (editingId) {
++        await updateDoc(doc(db, 'nsi_reports', editingId), removeUndefined({
++          ...formData,
++          updatedAt: serverTimestamp()
++        }));
++      } else {
++        await addDoc(collection(db, 'nsi_reports'), removeUndefined({
++          ...reportData,
++          reporterId: user.uid,
++          reporterEmail: user.email,
++          reporterName: user.name,
++          createdAt: serverTimestamp()
++        }));
++      }
+       
+       setFormData(initialFormState);
+       setIsAdding(false);
++      setEditingId(null);
+       showToast('NSI Report submitted successfully');

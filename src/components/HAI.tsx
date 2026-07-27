@@ -15,7 +15,8 @@ import {
   Trash2,
   Calculator,
   FileDown,
-  X
+  X,
+  Edit3
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, where, serverTimestamp, orderBy, doc, limit } from 'firebase/firestore';
@@ -26,7 +27,8 @@ const deleteDoc = safeDeleteDoc;
 const getDocs = safeGetDocs;
 import { UserProfile, HAICase, BOCLog, HAIType, IPCUAction, BundleMonitoring, Population, MonitoringDay } from '../types';
 import { UNITS, DEVICES, BUNDLE_ELEMENTS, IPCU_CORRECTIVE_ACTIONS, CLABSI_DETAILED_BUNDLES, CAUTI_BUNDLES, VAP_BUNDLES, SSI_BUNDLES as SSI_BUNDLES_CONST, CLINICAL_CRITERIA_DETAILED, CLABSI_RECOGNIZED_PATHOGENS, CLABSI_COMMON_COMMENSALS, CAUTI_ORGANISMS, VAE_ANTIMICROBIALS } from '../constants';
-import { cn, formatDate } from '../lib/utils';
+import { cn, formatDate , mapLegacyData } from '../lib/utils';
+import { NameEditor } from './NameEditor';
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -98,16 +100,18 @@ const downloadCasePDF = (c: HAICase) => {
   const tryFormatDate = (d: any) => {
     if (!d) return 'N/A';
     if (typeof d.toDate === 'function') return d.toDate().toLocaleDateString();
+    if (typeof d === 'object' && 'seconds' in d) {
+      return new Date(d.seconds * 1000).toLocaleDateString();
+    }
     const parsed = new Date(d);
     return isNaN(parsed.getTime()) ? 'N/A' : parsed.toLocaleDateString();
   };
-  const valDate = tryFormatDate(c.validatedAt);
+  const valDate = tryFormatDate(c.validatedAt || c.date || c.createdAt || c.triggerDate);
 
   let validationBody: string[][] = [
       ["Validated By", c.validatorName || "IPCU Administrator"],
       ["Validation Date", valDate],
       ["Decision Note (Conclusion)", c.decisionNote || "N/A"],
-      ["Risk Level Flag", c.riskLevel || "N/A"],
   ];
   
   if (c.type === 'CLABSI' && c.clabsiValidationDetails) {
@@ -154,13 +158,31 @@ const END_MONITORING_REASONS = [
 
 // Global utilities
 const removeUndefined = (obj: any): any => {
+  if (obj === null || obj === undefined) return obj;
   if (Array.isArray(obj)) return obj.map(removeUndefined);
-  if (obj !== null && typeof obj === 'object' && !(obj instanceof Date)) {
-    // Check if it's a Firestore FieldValue
-    if (obj.constructor && (obj.constructor.name === 'FieldValue' || obj.constructor.name === 'Timestamp')) return obj;
+  if (obj instanceof Date) return obj;
+  
+  if (typeof obj === 'object') {
+    // Check for Firestore Timestamp
+    if (typeof obj.toDate === 'function') return obj;
     
+    // Check for Firestore FieldValue under minification
+    if (obj.constructor) {
+      const cName = obj.constructor.name;
+      if (cName === 'FieldValue' || cName === 'Timestamp' || cName === 'f' || cName === 'p') {
+        return obj;
+      }
+      if (cName !== 'Object' && cName !== 'Array') {
+        return obj;
+      }
+    }
+    
+    if ('_methodName' in obj || ('type' in obj && obj.type === 'serverTimestamp')) {
+      return obj;
+    }
+
     const newObj: any = {};
-    for (const [key, value] of Object.entries(obj || {})) {
+    for (const [key, value] of Object.entries(obj)) {
       if (value !== undefined) {
         newObj[key] = removeUndefined(value);
       }
@@ -194,7 +216,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
         }).join(',')
       )
     ].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -255,13 +277,16 @@ export default function HAI({ user }: { user: UserProfile | null }) {
 
   const handleDownloadHAICasesCSV = () => {
     const data = cases.map(c => ({
-       'Date': c.createdAt?.toDate ? c.createdAt.toDate().toLocaleString() : '',
+       'Date': c.createdAt?.toDate 
+         ? c.createdAt.toDate().toLocaleString() 
+         : (c.createdAt && typeof c.createdAt === 'object' && 'seconds' in c.createdAt 
+            ? new Date((c.createdAt as any).seconds * 1000).toLocaleString() 
+            : (c.createdAt ? new Date(c.createdAt).toLocaleString() : (c.triggerDate || ''))),
        'Patient Name': c.patientName,
        'Hosp Number': c.hospNo || c.hospitalNo || '',
        'Unit': c.unit,
        'HAI Type': (c.type || c.haiType || '').replace(/_/g, ' '),
        'Status': c.status || 'PENDING',
-       'Risk Level': c.riskLevel || '',
        'IPCU Decision': c.decisionNote || '',
        'Device Days': c.deviceDays || '',
        'Verified By': c.validatorName || '',
@@ -275,8 +300,31 @@ export default function HAI({ user }: { user: UserProfile | null }) {
   const [selectedPatient, setSelectedPatient] = useState<BundleMonitoring | null>(null);
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [isAddingDay, setIsAddingDay] = useState(false);
+  const [editingDayInfo, setEditingDayInfo] = useState<{ day: MonitoringDay; index: number } | null>(null);
   const [isAddingDeviceToPatient, setIsAddingDeviceToPatient] = useState(false);
   const [isEndingMonitoring, setIsEndingMonitoring] = useState(false);
+
+  const handleDeleteDailyEntry = async (index: number) => {
+    if (!selectedPatient) return;
+    const targetDay = selectedPatient.monitoringDays?.[index];
+    if (!targetDay) return;
+
+    if (!window.confirm(`Are you sure you want to delete the entry for Day ${targetDay.dayNumber} (${targetDay.date})?`)) {
+      return;
+    }
+
+    try {
+      const updatedDays = selectedPatient.monitoringDays.filter((_, i) => i !== index);
+      await updateDoc(doc(db, 'bundle_monitorings', selectedPatient.id!), removeUndefined({
+        monitoringDays: updatedDays,
+        updatedAt: serverTimestamp(),
+      }));
+      setSelectedPatient({ ...selectedPatient, monitoringDays: updatedDays });
+      showToast(`Day ${targetDay.dayNumber} entry deleted`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'bundle_monitorings');
+    }
+  };
 
   const calculateCompliance = (day: MonitoringDay) => {
     if (day.missedDay) return { bundle: 0, clinical: 0, overall: 0 };
@@ -302,7 +350,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       const qH = query(collection(db, 'bundle_monitorings'), where('hospitalNo', '==', searchTerm));
       const qN = query(collection(db, 'bundle_monitorings'), where('patientName', '>=', searchTerm), where('patientName', '<=', searchTerm + '\uf8ff'));
       const [snapH, snapN] = await Promise.all([getDocs(qH), getDocs(qN)]);
-      const results = [...snapH.docs, ...snapN.docs].map(d => ({ ...d.data(), id: d.id } as BundleMonitoring));
+      const results = [...snapH.docs, ...snapN.docs].map(d => ({ ...mapLegacyData(d.data()), id: d.id } as BundleMonitoring));
       setSearchResults(results);
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, 'bundle_monitorings');
@@ -341,6 +389,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const [editingCaseId, setEditingCaseId] = useState<string | null>(null);
   const [caseForm, setCaseForm] = useState<Partial<HAICase>>({
     type: 'CLABSI',
     patientName: '',
@@ -410,7 +459,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       q1 = query(collection(db, 'hai_cases'), where('auditorId', '==', user.uid), orderBy('createdAt', 'desc'), limit(100));
     }
     const unsub1 = safeOnSnapshot(q1, (snap) => {
-      setCases(snap.docs.map(d => ({ ...d.data(), id: d.id } as HAICase)));
+      setCases(snap.docs.map(d => ({ ...mapLegacyData(d.data()), id: d.id } as HAICase)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'hai_cases'));
 
     // 2. BOC Logs
@@ -421,7 +470,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       q2 = query(collection(db, 'boc_logs'), where('staffId', '==', user.uid), orderBy('createdAt', 'desc'), limit(100));
     }
     const unsub2 = safeOnSnapshot(q2, (snap) => {
-      setBundleLogs(snap.docs.map(d => ({ ...d.data(), id: d.id } as BOCLog)));
+      setBundleLogs(snap.docs.map(d => ({ ...mapLegacyData(d.data()), id: d.id } as BOCLog)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'boc_logs'));
 
     // 3. Bundle Monitorings
@@ -433,12 +482,12 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       qM = query(collection(db, 'bundle_monitorings'), orderBy('createdAt', 'desc'), limit(100)); 
     }
     const unsubM = safeOnSnapshot(qM, (snap) => {
-      setMonitorings(snap.docs.map(d => ({ ...d.data(), id: d.id } as BundleMonitoring)));
+      setMonitorings(snap.docs.map(d => ({ ...mapLegacyData(d.data()), id: d.id } as BundleMonitoring)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'bundle_monitorings'));
 
     const q3 = query(collection(db, 'hai_denominators'), orderBy('month', 'desc'), limit(12));
     const unsub3 = safeOnSnapshot(q3, (snap) => {
-      setDenominators(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+      setDenominators(snap.docs.map(d => ({ ...mapLegacyData(d.data()), id: d.id })));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'hai_denominators'));
 
     return () => { unsub1(); unsub2(); unsubM(); unsub3(); };
@@ -490,16 +539,25 @@ export default function HAI({ user }: { user: UserProfile | null }) {
     e.preventDefault();
     if (!user) return;
     try {
-      await addDoc(collection(db, 'hai_cases'), removeUndefined({
-        ...caseForm,
-        auditorId: user.uid,
-        auditorEmail: user.email,
-        auditorName: user.name, // adding name
-        isValidated: false,
-        createdAt: serverTimestamp()
-      }));
+      if (editingCaseId) {
+        await updateDoc(doc(db, 'hai_cases', editingCaseId), removeUndefined({
+          ...caseForm,
+          updatedAt: serverTimestamp()
+        }));
+        showToast('HAI Case report updated successfully');
+      } else {
+        await addDoc(collection(db, 'hai_cases'), removeUndefined({
+          ...caseForm,
+          auditorId: user.uid,
+          auditorEmail: user.email,
+          auditorName: user.name, // adding name
+          isValidated: false,
+          createdAt: serverTimestamp()
+        }));
+        showToast('HAI Case report submitted successfully');
+      }
       setIsAddingCase(false);
-      showToast('HAI Case report submitted successfully');
+      setEditingCaseId(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'hai_cases');
     }
@@ -876,18 +934,17 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Patient / Unit</th>
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Device / Proc</th>
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                          Triggered Criteria / Decision
+                          Validation Details & Decision
                         </th>
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">HAI Type</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Status</th>
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {Object.values(
+                      {(Object.values(
                         cases
                           .filter(c => {
-                            const isVerified = c.status === 'CONFIRMED' || c.status === 'REJECTED';
+                            const isVerified = c.isValidated || (c.status && c.status !== 'PENDING');
                             if (caseValidationFilter === 'Verified') return isVerified;
                             if (caseValidationFilter === 'Pending Validation') return !isVerified;
                             return true;
@@ -898,7 +955,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                             acc[key].push(c);
                             return acc;
                           }, {} as Record<string, any[]>)
-                      ).map((group, gIdx) => (
+                      ) as any[][]).map((group, gIdx) => (
                         <React.Fragment key={group[0].hospNo || gIdx}>
                           {group.map((c, idx) => (
                             <tr key={c.id} className={cn("hover:bg-slate-50/50 transition-colors group", idx > 0 ? "border-t border-slate-50" : "")}>
@@ -918,39 +975,101 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                               </td>
                               <td className="px-6 py-4 align-top">
                                 {c.status === 'PENDING' ? (
-                                  <div className="flex flex-wrap gap-1">
-                                    {c.triggeredCriteria?.map((cr: string) => <span key={cr} className="px-1.5 py-0.5 bg-slate-100 text-[8px] font-bold uppercase rounded">{cr}</span>)}
-                                    {c.triggeredLabs?.map((l: string) => <span key={l} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 [font-size:8px] font-black uppercase rounded">{l}</span>)}
-                                    {c.manualFlag && (
-                                      <span className="px-1.5 py-0.5 bg-rose-500 text-white [font-size:8px] font-black uppercase rounded shadow-sm">Flagged</span>
-                                    )}
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                      <span className="text-[9px] font-black uppercase tracking-wider text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">Awaiting Validation</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1 pt-1">
+                                      {c.triggeredCriteria?.map((cr: string) => (
+                                        <span key={cr} className="px-1.5 py-0.5 bg-slate-100 text-[8px] font-semibold text-slate-600 uppercase rounded">
+                                          {cr}
+                                        </span>
+                                      ))}
+                                      {c.triggeredLabs?.map((l: string) => (
+                                        <span key={l} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 [font-size:8px] font-black uppercase rounded border border-blue-100">
+                                          {l}
+                                        </span>
+                                      ))}
+                                      {c.manualFlag && (
+                                        <span className="px-1.5 py-0.5 bg-rose-500 text-white [font-size:8px] font-black uppercase rounded shadow-sm">
+                                          Flagged
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 ) : (
-                                  <div className="flex flex-col gap-1">
-                                    <div className="flex items-center gap-2">
+                                  <div className="space-y-2">
+                                    <div className="flex flex-wrap items-center gap-2">
                                       <span className={cn(
-                                        "px-1.5 py-0.5 text-[8px] font-black uppercase rounded",
-                                        c.status === 'CONFIRMED' ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-600"
+                                        "px-2 py-0.5 text-[9px] font-black uppercase rounded tracking-wider border",
+                                        c.status === 'CONFIRMED' ? "bg-rose-50 text-rose-600 border-rose-200" :
+                                        c.status === 'NOT_HAI' ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
+                                        c.status === 'NEEDS_MORE_DATA' ? "bg-amber-50 text-amber-600 border-amber-200" :
+                                        "bg-slate-50 text-slate-600 border-slate-200"
                                       )}>
-                                        {c.status}
+                                        {c.status === 'NOT_HAI' ? 'NOT HAI' : c.status?.replace(/_/g, ' ')}
                                       </span>
-                                      {c.decisionNote && <span className="text-[9px] text-slate-500 line-clamp-1 italic">"{c.decisionNote}"</span>}
+                                      {c.decisionNote && (
+                                        <span className="text-[10px] text-slate-500 italic bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100/80 line-clamp-2 max-w-[280px]">
+                                          "{c.decisionNote}"
+                                        </span>
+                                      )}
                                     </div>
-                                    <span className="text-[8px] font-bold text-slate-400 uppercase">Validated on: {(c.validatedAt && typeof (c.validatedAt as any).toDate === 'function') ? (c.validatedAt as any).toDate().toLocaleDateString() : (c.validatedAt && !isNaN(new Date(c.validatedAt).getTime()) ? new Date(c.validatedAt).toLocaleDateString() : 'N/A')}</span>
+                                    
+                                    <div className="space-y-1 text-[10px] text-slate-500">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-slate-400">👤 Verified by:</span>
+                                        <NameEditor
+                                          currentName={c.validatorName || ""}
+                                          fallbackName="IPCU Administrator"
+                                          canEdit={!!(user?.role === 'ADMIN' || user?.role === 'IPCN')}
+                                          onSave={async (newName) => {
+                                            await updateDoc(doc(db, 'hai_cases', c.id!), { validatorName: newName });
+                                          }}
+                                          textClassName="font-bold text-slate-700"
+                                          buttonClassName="hover:bg-slate-100 text-slate-400"
+                                          iconClassName="w-3 h-3"
+                                        />
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-slate-400">📅 Validated on:</span>
+                                        <span className="font-bold text-slate-700">
+                                          {(() => {
+                                            const dateVal = c.validatedAt || c.date || c.createdAt || c.triggerDate;
+                                            if (!dateVal) return 'N/A';
+                                            if (typeof dateVal.toDate === 'function') return dateVal.toDate().toLocaleDateString();
+                                            if (typeof dateVal === 'object' && 'seconds' in dateVal) {
+                                              return new Date((dateVal as any).seconds * 1000).toLocaleDateString();
+                                            }
+                                            const parsed = new Date(dateVal);
+                                            return isNaN(parsed.getTime()) ? 'N/A' : parsed.toLocaleDateString();
+                                          })()}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {/* Optional historical triggered criteria for complete understanding */}
+                                    {((c.triggeredCriteria && c.triggeredCriteria.length > 0) || (c.triggeredLabs && c.triggeredLabs.length > 0)) && (
+                                      <div className="flex flex-wrap items-center gap-1 pt-1 border-t border-slate-100/50">
+                                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider mr-1">Triggers:</span>
+                                        {c.triggeredCriteria?.map((cr: string) => (
+                                          <span key={cr} className="px-1 py-0.2 bg-slate-50 text-[7px] font-medium text-slate-500 uppercase rounded border border-slate-100">
+                                            {cr}
+                                          </span>
+                                        ))}
+                                        {c.triggeredLabs?.map((l: string) => (
+                                          <span key={l} className="px-1 py-0.2 bg-blue-50 text-[7px] font-medium text-blue-500 uppercase rounded border border-blue-100">
+                                            {l}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </td>
                               <td className="px-6 py-4 align-top">
                                 <span className="text-xs font-black text-rose-500 uppercase italic">{c.type}</span>
-                              </td>
-                              <td className="px-6 py-4 align-top">
-                                <div className="flex items-center gap-2">
-                                  <span className={cn(
-                                    "w-3 h-3 rounded-full block shadow-sm",
-                                    c.riskLevel === 'RED' ? "bg-rose-500" : c.riskLevel === 'YELLOW' ? "bg-amber-400" : c.riskLevel === 'BLUE' ? "bg-blue-500" : "bg-slate-900"
-                                  )} />
-                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{c.riskLevel === 'RED' ? 'HIGH' : c.riskLevel === 'YELLOW' ? 'MODERATE' : c.riskLevel === 'BLUE' ? 'LOW' : c.riskLevel}</span>
-                                </div>
                               </td>
                               <td className="px-6 py-4 text-right align-top">
                                 <div className="flex items-center justify-end gap-2">
@@ -961,6 +1080,15 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                                       title="Delete Entry"
                                     >
                                       <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  {(isIPCU || c.auditorId === user.uid) && (
+                                    <button 
+                                      onClick={(e) => { e.stopPropagation(); setCaseForm(c); setEditingCaseId(c.id); setIsAddingCase(true); }}
+                                      className="p-2.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors border border-blue-100/50"
+                                      title="Edit Entry"
+                                    >
+                                      <Edit3 className="w-4 h-4" />
                                     </button>
                                   )}
                                   <div className="flex items-center gap-1">
@@ -1465,7 +1593,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                               }}
                               onMouseLeave={() => setConfirmDeleteId(null)}
                               className={cn("p-4 rounded-2xl transition-all group flex items-center justify-center border", confirmDeleteId === selectedPatient.id ? "bg-rose-500 text-white border-rose-600" : "bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border-rose-500/20")}
-                              title={confirmDeleteId === selectedPatient.id ? "Click again to confirm delete" : "Delete Permanently"}
+                              title={confirmDeleteId === selectedPatient.id ? "Click again to confirm deleting entire patient record" : "Delete Entire Patient Record"}
                             >
                               <Trash2 className="w-5 h-5" />
                             </button>
@@ -1520,8 +1648,8 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
-                      {selectedPatient.monitoringDays?.slice().reverse().map((day, idx) => (
-                        <div key={idx} className={cn("bento-card p-5 border relative group transition-all", day.missedDay ? "bg-rose-50/50 border-rose-100" : "bg-slate-50 border-slate-100")}>
+                      {selectedPatient.monitoringDays?.map((day, originalIndex) => ({ day, originalIndex })).slice().reverse().map(({ day, originalIndex }) => (
+                        <div key={originalIndex} className={cn("bento-card p-5 border relative group transition-all", day.missedDay ? "bg-rose-50/50 border-rose-100" : "bg-slate-50 border-slate-100")}>
                           <div className="flex justify-between items-start mb-4">
                             <div className={cn(
                               "w-10 h-10 rounded-xl flex items-center justify-center text-white",
@@ -1531,9 +1659,31 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                             )}>
                               <span className="text-[10px] font-black">{day.complianceScores.overall}%</span>
                             </div>
-                            <div className="text-right">
-                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Day {day.dayNumber}</p>
-                              <p className="text-[8px] font-bold text-slate-500">{day.date}</p>
+                            <div className="flex items-center gap-2">
+                              <div className="text-right">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Day {day.dayNumber}</p>
+                                <p className="text-[8px] font-bold text-slate-500">{day.date}</p>
+                              </div>
+                              {selectedPatient.status === 'ACTIVE' && (isAdmin || isIPCU || day.staffId === user?.uid || selectedPatient.staffId === user?.uid) && (
+                                <div className="flex items-center gap-1 ml-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingDayInfo({ day, index: originalIndex })}
+                                    className="p-1.5 bg-white hover:bg-teal-50 text-slate-600 hover:text-teal-700 rounded-lg transition-colors border border-slate-200 shadow-xs"
+                                    title={`Edit Day ${day.dayNumber} entry`}
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteDailyEntry(originalIndex)}
+                                    className="p-1.5 bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors border border-slate-200 shadow-xs"
+                                    title={`Delete Day ${day.dayNumber} entry`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </div>
                           
@@ -1598,7 +1748,11 @@ export default function HAI({ user }: { user: UserProfile | null }) {
       <AnimatePresence>
         {isAddingCase && (
           <SurveillanceModal 
-            onClose={() => setIsAddingCase(false)}
+            onClose={() => { setIsAddingCase(false); setEditingCaseId(null); setCaseForm({
+              type: 'CLABSI', patientName: '', hospNo: '', unit: UNITS[0], deviceType: 'Central Line',
+              triggerDate: new Date().toISOString().split('T')[0], status: 'PENDING', riskLevel: 'YELLOW',
+              triggeredCriteria: [], criteriaOther: '', triggeredLabs: [], labOther: '', deviceDays: 0, deviceTypeOther: ''
+            }); }}
             formData={caseForm}
             setFormData={setCaseForm}
             onSubmit={handleCaseSubmit}
@@ -1662,14 +1816,24 @@ export default function HAI({ user }: { user: UserProfile | null }) {
         />
       )}
 
-      {isAddingDay && selectedPatient && (
+      {(isAddingDay || editingDayInfo) && selectedPatient && (
         <MonitoringDayModal
           patient={selectedPatient}
-          onClose={() => setIsAddingDay(false)}
+          initialDay={editingDayInfo?.day}
+          editingIndex={editingDayInfo?.index}
+          onClose={() => {
+            setIsAddingDay(false);
+            setEditingDayInfo(null);
+          }}
           user={user}
-          onSave={async (day) => {
+          onSave={async (day, editIdx) => {
             try {
-              const updatedDays = [...(selectedPatient.monitoringDays || []), day];
+              let updatedDays = [...(selectedPatient.monitoringDays || [])];
+              if (typeof editIdx === 'number' && editIdx >= 0) {
+                updatedDays[editIdx] = day;
+              } else {
+                updatedDays = [...updatedDays, day];
+              }
               
               // Update specific monitoring patient document
               await updateDoc(doc(db, 'bundle_monitorings', selectedPatient.id!), removeUndefined({
@@ -1709,7 +1873,7 @@ export default function HAI({ user }: { user: UserProfile | null }) {
                   isValidated: false,
                   isFromBundle: true,
                   manualFlag: day.possibleHAI || false,
-                  bundleRef: { patientId: selectedPatient.id, dayIndex: updatedDays.length - 1 },
+                  bundleRef: { patientId: selectedPatient.id, dayIndex: typeof editIdx === 'number' ? editIdx : updatedDays.length - 1 },
                   createdAt: serverTimestamp()
                 }));
                 showToast(day.possibleHAI ? 'Possible HAI manually flagged' : 'Suspected HAI case auto-triggered');
@@ -1717,7 +1881,8 @@ export default function HAI({ user }: { user: UserProfile | null }) {
 
               setSelectedPatient({ ...selectedPatient, monitoringDays: updatedDays, hasUnverifiedDays: true });
               setIsAddingDay(false);
-              showToast('Daily monitoring entry saved');
+              setEditingDayInfo(null);
+              showToast(typeof editIdx === 'number' ? `Day ${day.dayNumber} entry updated` : 'Daily monitoring entry saved');
             } catch (err) {
               handleFirestoreError(err, OperationType.UPDATE, 'bundle_monitorings');
             }
@@ -2294,21 +2459,6 @@ function SurveillanceModal({ onClose, formData, setFormData, onSubmit }: any) {
             <div className="space-y-6">
                <div className="border-b border-slate-100 pb-2 flex justify-between items-center">
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Patient & Case Details</h4>
-                  <div className="flex gap-2">
-                     {['RED', 'YELLOW', 'BLUE'].map(risk => (
-                       <button
-                         key={risk}
-                         type="button"
-                         title={risk === 'RED' ? 'High Risk' : risk === 'YELLOW' ? 'Moderate Risk' : 'Low Risk'}
-                         onClick={() => setFormData({...formData, riskLevel: risk})}
-                         className={cn(
-                           "w-4 h-4 rounded-full border-2 border-white shadow-sm transition-transform",
-                           formData.riskLevel === risk ? "scale-125 ring-2 ring-slate-100 ring-offset-2" : "opacity-40",
-                           risk === 'RED' ? "bg-rose-500" : risk === 'YELLOW' ? "bg-amber-400" : "bg-blue-500"
-                         )}
-                       />
-                     ))}
-                  </div>
                </div>
                <div className="grid grid-cols-1 gap-4">
                   <div className="space-y-1.5">
@@ -2894,13 +3044,6 @@ function HAIValidationModal({ onClose, haiCase, onSubmit, user, loading }: any) 
                  <div className="flex justify-between items-center text-rose-500">
                     <span className="text-[10px] font-bold uppercase">Device Days</span>
                     <span className="text-[10px] font-black">{haiCase.deviceDays} Days</span>
-                 </div>
-                 <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Input Risk</span>
-                    <div className={cn(
-                      "w-3 h-3 rounded-full",
-                      haiCase.riskLevel === 'RED' ? "bg-rose-500" : haiCase.riskLevel === 'YELLOW' ? "bg-amber-400" : "bg-blue-500"
-                    )} />
                  </div>
               </div>
             </div>
@@ -3761,28 +3904,14 @@ function HAIValidationModal({ onClose, haiCase, onSubmit, user, loading }: any) 
                  </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Device Days Verification</label>
-                    <input 
-                      type="number" 
-                      className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-2 text-xs font-bold outline-none" 
-                      value={formData.correctedDeviceDays} 
-                      onChange={e => setFormData({...formData, correctedDeviceDays: parseInt(e.target.value) || 0})} 
-                    />
-                 </div>
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Validated Risk Level</label>
-                    <select 
-                      className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-2 text-xs font-bold outline-none"
-                      value={formData.correctedRiskLevel}
-                      onChange={e => setFormData({...formData, correctedRiskLevel: e.target.value as any})}
-                    >
-                       <option value="BLUE">Low</option>
-                       <option value="YELLOW">Moderate</option>
-                       <option value="RED">High</option>
-                    </select>
-                 </div>
+              <div className="space-y-1.5">
+                 <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Device Days Verification</label>
+                 <input 
+                   type="number" 
+                   className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-2 text-xs font-bold outline-none" 
+                   value={formData.correctedDeviceDays} 
+                   onChange={e => setFormData({...formData, correctedDeviceDays: parseInt(e.target.value) || 0})} 
+                 />
               </div>
               
               <div className="grid grid-cols-2 gap-4">
@@ -4156,15 +4285,30 @@ function DeviceEnrollmentModal({ onClose, user, showToast }: { onClose: () => vo
   );
 }
 
-function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: BundleMonitoring, onClose: () => void, user: UserProfile | null, onSave: (day: MonitoringDay) => void }) {
-  const [dayNumber, setDayNumber] = useState((patient.monitoringDays?.length || 0) + 1);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [isMissed, setIsMissed] = useState(false);
-  const [missedReason, setMissedReason] = useState('');
-  const [monitorName, setMonitorName] = useState(user?.name || '');
+function MonitoringDayModal({ 
+  patient, 
+  onClose, 
+  user, 
+  onSave, 
+  initialDay, 
+  editingIndex 
+}: { 
+  patient: BundleMonitoring, 
+  onClose: () => void, 
+  user: UserProfile | null, 
+  onSave: (day: MonitoringDay, index?: number) => void,
+  initialDay?: MonitoringDay,
+  editingIndex?: number
+}) {
+  const isEditing = initialDay !== undefined && editingIndex !== undefined;
+  const [dayNumber, setDayNumber] = useState(initialDay ? initialDay.dayNumber : (patient.monitoringDays?.length || 0) + 1);
+  const [date, setDate] = useState(initialDay ? initialDay.date : new Date().toISOString().split('T')[0]);
+  const [isMissed, setIsMissed] = useState(initialDay ? !!initialDay.missedDay : false);
+  const [missedReason, setMissedReason] = useState(initialDay ? initialDay.missedReason || '' : '');
+  const [monitorName, setMonitorName] = useState(initialDay ? (initialDay.monitor?.name || initialDay.staffName || user?.name || '') : (user?.name || ''));
   
-  const [isTriggeringHAI, setIsTriggeringHAI] = useState(false);
-  const [triggerReasons, setTriggerReasons] = useState<string[]>([]);
+  const [isTriggeringHAI, setIsTriggeringHAI] = useState(initialDay ? !!initialDay.possibleHAI : false);
+  const [triggerReasons, setTriggerReasons] = useState<string[]>(initialDay?.triggerReason ? [initialDay.triggerReason] : []);
   const [triggerOther, setTriggerOther] = useState('');
 
   const TRIGGER_OPTIONS = [
@@ -4177,19 +4321,28 @@ function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: Bundl
   ];
 
   const [selectedBundleType, setSelectedBundleType] = useState<'CLABSI' | 'CAUTI' | 'VAP' | 'SSI'>(
-    patient.devices.clabsi ? 'CLABSI' : patient.devices.vap ? 'VAP' : patient.devices.cauti ? 'CAUTI' : 'SSI'
+    initialDay?.bundleType || (patient.devices.clabsi ? 'CLABSI' : patient.devices.vap ? 'VAP' : patient.devices.cauti ? 'CAUTI' : 'SSI')
   );
   const [selectedSubtype, setSelectedSubtype] = useState<string>(
-    patient.devices.clabsi ? 'Maintenance' : patient.devices.ssi ? 'Post-op' : 'Maintenance'
+    initialDay?.bundleSubtype || (patient.devices.clabsi ? 'Maintenance' : patient.devices.ssi ? 'Post-op' : 'Maintenance')
   );
   
-  const [bundleChecklist, setBundleChecklist] = useState<Record<string, 'Done' | 'Not Done' | 'N/A'>>({});
-  const [clinicalCriteria, setClinicalCriteria] = useState<Record<string, any>>({});
+  const [bundleChecklist, setBundleChecklist] = useState<Record<string, 'Done' | 'Not Done' | 'N/A'>>(
+    initialDay?.bundleChecklist || {}
+  );
+  const [clinicalCriteria, setClinicalCriteria] = useState<Record<string, any>>(
+    initialDay?.clinicalCriteria || {}
+  );
   
   const isPedia = (patient.age.toLowerCase().includes('mo') || parseInt(patient.age) < 18);
 
+  const isInitialMount = React.useRef(true);
   // Clear checklist when switching bundles
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
     setBundleChecklist({});
     if (selectedBundleType === 'CLABSI') {
       if (!['Insertion', 'Maintenance'].includes(selectedSubtype)) setSelectedSubtype('Maintenance');
@@ -4198,7 +4351,7 @@ function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: Bundl
     } else {
       setSelectedSubtype('Maintenance');
     }
-  }, [selectedBundleType, selectedSubtype === 'Maintenance' /* only handle type changes if needed, but easier to just check types */]);
+  }, [selectedBundleType]);
 
   // Robust subtype sync
   useEffect(() => {
@@ -4294,7 +4447,7 @@ function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: Bundl
       triggeredDateTime: isTriggeringHAI ? new Date().toISOString() : undefined
     };
 
-    onSave(day);
+    onSave(day, editingIndex);
   };
 
   return (
@@ -4306,7 +4459,7 @@ function MonitoringDayModal({ patient, onClose, user, onSave }: { patient: Bundl
               <Calendar className="w-6 h-6 text-teal-400" />
             </div>
             <div>
-               <h3 className="text-xl font-black uppercase tracking-tight">Add Monitoring Day {dayNumber}</h3>
+               <h3 className="text-xl font-black uppercase tracking-tight">{isEditing ? `Edit Monitoring Day ${dayNumber}` : `Add Monitoring Day ${dayNumber}`}</h3>
                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{patient.patientName} • Managed by {patient.assignedMonitor?.name || 'N/A'}</p>
             </div>
           </div>

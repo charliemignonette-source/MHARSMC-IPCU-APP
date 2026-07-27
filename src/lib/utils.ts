@@ -23,3 +23,19 @@ export function getComplianceColor(rate: number) {
   if (rate >= 80) return 'text-amber-600';
   return 'text-rose-600';
 }
+
+export function mapLegacyUnit(unitName: string | undefined): string {
+  if (!unitName) return '';
+  const u = unitName.toUpperCase().trim();
+  if (u === 'ICU 1' || u === 'ICU 2') return 'ICU';
+  if (u === 'DR' || u === 'DELIVERY ROOM') return 'Delivery Room';
+  return unitName;
+}
+
+export function mapLegacyData(data: any): any {
+  if (!data) return data;
+  if (data.unit) data.unit = mapLegacyUnit(data.unit);
+  if (data.wardUnitBed) data.wardUnitBed = mapLegacyUnit(data.wardUnitBed);
+  if (data.roomWard) data.roomWard = mapLegacyUnit(data.roomWard);
+  return data;
+}

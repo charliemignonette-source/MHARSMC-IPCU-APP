@@ -1,3 +1,4 @@
+import { NameEditor } from './NameEditor';
 import React, { useState, useEffect } from "react";
 import {
   AlertOctagon,
@@ -25,6 +26,7 @@ import {
   BarChart3,
   X,
   AlertCircle,
+  Edit3,
 } from "lucide-react";
 import {
   collection,
@@ -45,7 +47,7 @@ import {
   OutbreakStatus,
 } from "../types";
 import { motion, AnimatePresence } from "motion/react";
-import { cn } from "../lib/utils";
+import { cn , mapLegacyData } from "../lib/utils";
 import { format } from "date-fns";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -150,6 +152,11 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
   const [view, setView] = useState<"LIST" | "FORM">("LIST");
   const [reports, setReports] = useState<OutbreakReport[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
   const [searchTerm, setSearchTerm] = useState("");
   const [activeReport, setActiveReport] = useState<OutbreakReport | null>(null);
   const [selectedCaseIndex, setSelectedCaseIndex] = useState<number | null>(
@@ -219,7 +226,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
       q,
       (snap) => {
         const data = snap.docs.map(
-          (d) => ({ ...d.data(), id: d.id }) as OutbreakReport,
+          (d) => ({ ...mapLegacyData(d.data()), id: d.id }) as OutbreakReport,
         );
         const sortedData = data.sort((a, b) => {
           const timeA = a.createdAt?.toMillis
@@ -340,6 +347,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
       }
       setView("LIST");
       resetForm();
+      showToast("Changes saved successfully");
     } catch (error) {
       console.error("Submit error:", error);
       const errorMessage =
@@ -953,7 +961,8 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
             if (view === "LIST") setView("FORM");
             else {
               setView("LIST");
-              resetForm();
+      resetForm();
+      showToast("Changes saved successfully");
             }
           }}
           className={cn(
@@ -1142,9 +1151,17 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
                         Reporter
                       </span>
-                      <p className="text-xs font-bold text-slate-700 truncate">
-                        {report.reportedBy}
-                      </p>
+                      <NameEditor
+                        currentName={report.reportedBy || ""}
+                        fallbackName="Unknown"
+                        canEdit={!!(user?.role === 'ADMIN' || user?.role === 'IPCN' || report.reporterId === user?.uid)}
+                        onSave={async (newName) => {
+                          await updateDoc(doc(db, 'outbreaks', report.id!), { reportedBy: newName });
+                        }}
+                        textClassName="text-xs font-bold text-slate-700 truncate"
+                        buttonClassName="hover:bg-slate-100 text-slate-400"
+                        iconClassName="w-3 h-3"
+                      />
                     </div>
                   </div>
 
@@ -1157,9 +1174,21 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                         {report.validation.notes}
                       </p>
                       {report.validation.validatorName && (
-                         <p className="text-[9px] font-bold text-slate-400 mt-2 uppercase">
-                           Verified By: {report.validation.validatorName}
-                         </p>
+                         <div className="flex items-center gap-2 mt-2 text-[9px] font-bold text-slate-400 uppercase">
+                           <span>Verified By: </span>
+                           <NameEditor
+                             currentName={report.validation.validatorName || ""}
+                             fallbackName="System"
+                             canEdit={!!(user?.role === 'ADMIN' || user?.role === 'IPCN')}
+                             onSave={async (newName) => {
+                               const validation = { ...report.validation, validatorName: newName };
+                               await updateDoc(doc(db, 'outbreaks', report.id!), { validation });
+                             }}
+                             textClassName="inherit"
+                             buttonClassName="hover:bg-slate-100 text-slate-400"
+                             iconClassName="w-3 h-3"
+                           />
+                         </div>
                       )}
                     </div>
                   )}
@@ -2566,7 +2595,8 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                 type="button"
                 onClick={() => {
                   setView("LIST");
-                  resetForm();
+      resetForm();
+      showToast("Changes saved successfully");
                 }}
                 className="px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[11px] text-slate-500 hover:bg-slate-50 transition-all"
               >
@@ -3674,6 +3704,22 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
             onSubmit={handleValidateSubmit}
             user={user}
           />
+        )}
+            </AnimatePresence>
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-slate-900 text-white rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-800"
+          >
+            <div className={cn(
+              "w-2 h-2 rounded-full animate-pulse",
+              toast.type === 'success' ? "bg-emerald-400" : "bg-rose-400"
+            )} />
+            <span className="text-xs font-black uppercase tracking-widest">{toast.message}</span>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

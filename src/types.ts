@@ -94,6 +94,7 @@ export interface NSIReport {
     position: string;
     employmentStatus: "Regular" | "Contractual" | "Trainee";
     hepBStatus: "Complete" | "Incomplete" | "Unknown";
+    hepBResponse?: "Responder" | "Non-responder" | "Unknown";
   };
   source?: {
     name: string;
@@ -220,6 +221,7 @@ export interface AMSRequest {
 
   prescriberId: string;
   prescriberEmail?: string;
+  prescriberName?: string;
   prescriberContact?: string;
   requestingPhysician?: string;
   durationRequested?: string;
@@ -266,7 +268,9 @@ export interface HAICase {
   // Validation
   validatedBy?: string;
   validatorName?: string;
-  validatedAt?: string;
+  validatedAt?: any;
+  date?: any;
+  createdAt?: any;
   decisionNote?: string;
 
   // Root cause flags
@@ -489,6 +493,7 @@ export interface BOCLog {
   formMonitoring?: FormCompletionDetail[];
 
   isValidated?: boolean;
+  status?: string;
   verification?: {
     date: string;
     time: string;

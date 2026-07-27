@@ -10,7 +10,7 @@ import { collection, query, where, orderBy, Timestamp, limit } from 'firebase/fi
 import { db, safeGetDocs } from '../lib/firebase';
 const getDocs = safeGetDocs;
 import { UserProfile } from '../types';
-import { cn } from '../lib/utils';
+import { cn , mapLegacyData } from '../lib/utils';
 import { UNITS, BUNDLE_ELEMENTS } from '../constants';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -92,7 +92,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
       )
     ].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -140,7 +140,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
       case 'AUDITS':
         const auditDetails = d.details || {};
         
-        const dateVal = d.createdAt?.toDate ? d.createdAt.toDate().toLocaleString() : (d.timestamp && !isNaN(new Date(d.timestamp).getTime()) ? new Date(d.timestamp).toLocaleString() : '');
+        const dateVal = d.timestamp && !isNaN(new Date(d.timestamp).getTime()) ? new Date(d.timestamp).toLocaleString() : (d.createdAt?.toDate ? d.createdAt.toDate().toLocaleString() : '');
         const commonAuditFields = {
           ...common,
           'Date': dateVal,
@@ -373,6 +373,8 @@ export default function Reports({ user }: { user: UserProfile | null }) {
             const compliantCount = reqValues.filter((v: any) => v === 'Done' || v === 'N/A').length;
             const compPct = requiredCount > 0 ? ((compliantCount / requiredCount) * 100).toFixed(1) : '0';
             
+            const criteriaList = day.clinicalCriteria ? Object.entries(day.clinicalCriteria).filter(([_, v]) => v === true || v === 'Present').map(([k]) => k) : [];
+            
             return {
               ...common,
               'Date': day.date,
@@ -386,13 +388,13 @@ export default function Reports({ user }: { user: UserProfile | null }) {
               'Compliance %': (day.complianceScores?.overall || compPct) + '%',
               'Staff Reporter': d.staffName || day.staffName || 'System',
               'Designation': 'N/A',
-              'Clinical Criteria': day.clinicalCriteria ? Object.entries(day.clinicalCriteria).filter(([_, v]) => v === true || v === 'Present').map(([k]) => k).join(', ') : 'None',
-              'Verification Status': day.verification?.isValidated ? 'Validated' : 'Pending',
-              'Final Decision': day.verification?.isValidated ? 'Proceed' : 'N/A',
-              'Reasoning': day.verification?.validatorComment || '',
+              'Clinical Criteria': criteriaList.length > 0 ? criteriaList.join(', ') : 'No Entries',
+              'Verification Status': day.isVerifiedByIPCU ? 'Verified' : 'Not Verified',
+              'Final Decision': day.isVerifiedByIPCU ? day.status || 'Verified' : 'N/A',
+              'Reasoning': day.remarks || '',
               'Corrective Actions': '',
-              'Validator Name': day.verification?.validatorName || '',
-              'Validated At': day.verification?.validatedAt && !isNaN(new Date(day.verification.validatedAt).getTime()) ? new Date(day.verification.validatedAt).toLocaleString() : ''
+              'Validator Name': day.verifiedByIPCUName || '',
+              'Validated At': day.verifiedAtIPCU && !isNaN(new Date(day.verifiedAtIPCU).getTime()) ? new Date(day.verifiedAtIPCU).toLocaleString() : ''
             };
           });
         }
@@ -409,8 +411,8 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           'Compliance %': (d.compliancePercentage || 0) + '%',
           'Staff Reporter': d.staffName || '',
           'Designation': d.staffDesignation || '',
-          'Clinical Criteria': 'N/A',
-          'Verification Status': d.isValidated ? 'Validated' : 'Pending',
+          'Clinical Criteria': 'No Entries',
+          'Verification Status': d.isValidated ? 'Verified' : 'Not Verified',
           'Final Decision': d.verification?.finalDecision || 'N/A',
           'Reasoning': d.verification?.reason || '',
           'Corrective Actions': (d.verification?.correctiveAction || []).join('; '),
@@ -431,16 +433,16 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           'Indication': d.indication || d.indicationForUse,
           'Diagnosis': d.diagnosis || d.infectiousDiagnosis,
           'Status': d.status,
-          'Prescriber': d.prescriberName || d.prescriberEmail || d.prescriberId,
+          'Prescriber': d.requestingPhysician || d.prescriberName || d.prescriberEmail || d.prescriberId || 'N/A',
           'Clinical Data': d.clinicalData || '',
           'Lab Data': d.labData || '',
           'Treatment Plan': d.treatmentPlan || '',
           'Duration': d.durationOfTherapy || '',
           'Justification': d.justification || '',
           'Decision Basis': d.overrideReason || d.remarks || '',
-          'Reviewer': d.reviewerName || d.reviewerEmail || d.reviewerId || 'Pending',
-          'Reviewed At': d.reviewedAt || 'Pending',
-          'Pharmacist': d.pharmacistName || d.pharmacistId || 'N/A',
+          'Reviewer': d.reviewerName || d.reviewerEmail || d.reviewerId || (d.status === 'PENDING' ? 'Pending' : 'N/A'),
+          'Reviewed At': d.reviewedAt || d.dateTimeApproved || (d.status === 'PENDING' ? 'Pending' : 'N/A'),
+          'Pharmacist': d.pharmacistName || d.dispensedBy || d.pharmacistId || 'N/A',
           'Dispensed At': d.dispensedAt || 'N/A',
           'Dispensing Remarks': d.dispensingRemarks || ''
         };
@@ -454,16 +456,17 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           'Hosp Number': d.hospNo,
           'Unit': d.unit,
           'Trigger Date': d.triggerDate,
-          'Risk Level': d.riskLevel,
           'Status': d.status,
-          'Clinical Criteria': d.clinicalCriteria?.join('; ') || '',
-          'Lab Criteria': d.labCriteria?.join('; ') || '',
+          'Validation Status': d.status === 'PENDING' ? 'Pending Validation' : 'Validated',
+          'Report Source': d.__source === 'bundle_monitorings_trigger' ? 'Device Monitoring Trigger' : 'Manual Surveillance Report',
+          'Clinical Criteria/Triggers': Array.isArray(d.triggeredCriteria) ? d.triggeredCriteria.join('; ') : (typeof d.triggeredCriteria === 'string' ? d.triggeredCriteria : (Array.isArray(d.clinicalCriteria) ? d.clinicalCriteria.join('; ') : (d.clinicalCriteria || ''))),
+          'Lab Criteria/Triggers': Array.isArray(d.triggeredLabs) ? d.triggeredLabs.join('; ') : (typeof d.triggeredLabs === 'string' ? d.triggeredLabs : (Array.isArray(d.labCriteria) ? d.labCriteria.join('; ') : (d.labCriteria || ''))),
           'Bundle Invariants': d.bundleIssues || '',
           'Clinical Summary': d.clinicalIssues || '',
           'Lab Summary': d.labIssues || '',
           'Validator': d.validatorName || 'Pending',
           'Decision Note': d.decisionNote || '',
-          'Validated At': d.validatedAt || 'Pending'
+          'Validated At': d.validatedAt?.toDate ? d.validatedAt.toDate().toLocaleDateString() : (d.validatedAt && !isNaN(new Date(d.validatedAt).getTime()) ? new Date(d.validatedAt).toLocaleDateString() : (d.date || 'Pending'))
         };
 
       case 'NSI':
@@ -536,8 +539,32 @@ export default function Reports({ user }: { user: UserProfile | null }) {
 
       const fetchCollectionData = async (collName: string, dateFld: string) => {
         const collRef = collection(db, collName);
-        let constraints: any[] = [];
+        
+        // Fetch up to 1000 records. We do all filtering in memory to ensure maximum robustness,
+        // compatibility with all formats (string vs Timestamp), and to avoid Firestore Index requirements.
+        const q = query(collRef, limit(1000));
+        const querySnapshot = await getDocs(q);
+        let docs = querySnapshot.docs.map(doc => ({ __source: collName, ...mapLegacyData(doc.data()) as any, id: doc.id }));
 
+        // Exclude deleted, cancelled, or archived entries
+        docs = docs.filter(d => !d.isDeleted && !d.deleted && d.status !== 'DELETED' && d.status !== 'CANCELLED' && !d.isArchived);
+
+        // 1. User/Auditor Role-based Constraints
+        if (!isIPCU && user) {
+          if (collName === 'audits' || collName === 'hai_cases') {
+            docs = docs.filter(d => d.auditorId === user.uid);
+          } else if (collName === 'bundle_monitorings' || collName === 'boc_logs') {
+            docs = docs.filter(d => d.staffId === user.uid);
+          } else if (collName === 'ams_requests') {
+            if (user?.role !== 'APPROVER' && user?.role !== 'PHARMACY') {
+              docs = docs.filter(d => d.prescriberId === user.uid);
+            }
+          } else if (collName === 'nsi_reports') {
+            docs = docs.filter(d => d.reporterId === user.uid);
+          }
+        }
+
+        // 2. Date Constraints
         let start = timeFrame === 'DAILY' ? new Date(selectedDate) : (timeFrame === 'MONTHLY' ? new Date(Number(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]) - 1, 1) : null);
         let end = timeFrame === 'DAILY' ? new Date(selectedDate) : (timeFrame === 'MONTHLY' ? new Date(Number(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]), 0) : null);
         
@@ -547,55 +574,80 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         if (start) start.setHours(0, 0, 0, 0);
         if (end) end.setHours(23, 59, 59, 999);
 
-        // Date Constraints
-        const stringDateFields = ['date', 'triggerDate', 'detectedAt'];
-        
-        if (collName !== 'bundle_monitorings' && collName !== 'audits') {
-          if (timeFrame === 'DAILY') {
-            if (stringDateFields.includes(dateFld)) {
-              constraints.push(where(dateFld, '==', selectedDate));
-            } else if (dateFld === 'timestamp' || dateFld === 'dateTimeRequested' || dateFld === 'reportedAt') {
-              const startStr = start?.toISOString() || '';
-              const endStr = end?.toISOString() || '';
-              constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
-            } else {
-              constraints.push(where(dateFld, '>=', start), where(dateFld, '<=', end));
+        if (timeFrame !== 'ALL_TIME' && start && end) {
+          docs = docs.filter(d => {
+            if (collName === 'bundle_monitorings' || collName === 'boc_logs') {
+              if (d.monitoringDays && Array.isArray(d.monitoringDays)) {
+                return d.monitoringDays.some((day: any) => {
+                  if (timeFrame === 'DAILY') return day.date === selectedDate;
+                  if (timeFrame === 'MONTHLY') return day.date && day.date.startsWith(selectedMonth);
+                  return true;
+                });
+              }
+              return false;
             }
-          } else if (timeFrame === 'MONTHLY') {
-            if (stringDateFields.includes(dateFld)) {
-              const startStr = start?.toISOString().split('T')[0] || '';
-              const endStr = end?.toISOString().split('T')[0] || '';
-              constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
-            } else if (dateFld === 'timestamp' || dateFld === 'dateTimeRequested' || dateFld === 'reportedAt') {
-              const startStr = start?.toISOString() || '';
-              const endStr = end?.toISOString() || '';
-              constraints.push(where(dateFld, '>=', startStr), where(dateFld, '<=', endStr));
+
+            let val;
+            if (dateFld.includes('.')) {
+              val = dateFld.split('.').reduce((obj: any, key: string) => obj?.[key], d);
             } else {
-              constraints.push(where(dateFld, '>=', start), where(dateFld, '<=', end));
+              val = d[dateFld];
             }
-          } else {
-            constraints.push(orderBy(dateFld, 'desc'));
-          }
+            let recDate: Date | null = null;
+            
+            if (val) {
+              if (val instanceof Timestamp || (typeof val === 'object' && val !== null && 'seconds' in val)) {
+                recDate = (val as Timestamp).toDate ? (val as Timestamp).toDate() : new Date((val as any).seconds * 1000);
+              } else if (typeof val === 'string') {
+                recDate = new Date(val);
+              } else if (val instanceof Date) {
+                recDate = val;
+              }
+            }
+
+            // Fallback: Check typical date fields in case dateFld is missing or not a valid date
+            if (!recDate || isNaN(recDate.getTime())) {
+              const fallbacks = ['createdAt', 'triggerDate', 'date', 'timestamp', 'dateTimeRequested', 'reportedAt'];
+              for (const fld of fallbacks) {
+                const fVal = d[fld];
+                if (fVal) {
+                  if (fVal instanceof Timestamp || (typeof fVal === 'object' && fVal !== null && 'seconds' in fVal)) {
+                    recDate = (fVal as Timestamp).toDate ? (fVal as Timestamp).toDate() : new Date((fVal as any).seconds * 1000);
+                  } else if (typeof fVal === 'string') {
+                    recDate = new Date(fVal);
+                  } else if (fVal instanceof Date) {
+                    recDate = fVal;
+                  }
+                  if (recDate && !isNaN(recDate.getTime())) break;
+                }
+              }
+            }
+
+            if (!recDate || isNaN(recDate.getTime())) return false;
+            return recDate >= start && recDate <= end;
+          });
         }
 
-        // User Constraints
-        if (!isIPCU && user) {
-          if (collName === 'audits' || collName === 'hai_cases') {
-            constraints.push(where('auditorId', '==', user.uid));
-          } else if (collName === 'bundle_monitorings' || collName === 'boc_logs') {
-            constraints.push(where('staffId', '==', user.uid));
-          } else if (collName === 'ams_requests') {
-            if (user?.role !== 'APPROVER' && user?.role !== 'PHARMACY') {
-              constraints.push(where('prescriberId', '==', user.uid));
+        // Sort descending by date in memory
+        docs.sort((a, b) => {
+          const getMs = (item: any) => {
+            let val;
+            if (dateFld.includes('.')) {
+              val = dateFld.split('.').reduce((obj: any, key: string) => obj?.[key], item);
+            } else {
+              val = item[dateFld];
             }
-          } else if (collName === 'nsi_reports') {
-            constraints.push(where('reporterId', '==', user.uid));
-          }
-        }
+            val = val || item.createdAt || item.timestamp || item.triggerDate || item.date || 0;
+            if (val instanceof Timestamp) return val.toMillis();
+            if (typeof val === 'string') return new Date(val).getTime();
+            if (val instanceof Date) return val.getTime();
+            if (typeof val === 'object' && val !== null && 'seconds' in val) return (val as any).seconds * 1000;
+            return 0;
+          };
+          return getMs(b) - getMs(a);
+        });
 
-        const q = query(collRef, ...constraints, limit(200));
-        const querySnapshot = await getDocs(q);
-        return querySnapshot.docs.map(doc => ({ __source: collName, ...doc.data() as any, id: doc.id }));
+        return docs;
       };
 
       if (reportType === 'WARD_SUMMARY') {
@@ -635,14 +687,20 @@ export default function Reports({ user }: { user: UserProfile | null }) {
             const auditType = type.split(':')[1];
             const valid = subset.filter(d => d.total > 0 && d.type === auditType);
             if (!valid.length) return { score: 'N/A', raw: -1 };
-            const avg = valid.reduce((acc, curr) => acc + (curr.score / curr.total), 0) / valid.length;
-            return { score: (avg * 100).toFixed(1) + '%', raw: avg * 100 };
+            const num = valid.reduce((acc, curr) => acc + (curr.score || 0), 0);
+            const den = valid.reduce((acc, curr) => acc + (curr.total || 0), 0);
+            if (den === 0) return { score: 'N/A', raw: -1 };
+            const avg = (num / den) * 100;
+            return { score: `${avg.toFixed(1)}% (${num}/${den})`, raw: avg };
           }
           if (type === 'AUDITS_ALL') {
             const valid = subset.filter(d => d.total > 0);
             if (!valid.length) return { score: 'N/A', raw: -1 };
-            const avg = valid.reduce((acc, curr) => acc + (curr.score / curr.total), 0) / valid.length;
-            return { score: (avg * 100).toFixed(1) + '%', raw: avg * 100 };
+            const num = valid.reduce((acc, curr) => acc + (curr.score || 0), 0);
+            const den = valid.reduce((acc, curr) => acc + (curr.total || 0), 0);
+            if (den === 0) return { score: 'N/A', raw: -1 };
+            const avg = (num / den) * 100;
+            return { score: `${avg.toFixed(1)}% (${num}/${den})`, raw: avg };
           }
           if (type === 'BUNDLE') {
             let totalApplicable = 0;
@@ -665,11 +723,11 @@ export default function Reports({ user }: { user: UserProfile | null }) {
             });
             if (totalApplicable === 0) return { score: 'N/A', raw: -1 };
             const pct = (totalCompliant / totalApplicable) * 100;
-            return { score: pct.toFixed(1) + '%', raw: pct };
+            return { score: `${pct.toFixed(1)}% (${totalCompliant}/${totalApplicable})`, raw: pct };
           }
           if (type === 'AMS') {
             const approved = subset.filter(d => d.status === 'APPROVED');
-            return { score: `${approved.length} / ${subset.length}`, raw: subset.length };
+            return { score: `${approved.length}/${subset.length}`, raw: subset.length };
           }
           if (type === 'HAI') {
             return { score: `${subset.length}`, raw: subset.length };
@@ -703,35 +761,31 @@ export default function Reports({ user }: { user: UserProfile | null }) {
            if (m.type === 'NSI') dataRef = nsiReports;
            
            const target = calcStats(dataRef, m.type, selectedWard);
-           const otherWards = dataRef.filter(d => {
-             const u = d.unit || d.ward || (d.incident?.unit) || (d.epidemiology?.unitsAffected?.[0]) || '';
-             return u !== selectedWard;
-           });
-           const rest = calcStats(otherWards, m.type, null);
+           const hospitalAvg = calcStats(dataRef, m.type, null);
            
            let status = 'Neutral';
            if (m.isPercent) {
-              if (target.raw > rest.raw && target.raw !== -1 && rest.raw !== -1) status = 'Better';
-              if (target.raw < rest.raw && target.raw !== -1 && rest.raw !== -1) status = 'Worse';
+              if (target.raw > hospitalAvg.raw && target.raw !== -1 && hospitalAvg.raw !== -1) status = 'Better';
+              if (target.raw < hospitalAvg.raw && target.raw !== -1 && hospitalAvg.raw !== -1) status = 'Worse';
            } else {
               // For counts, fewer is better generally (except maybe AMS where it's complex, but let's assume fewer cases is better)
-              if (target.raw > rest.raw && target.raw !== -1 && rest.raw !== -1) status = 'Worse';
-              if (target.raw < rest.raw && target.raw !== -1 && rest.raw !== -1) status = 'Better';
+              if (target.raw > hospitalAvg.raw && target.raw !== -1 && hospitalAvg.raw !== -1) status = 'Worse';
+              if (target.raw < hospitalAvg.raw && target.raw !== -1 && hospitalAvg.raw !== -1) status = 'Better';
            }
            
            let performanceIndicator = '';
            if (status === 'Better') performanceIndicator = '(+) Better';
            if (status === 'Worse') performanceIndicator = '(-) Worse';
            if (status === 'Neutral') performanceIndicator = '(--) Neutral';
-           if (target.raw === -1 || rest.raw === -1) performanceIndicator = '(--) N/A';
+           if (target.raw === -1 || hospitalAvg.raw === -1) performanceIndicator = '(--) N/A';
 
            return {
              metric: m.metric,
              targetScore: target.score,
-             restScore: rest.score,
+             restScore: hospitalAvg.score,
              status: performanceIndicator,
              rawTarget: target.raw,
-             rawRest: rest.raw,
+             rawRest: hospitalAvg.raw,
              isPercent: m.isPercent
            };
         });
@@ -751,53 +805,53 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           const bagongPilipinas = await getBase64ImageFromUrl('/bagongpilipinas-logo.png');
           const mharsmcLogo = await getBase64ImageFromUrl('/mharsmc-logo.png'); 
           
-          if (dohLogo) doc.addImage(dohLogo, 'PNG', 15, 10, 22, 22);
-          if (mharsmcLogo) doc.addImage(mharsmcLogo, 'PNG', 40, 10, 22, 22);
-          if (bagongPilipinas) doc.addImage(bagongPilipinas, 'PNG', 65, 10, 26, 26);
+          if (dohLogo) doc.addImage(dohLogo, 'PNG', 14, 8, 18, 18);
+          if (mharsmcLogo) doc.addImage(mharsmcLogo, 'PNG', 34, 8, 18, 18);
+          if (bagongPilipinas) doc.addImage(bagongPilipinas, 'PNG', 54, 8, 20, 20);
         } catch (e) {
           console.warn("Could not load header logos", e);
         }
         
         // --- HEADER ---
-        doc.setFontSize(11);
+        doc.setFontSize(10);
         doc.setTextColor(0, 0, 0);
         doc.setFont('times', 'bold');
-        doc.text('Republic of the Philippines', 100, 15);
-        doc.text('Department of Health', 100, 20);
-        doc.setFontSize(12);
-        doc.text('Mayor Hilarion A. Ramiro Sr. Medical Center', 100, 25);
+        doc.text('Republic of the Philippines', 100, 12);
+        doc.text('Department of Health', 100, 16);
         doc.setFontSize(11);
+        doc.text('Mayor Hilarion A. Ramiro Sr. Medical Center', 100, 20);
+        doc.setFontSize(9);
         doc.setFont('times', 'normal');
-        doc.text('Maningcol, Ozamiz City 7200', 100, 30);
-        doc.text('Tel. No. (088) 521-0440; Telefax (088) 521-0022', 100, 35);
-        doc.text('Email Address: mharsmc@mharsmc.doh.gov.ph', 100, 40);
+        doc.text('Maningcol, Ozamiz City 7200', 100, 24);
+        doc.text('Tel. No. (088) 521-0440; Telefax (088) 521-0022', 100, 28);
+        doc.text('Email Address: mharsmc@mharsmc.doh.gov.ph', 100, 32);
         
-        doc.setFontSize(18);
+        doc.setFontSize(15);
         doc.setTextColor(15, 23, 42); // slate-900
         doc.setFont('helvetica', 'bold');
-        doc.text(`Ward Analytics Report: ${selectedWard}`, 14, 55);
+        doc.text(`Ward Analytics Report: ${selectedWard}`, 14, 42);
         
-        doc.setFontSize(11);
+        doc.setFontSize(10);
         doc.setTextColor(100, 116, 139); // slate-500
         doc.setFont('helvetica', 'normal');
         const periodStr = timeFrame === 'MONTHLY' ? selectedMonth : (timeFrame === 'DAILY' ? selectedDate : 'All Time');
-        doc.text(`Period: ${timeFrame} (${periodStr})`, 14, 63);
+        doc.text(`Period: ${timeFrame} (${periodStr})`, 14, 48);
         
         autoTable(doc, {
-          startY: 70,
-          margin: { top: 20, right: 14, bottom: 25, left: 14 },
+          startY: 52,
+          margin: { top: 15, right: 14, bottom: 20, left: 14 },
           pageBreak: 'auto',
           rowPageBreak: 'avoid',
-          head: [['Metric', `Target (${selectedWard})`, 'Rest of Hospital', 'Comparison']],
+          head: [['Metric', `Target (${selectedWard})`, 'Hospital Average', 'Comparison']],
           body: autoTableData,
           headStyles: { fillColor: [13, 148, 136] }, // brand-primary teal
           theme: 'grid',
-          styles: { fontSize: 10, cellPadding: 6, overflow: 'linebreak' },
+          styles: { fontSize: 8.5, cellPadding: 3.5, overflow: 'linebreak' },
           columnStyles: {
-            0: { cellWidth: 70 },
-            1: { cellWidth: 35 },
-            2: { cellWidth: 35 },
-            3: { cellWidth: 40 }
+            0: { cellWidth: 65 },
+            1: { cellWidth: 45 },
+            2: { cellWidth: 45 },
+            3: { cellWidth: 30 }
           },
           willDrawCell: (data: any) => {
              if (data.section === 'body' && data.column.index === 3) {
@@ -824,9 +878,8 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                    if (rawVal !== -1) {
                       const width = Math.max(2, (rawVal / 100) * (data.cell.width - 4));
                       doc.setDrawColor(13, 148, 136);
-                      // Draw a 3px high bar under the text
                       doc.setFillColor(13, 148, 136);
-                      doc.rect(data.cell.x + 2, data.cell.y + data.cell.height - 4, width, 2, 'F');
+                      doc.rect(data.cell.x + 2, data.cell.y + data.cell.height - 3, width, 1.5, 'F');
                    }
                 }
              }
@@ -1050,96 +1103,107 @@ export default function Reports({ user }: { user: UserProfile | null }) {
             }
         });
 
-        let currentY = (doc as any).lastAutoTable.finalY + 15;
+        let currentY = (doc as any).lastAutoTable.finalY + 8;
+        let hasAnyIssues = false;
         
-        const renderIssueTable = (title: string, dataObj: Record<string, number>, emptyMsg: string, headObj: string[] = ['Identified Issue', 'Occurrences']) => {
+        const renderIssueTable = (title: string, dataObj: Record<string, number>, headObj: string[] = ['Identified Issue', 'Occurrences']) => {
            const data = Object.entries(dataObj)
               .filter(([_, count]) => count > 0)
               .sort((a, b) => b[1] - a[1])
               .map(([item, count]) => [item, count.toString()]);
            
-           if (currentY > 260) {
+           if (data.length === 0) return; // Skip empty breakdown tables to save paper
+
+           hasAnyIssues = true;
+
+           if (currentY > 240) {
               doc.addPage();
-              currentY = 20;
+              currentY = 18;
            }
 
-           doc.setFontSize(14);
+           doc.setFontSize(10);
+           doc.setFont('helvetica', 'bold');
            doc.setTextColor(15, 23, 42); // slate-900
            doc.text(`Analytical Breakdown: ${title}`, 14, currentY);
 
-           if (data.length > 0) {
-              autoTable(doc, {
-                startY: currentY + 6,
-                margin: { top: 20, right: 14, bottom: 20, left: 14 },
-                pageBreak: 'auto',
-                rowPageBreak: 'avoid',
-                head: [headObj],
-                body: data,
-                headStyles: { fillColor: [244, 63, 94] }, // rose-500 for missing/issues
-                theme: 'grid',
-                styles: { fontSize: 10, cellPadding: 6, overflow: 'linebreak' },
-                columnStyles: { 0: { cellWidth: 120 }, 1: { cellWidth: 60 } }
-              });
-              currentY = (doc as any).lastAutoTable.finalY + 15;
-           } else {
-              doc.setFontSize(11);
-              doc.setTextColor(100, 116, 139);
-              doc.text(emptyMsg, 14, currentY + 10);
-              currentY += 25;
-           }
+           autoTable(doc, {
+             startY: currentY + 3,
+             margin: { top: 15, right: 14, bottom: 15, left: 14 },
+             pageBreak: 'auto',
+             rowPageBreak: 'avoid',
+             head: [headObj],
+             body: data,
+             headStyles: { fillColor: [225, 29, 72] }, // rose-600
+             theme: 'grid',
+             styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak' },
+             columnStyles: { 0: { cellWidth: 125 }, 1: { cellWidth: 55 } }
+           });
+           currentY = (doc as any).lastAutoTable.finalY + 8;
         };
 
-        renderIssueTable('Hand Hygiene Missed Moments', missedMomentsCount, 'No missed moments recorded.');
-        renderIssueTable('Non-Compliant HCWs: Hand Hygiene', hhHcwNonCompliance, 'No hand hygiene non-compliance recorded.', ['Profession', 'Missed Actions']);
-        renderIssueTable('HCW Hand & Wrist Prep Violations', hhnNailNonCompliance, 'No hand prep or nail hygiene non-compliance recorded.', ['Prep / Condition Issue', 'Violation Count']);
-        renderIssueTable('Hand Hygiene Availability Issues', hhAvailIssues, 'No availability issues recorded.');
-        renderIssueTable('PPE Compliance Issues', ppeComplianceIssues, 'No PPE compliance issues recorded.');
-        renderIssueTable('Non-Compliant HCWs: PPE', ppeHcwNonCompliance, 'No PPE non-compliance recorded.', ['Profession', 'Issues Count']);
-        renderIssueTable('PPE Availability Issues', ppeAvailIssues, 'No PPE availability issues recorded.');
-        renderIssueTable('Safe Injection Issues', safeInjectionIssues, 'No safe injection issues recorded.');
-        renderIssueTable('Non-Compliant HCWs: Safe Injection', siHcwNonCompliance, 'No safe injection non-compliance recorded.', ['Profession', 'Issues Count']);
-        renderIssueTable('Environmental Cleaning Missed Surfaces', envCleaningIssues, 'No missed surfaces recorded.');
-        renderIssueTable('Device Bundles: Frequently Missed Elements', bundleMissedElements, 'No missed bundle elements recorded.');
-        renderIssueTable('Device Bundles: Clinical Criteria Checks', bundleClinicalCriteria, 'No clinical criteria checks recorded.', ['Documentation Status', 'Log Count']);
+        renderIssueTable('Hand Hygiene Missed Moments', missedMomentsCount);
+        renderIssueTable('Non-Compliant HCWs: Hand Hygiene', hhHcwNonCompliance, ['Profession', 'Missed Actions']);
+        renderIssueTable('HCW Hand & Wrist Prep Violations', hhnNailNonCompliance, ['Prep / Condition Issue', 'Violation Count']);
+        renderIssueTable('Hand Hygiene Availability Issues', hhAvailIssues);
+        renderIssueTable('PPE Compliance Issues', ppeComplianceIssues);
+        renderIssueTable('Non-Compliant HCWs: PPE', ppeHcwNonCompliance, ['Profession', 'Issues Count']);
+        renderIssueTable('PPE Availability Issues', ppeAvailIssues);
+        renderIssueTable('Safe Injection Issues', safeInjectionIssues);
+        renderIssueTable('Non-Compliant HCWs: Safe Injection', siHcwNonCompliance, ['Profession', 'Issues Count']);
+        renderIssueTable('Environmental Cleaning Missed Surfaces', envCleaningIssues);
+        renderIssueTable('Device Bundles: Frequently Missed Elements', bundleMissedElements);
+        renderIssueTable('Device Bundles: Clinical Criteria Checks', bundleClinicalCriteria, ['Documentation Status', 'Log Count']);
 
-        // 8. Signature Block
-        if (currentY > 220) {
-           doc.addPage();
-           currentY = 20;
+        if (!hasAnyIssues) {
+           if (currentY > 245) {
+              doc.addPage();
+              currentY = 18;
+           }
+           doc.setFontSize(8.5);
+           doc.setFont('helvetica', 'bold');
+           doc.setTextColor(16, 185, 129); // emerald green
+           doc.text('Analytical Breakdown: All parameters fully compliant. No missed moments or violations recorded.', 14, currentY + 3);
+           currentY += 8;
         }
 
-        currentY += 10;
+        // 8. Signature Block
+        if (currentY > 235) {
+           doc.addPage();
+           currentY = 18;
+        }
+
+        currentY += 6;
         doc.setDrawColor(203, 213, 225); // slate-300
-        doc.setLineWidth(0.5);
+        doc.setLineWidth(0.4);
 
         // Monitored By Section
-        doc.setFontSize(10);
+        doc.setFontSize(8.5);
         doc.setTextColor(100, 116, 139); // slate-500
         doc.setFont('helvetica', 'normal');
         doc.text('Monitored By:', 14, currentY);
 
-        doc.line(14, currentY + 18, 90, currentY + 18); // line for writing/signature
+        doc.line(14, currentY + 12, 90, currentY + 12); // line for writing/signature
 
-        doc.setFontSize(9);
+        doc.setFontSize(8);
         doc.setTextColor(148, 163, 184); // slate-400
-        doc.text('(Signature over Printed Name)', 14, currentY + 24);
+        doc.text('(Signature over Printed Name)', 14, currentY + 16);
 
         // Verified By Section
-        doc.setFontSize(10);
+        doc.setFontSize(8.5);
         doc.setTextColor(100, 116, 139); // slate-500
         doc.text('Verified By:', 114, currentY);
 
-        doc.line(114, currentY + 18, 190, currentY + 18); // line for signature
+        doc.line(114, currentY + 12, 190, currentY + 12); // line for signature
 
-        doc.setFontSize(10);
+        doc.setFontSize(8.5);
         doc.setTextColor(15, 23, 42); // slate-900
         doc.setFont('helvetica', 'bold');
-        doc.text('Mishelle Vonnabie O. Bala, MD, FPCP, FPSMID', 114, currentY + 24);
+        doc.text('Mishelle Vonnabie O. Bala, MD, FPCP, FPSMID', 114, currentY + 16);
 
-        doc.setFontSize(9);
+        doc.setFontSize(8);
         doc.setTextColor(100, 116, 139); // slate-500
         doc.setFont('helvetica', 'normal');
-        doc.text('IPCU Manager', 114, currentY + 29);
+        doc.text('IPCU Manager', 114, currentY + 20);
 
         // Add Footer to all pages
         const pageCount = (doc as any).internal.getNumberOfPages();
@@ -1178,7 +1242,52 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         const p1 = fetchCollectionData('audits', 'createdAt');
         const p2 = fetchCollectionData('boc_logs', 'date');
         const p3 = fetchCollectionData('hai_cases', 'createdAt');
-        const results = await Promise.all([p1, p2, p3]);
+        const p4 = fetchCollectionData('bundle_monitorings', 'createdAt');
+        const results = await Promise.all([p1, p2, p3, p4]);
+
+        const haiCases = results[2];
+        const bundleDocsForTriggers = results[3];
+        const extraTriggers: any[] = [];
+
+        bundleDocsForTriggers.forEach((d: any) => {
+          if (d.monitoringDays && Array.isArray(d.monitoringDays)) {
+            d.monitoringDays.forEach((day: any) => {
+              const hasSigns = day.clinicalCriteria ? Object.values(day.clinicalCriteria).some(v => v === true || v === 'Present') : false;
+              if (hasSigns || day.possibleHAI) {
+                const alreadyExists = haiCases.some((hc: any) => 
+                  (hc.hospNo === d.hospitalNo || hc.hospNo === d.hospNo || hc.patientName === d.patientName) && 
+                  hc.triggerDate === day.date
+                );
+                
+                if (!alreadyExists) {
+                  const manualCriteria = day.possibleHAI ? [day.triggerReason || 'Manual Flag'] : [];
+                  const clinicalCriteriaList = day.clinicalCriteria ? Object.entries(day.clinicalCriteria).filter(([_, v]) => v === true || v === 'Present').map(([k]) => k) : [];
+                  const allCriteria = Array.from(new Set([...manualCriteria, ...clinicalCriteriaList]));
+                  
+                  extraTriggers.push({
+                    id: `${d.id}_day_${day.dayNumber}`,
+                    type: day.bundleType || 'Device Monitoring',
+                    patientName: d.patientName,
+                    hospNo: d.hospitalNo || d.hospNo || 'N/A',
+                    unit: d.unit,
+                    triggerDate: day.date,
+                    riskLevel: 'YELLOW',
+                    status: day.isVerifiedByIPCU ? 'NOT_HAI' : 'PENDING',
+                    triggeredCriteria: allCriteria,
+                    triggeredLabs: [],
+                    validatorName: day.verifiedByIPCUName || '',
+                    validatedAt: day.verifiedAtIPCU || null,
+                    decisionNote: day.remarks || 'Device monitoring active trigger',
+                    isFromBundle: true,
+                    __source: 'bundle_monitorings_trigger'
+                  });
+                }
+              }
+            });
+          }
+        });
+
+        results[2] = [...haiCases, ...extraTriggers];
         
         // Unified Schema for Consolidated Intelligence Report
         const unifiedMapper = (d: any, domain: string) => {
@@ -1225,9 +1334,9 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                     'Assessment Type': day.bundleType || 'Bundle Assessment',
                     'Performance Result': (day.complianceScores?.overall || compPct.replace('%', '')) + '%',
                     'Compliance %': (day.complianceScores?.overall || compPct.replace('%', '')) + '%',
-                    'IPCU Decision': day.verification?.isValidated ? 'Proceed' : 'N/A',
-                    'Validator/Reviewer': day.verification?.validatorName || 'N/A',
-                    'Clinical Rationale/Action': day.verification?.validatorComment || ''
+                    'IPCU Decision': day.isVerifiedByIPCU ? 'Proceed' : 'N/A',
+                    'Validator/Reviewer': day.verifiedByIPCUName || 'N/A',
+                    'Clinical Rationale/Action': day.remarks || ''
                  };
               });
             }
@@ -1284,10 +1393,55 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           case 'AUDITS': collectionName = 'audits'; dateField = 'timestamp'; break;
           case 'AMS': collectionName = 'ams_requests'; dateField = 'createdAt'; break;
           case 'HAI': collectionName = 'hai_cases'; dateField = 'createdAt'; break;
-          case 'NSI': collectionName = 'nsi_reports'; dateField = 'createdAt'; break;
+          case 'NSI': collectionName = 'nsi_reports'; dateField = 'incident.date'; break;
           case 'OUTBREAK': collectionName = 'outbreaks'; dateField = 'createdAt'; break;
         }
         let data = await fetchCollectionData(collectionName, dateField);
+
+        if (reportType === 'HAI') {
+          // Pull triggers from active device bundle monitorings too!
+          const bundleDocs = await fetchCollectionData('bundle_monitorings', 'createdAt');
+          const extraTriggers: any[] = [];
+          
+          bundleDocs.forEach((d: any) => {
+            if (d.monitoringDays && Array.isArray(d.monitoringDays)) {
+              d.monitoringDays.forEach((day: any) => {
+                const hasSigns = day.clinicalCriteria ? Object.values(day.clinicalCriteria).some(v => v === true || v === 'Present') : false;
+                if (hasSigns || day.possibleHAI) {
+                  const alreadyExists = data.some((hc: any) => 
+                    (hc.hospNo === d.hospitalNo || hc.hospNo === d.hospNo || hc.patientName === d.patientName) && 
+                    hc.triggerDate === day.date
+                  );
+                  
+                  if (!alreadyExists) {
+                    const manualCriteria = day.possibleHAI ? [day.triggerReason || 'Manual Flag'] : [];
+                    const clinicalCriteriaList = day.clinicalCriteria ? Object.entries(day.clinicalCriteria).filter(([_, v]) => v === true || v === 'Present').map(([k]) => k) : [];
+                    const allCriteria = Array.from(new Set([...manualCriteria, ...clinicalCriteriaList]));
+                    
+                    extraTriggers.push({
+                      id: `${d.id}_day_${day.dayNumber}`,
+                      type: day.bundleType || 'Device Monitoring',
+                      patientName: d.patientName,
+                      hospNo: d.hospitalNo || d.hospNo || 'N/A',
+                      unit: d.unit,
+                      triggerDate: day.date,
+                      riskLevel: 'YELLOW',
+                      status: day.isVerifiedByIPCU ? 'NOT_HAI' : 'PENDING',
+                      triggeredCriteria: allCriteria,
+                      triggeredLabs: [],
+                      validatorName: day.verifiedByIPCUName || '',
+                      validatedAt: day.verifiedAtIPCU || null,
+                      decisionNote: day.remarks || 'Device monitoring active trigger',
+                      isFromBundle: true,
+                      __source: 'bundle_monitorings_trigger'
+                    });
+                  }
+                }
+              });
+            }
+          });
+          data = [...data, ...extraTriggers];
+        }
         
         if (reportType === 'AUDITS' && selectedAuditType !== 'ALL') {
             data = data.filter((d: any) => d.type === selectedAuditType);
@@ -1300,7 +1454,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
             end.setHours(23,59,59,999);
             
             data = data.filter((d: any) => {
-               const recDate = d.createdAt?.toDate ? d.createdAt.toDate() : (d.timestamp ? new Date(d.timestamp) : null);
+               const recDate = (d.timestamp && !isNaN(new Date(d.timestamp).getTime())) ? new Date(d.timestamp) : (d.createdAt?.toDate ? d.createdAt.toDate() : null);
                if (!recDate) return false;
                return recDate >= start && recDate <= end;
             });
@@ -1560,7 +1714,9 @@ export default function Reports({ user }: { user: UserProfile | null }) {
                      masterContent += "No records found.\n\n";
                      continue;
                    }
-                   const docs = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+                   const docs = snap.docs
+                     .map(d => ({ ...mapLegacyData(d.data()), id: d.id }))
+                     .filter((d: any) => !d.isDeleted && !d.deleted && d.status !== 'DELETED' && d.status !== 'CANCELLED' && !d.isArchived);
                    masterContent += JSON.stringify(docs, (key, value) => 
                      value instanceof Timestamp ? value.toDate().toISOString() : value
                    , 2);

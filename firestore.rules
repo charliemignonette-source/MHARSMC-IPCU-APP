@@ -184,16 +184,10 @@ service cloud.firestore {
     }
 
     match /nsi_reports/{reportId} {
-      allow get: if isSignedIn() && (existing().get('reporterId', '') == request.auth.uid || isIPCN() || isAdmin());
-      allow list: if isSignedIn() && (resource.data.get('reporterId', '') == request.auth.uid || isIPCN() || isAdmin());
-      allow create: if isSignedIn() && isValidNSIRep(incoming()) && incoming().get('reporterId', '') == request.auth.uid && incoming().get('status', 'PENDING') == 'PENDING' && isValidId(reportId);
-      allow update: if (isIPCN() || isAdmin()) && 
-                    incoming().diff(existing()).affectedKeys().hasOnly([
-                      'status', 'validation', 'isValidated', 'validatedBy', 'validatedAt', 'validatorName', 
-                      'updatedAt', 'notes', 'reason', 'basis', 'rootCauses', 'contributingFactors', 
-                      'correctiveActions', 'classification', 'monitoringMethod', 'monitoringStatus', 
-                      'clinicalAccuracy', 'complianceAccuracy'
-                    ]);
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
       allow delete: if isAdmin() || isIPCN();
     }
 

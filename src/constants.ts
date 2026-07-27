@@ -1,10 +1,10 @@
 export const UNITS = [
   '2D Echo', 'Acute Stroke Unit', 'Ambulatory OR', 'Blood Bank', 'C2', 'C3', 'C4', 'CSR', 'CSSD',
-  'Delivery Room', 'Dental Clinic', 'Dietary', 'DR', 'Engineering & Maintenance', 'ER', 'HDU 1', 'HDU 2', 'Housekeeping',
-  'ICU 1', 'ICU 2', 'IPCU', 'Labor Room', 'Laboratory', 'Histopath', 'Laundry and Linen', 'Medical Ward',
-  'Microbiology', 'MRI Unit', 'NBS', 'NICU', 'OB Ward', 'OBER', 'Oncology',
-  'OPD 1', 'OPD 2', 'OPD Lab', 'OR', 'PACU', 'Pedia Ward', 'PICU', 'Radiology',
-  'Rehabilitation', 'RTU', 'Surgical Ward', 'TB DOTS', 'Ward 1A', 'Ward 1B',
+  'Delivery Room', 'Dental Clinic', 'Dietary', 'Engineering & Maintenance', 'ER', 'Eye Clinic', 'HDU 1', 'HDU 2', 'Housekeeping',
+  'ICU', 'IPCU', 'Labor Room', 'Laboratory', 'Histopath', 'Laundry and Linen',
+  'Microbiology', 'MRI Unit', 'NBS', 'NICU', 'OBER', 'Oncology',
+  'OPD 1', 'OPD 2', 'OR', 'PACU', 'PICU', 'Radiology',
+  'Rehabilitation', 'RTU', 'TB DOTS', 'Ward 1A', 'Ward 1B',
   'Ward 1C', 'Ward 2A', 'Ward 2B', 'Ward 3A', 'Ward 3B', 'Ward 4',
   'Ward 5A', 'Ward 5B', 'Ward 5C', 'Ward 6', 'Wardman'
 ];
@@ -304,13 +304,13 @@ export const CLINICAL_CRITERIA_DETAILED = {
     "Laboratory: blood culture via catheter"
   ],
   CAUTI_ADULT: [
-    "Fever ≥ 38°C", "Suprapubic tenderness", "Costovertebral angle pain/tenderness", "Urinary urgency", "Urinary frequency", "Dysuria", "Urinalysis leukocyte/nitrite positive", "Pyuria", "Urine gram stain", "Urine culture", "Blood culture"
+    "Fever ≥ 38°C", "Suprapubic tenderness", "Costovertebral angle pain/tenderness", "Urinary urgency", "Urinary frequency", "Dysuria", "Urinalysis leukocyte/nitrite positive", "Pyuria", "Urine gram stain positive", "Urine culture positive", "Blood culture positive"
   ],
   CAUTI_PEDIA: [
     "Fever ≥ 38°C", "Dysuria", "Urgency", "Frequency", "Costovertebral pain/tenderness", "Suprapubic tenderness", "Chills", "No symptoms", "Urinalysis leukocyte positive", "Urinalysis nitrite positive", "Pyuria", "Urine gram stain", "Urine culture", "Blood culture"
   ],
   VAP_ADULT: [
-    "Temperature", "FiO2", "PEEP", "WBC", "New onset rales/ronchi/stridor", "Repeat chest X‑ray done"
+    "Temperature > 38 °C or < 36°C", "Increase in daily minimum FiO2", "Increase in daily minimum PEEP values", "WBC count ≥ 12,000 cells/mm3 or ≤ 4,000 cells/mm3", "New onset rales/ronchi/stridor", "Repeat chest X‑ray done"
   ],
   VAP_PEDIA: [
     "Temperature", "FiO2", "PEEP", "WBC", "New onset rales/ronchi/stridor", "Repeat chest X‑ray done"

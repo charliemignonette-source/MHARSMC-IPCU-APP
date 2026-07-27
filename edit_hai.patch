@@ -1,0 +1,67 @@
+--- src/components/HAI.tsx
++++ src/components/HAI.tsx
+@@ -16,6 +16,7 @@
+   Trash2,
+   Calculator,
+   FileDown,
+-  X
++  X,
++  Edit3
+ } from 'lucide-react';
+ import { motion, AnimatePresence } from 'motion/react';
+@@ -365,6 +366,7 @@
+   };
+ 
++  const [editingCaseId, setEditingCaseId] = useState<string | null>(null);
+   const [caseForm, setCaseForm] = useState<Partial<HAICase>>({
+     type: 'CLABSI',
+@@ -514,13 +516,21 @@
+     try {
+-      await addDoc(collection(db, 'hai_cases'), removeUndefined({
+-        ...caseForm,
+-        auditorId: user.uid,
+-        auditorEmail: user.email,
+-        auditorName: user.name, // adding name
+-        isValidated: false,
+-        createdAt: serverTimestamp()
+-      }));
++      if (editingCaseId) {
++        await updateDoc(doc(db, 'hai_cases', editingCaseId), removeUndefined({
++          ...caseForm,
++        }));
++        showToast('HAI Case report updated successfully');
++      } else {
++        await addDoc(collection(db, 'hai_cases'), removeUndefined({
++          ...caseForm,
++          auditorId: user.uid,
++          auditorEmail: user.email,
++          auditorName: user.name, // adding name
++          isValidated: false,
++          createdAt: serverTimestamp()
++        }));
++        showToast('HAI Case report submitted successfully');
++      }
+       setIsAddingCase(false);
+-      showToast('HAI Case report submitted successfully');
++      setEditingCaseId(null);
+     } catch (error) {
+@@ -1038,6 +1048,16 @@
+                                     </button>
+                                   )}
++                                  {(isIPCU || c.auditorId === user.uid) && (
++                                    <button 
++                                      onClick={(e) => { e.stopPropagation(); setCaseForm(c); setEditingCaseId(c.id); setIsAddingCase(true); }}
++                                      className="p-2.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors border border-blue-100/50"
++                                      title="Edit Entry"
++                                    >
++                                      <Edit3 className="w-4 h-4" />
++                                    </button>
++                                  )}
+                                   <div className="flex items-center gap-1">
+                                     <button 
+@@ -1674,7 +1694,7 @@
+           <SurveillanceModal 
+-            onClose={() => setIsAddingCase(false)}
++            onClose={() => { setIsAddingCase(false); setEditingCaseId(null); }}
+             formData={caseForm}
+             setFormData={setCaseForm}

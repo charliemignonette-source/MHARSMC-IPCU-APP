@@ -73,16 +73,6 @@ export const USER_ROLES_DATA = [
   { pin: '9202', staffCode: 'OPD2002', role: 'USER', unit: 'OPD 2' },
   { pin: '9301', staffCode: 'OR001', role: 'USER', unit: 'OR' },
   { pin: '9302', staffCode: 'OR002', role: 'USER', unit: 'OR' },
-  { pin: '9401', staffCode: 'DR001', role: 'USER', unit: 'DR' },
-  { pin: '9402', staffCode: 'DR002', role: 'USER', unit: 'DR' },
-  { pin: '9501', staffCode: 'OBW001', role: 'USER', unit: 'OB Ward' },
-  { pin: '9502', staffCode: 'OBW002', role: 'USER', unit: 'OB Ward' },
-  { pin: '9601', staffCode: 'SURG001', role: 'USER', unit: 'Surgical Ward' },
-  { pin: '9602', staffCode: 'SURG002', role: 'USER', unit: 'Surgical Ward' },
-  { pin: '9701', staffCode: 'MED001', role: 'USER', unit: 'Medical Ward' },
-  { pin: '9702', staffCode: 'MED002', role: 'USER', unit: 'Medical Ward' },
-  { pin: '9801', staffCode: 'PED001', role: 'USER', unit: 'Pedia Ward' },
-  { pin: '9802', staffCode: 'PED002', role: 'USER', unit: 'Pedia Ward' }
 ];
 
 export async function seedUserRoles() {

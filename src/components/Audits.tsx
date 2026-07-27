@@ -18,7 +18,9 @@ import {
   Info,
   Zap,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Edit3,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, limit, serverTimestamp, query, where, orderBy, doc } from 'firebase/firestore';
@@ -28,7 +30,8 @@ const updateDoc = safeUpdateDoc;
 const deleteDoc = safeDeleteDoc;
 import { UserProfile, AuditType, Audit } from '../types';
 import { UNITS, STAFF_TYPES } from '../constants';
-import { cn, formatDate } from '../lib/utils';
+import { cn, formatDate , mapLegacyData } from '../lib/utils';
+import { NameEditor } from './NameEditor';
 
 
 
@@ -383,6 +386,7 @@ function AuditValidationModal({ audit, onClose, onSubmit, user }: any) {
 }
 
 export default function Audits({ user }: { user: UserProfile | null }) {
+  const [editingAudit, setEditingAudit] = useState<any>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [selectedType, setSelectedType] = useState<AuditType>('HH_COMPLIANCE');
   const [formData, setFormData] = useState({
@@ -391,7 +395,9 @@ export default function Audits({ user }: { user: UserProfile | null }) {
     total: 10,
     remarks: '',
     profession: '1',
-    staffType: 'Nurse'
+    staffType: 'Nurse',
+    overrideDate: '',
+    overrideTime: ''
   });
 
   const [pendingHHObservations, setPendingHHObservations] = useState<any[]>([]);
@@ -481,7 +487,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
 
     const unsubscribe = safeOnSnapshot(q, (snapshot) => {
       const auditData = snapshot.docs.map(doc => ({
-        ...doc.data(),
+        ...mapLegacyData(doc.data()),
         id: doc.id
       })) as Audit[];
       setAudits(auditData);
@@ -765,6 +771,31 @@ export default function Audits({ user }: { user: UserProfile | null }) {
     }));
   };
 
+  
+  const handleUpdateAudit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAudit) return;
+    try {
+      const { id, _editForm, ...rest } = editingAudit;
+      const updates = { ...rest };
+      
+      updates.unit = _editForm.unit;
+      updates.profession = _editForm.profession;
+      if (_editForm.staffIdentifier) updates.staffIdentifier = _editForm.staffIdentifier;
+      
+      if (updates.details?.hhObs) {
+        updates.details.hhObs.profession = _editForm.profession;
+        if (_editForm.staffIdentifier) updates.details.hhObs.staffIdentifier = _editForm.staffIdentifier;
+      }
+      
+      await updateDoc(doc(db, 'audits', id), updates);
+      showToast('Audit updated successfully');
+      setEditingAudit(null);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'audits');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -800,7 +831,15 @@ export default function Audits({ user }: { user: UserProfile | null }) {
           return;
         }
 
-        const now = new Date().toISOString();
+        let auditTimestamp = new Date().toISOString();
+        if (formData.overrideDate) {
+           const timeStr = formData.overrideTime || '00:00';
+           const combined = new Date(`${formData.overrideDate}T${timeStr}:00`);
+           if (!isNaN(combined.getTime())) {
+              auditTimestamp = combined.toISOString();
+           }
+        }
+        
         const serverNow = serverTimestamp();
         
         console.log('Finalizing HH batch save:', finalBatch.length, 'audits');
@@ -812,7 +851,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
             auditorId: user.uid,
             auditorEmail: user.email,
             auditorName: user.name,
-            timestamp: now,
+            timestamp: auditTimestamp,
             score: obs.score,
             total: obs.total,
             staffIdentifier: obs.staffIdentifier,
@@ -888,6 +927,16 @@ export default function Audits({ user }: { user: UserProfile | null }) {
           score = formData.score;
           total = formData.total;
         }
+        
+        let auditTimestamp = new Date().toISOString();
+        if (formData.overrideDate) {
+           const timeStr = formData.overrideTime || '00:00';
+           const combined = new Date(`${formData.overrideDate}T${timeStr}:00`);
+           if (!isNaN(combined.getTime())) {
+              auditTimestamp = combined.toISOString();
+           }
+        }
+        
         console.log('Transmitting singular audit payload:', selectedType);
         await addDoc(collection(db, 'audits'), {
           type: selectedType,
@@ -895,7 +944,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
           auditorId: user.uid,
           auditorEmail: user.email,
           auditorName: user.name, // person reporting
-          timestamp: new Date().toISOString(),
+          timestamp: auditTimestamp,
           score,
           total,
           staffIdentifier: selectedType === 'PPE_COMPLIANCE' 
@@ -914,7 +963,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
 
       setIsAdding(false);
       setPendingHHObservations([]);
-      setFormData({ unit: UNITS[0], score: 0, total: 10, remarks: '', profession: '1', staffType: 'Nurse' });
+      setFormData({ unit: UNITS[0], score: 0, total: 10, remarks: '', profession: '1', staffType: 'Nurse', overrideDate: '', overrideTime: '' });
       setChecklist({
         abhr: { poc: false, personnelHasPortableABHR: false, notEmpty: false, expiry: '', notIndicated: false, functional: false, alternativeDeliveryMethod: '', mounted: false },
         sink: { sink: false, water: false, soap: false, expiry: '', notIndicated: false, towels: false, notClogged: false },
@@ -1093,6 +1142,8 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                     {...audit} 
                     onValidate={() => setSelectedAuditForValidation(audit)}
                     isAdmin={user?.role === 'IPCN' || user?.role === 'ADMIN'}
+                    currentUserUid={user?.uid}
+                    onEdit={(a) => setEditingAudit({ ...a, _editForm: { unit: a.unit, profession: a.profession, staffIdentifier: a.staffIdentifier || (a.details?.hhObs?.staffIdentifier) || '' } })}
                   />
                 ));
               })()}
@@ -1168,7 +1219,123 @@ export default function Audits({ user }: { user: UserProfile | null }) {
       </div>
 
       <AnimatePresence>
-        {isAdding && (
+        
+        {editingAudit && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setEditingAudit(null)} />
+            <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <h3 className="font-black text-slate-800 uppercase tracking-tight">Edit Audit Details</h3>
+                <button onClick={() => setEditingAudit(null)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 overflow-y-auto">
+                <form id="edit-audit-form" onSubmit={handleUpdateAudit} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Unit/Ward</label>
+                    <select
+                      value={editingAudit._editForm.unit}
+                      onChange={(e) => setEditingAudit({...editingAudit, _editForm: {...editingAudit._editForm, unit: e.target.value}})}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700"
+                    >
+                      {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Profession</label>
+                    <select
+                      value={editingAudit._editForm.profession}
+                      onChange={(e) => setEditingAudit({...editingAudit, _editForm: {...editingAudit._editForm, profession: e.target.value}})}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700"
+                    >
+                      <option value="1">Nurse</option>
+                      <option value="2">Physician</option>
+                      <option value="3">Allied Health</option>
+                      <option value="4">Ancillary</option>
+                    </select>
+                  </div>
+                  {editingAudit.type === 'HH_COMPLIANCE' && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Staff Identifier (Name/ID)</label>
+                      <input
+                        type="text"
+                        value={editingAudit._editForm.staffIdentifier || ''}
+                        onChange={(e) => setEditingAudit({...editingAudit, _editForm: {...editingAudit._editForm, staffIdentifier: e.target.value}})}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700"
+                      />
+                    </div>
+                  )}
+                </form>
+              </div>
+              <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+                <button type="button" onClick={() => setEditingAudit(null)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700">Cancel</button>
+                <button type="submit" form="edit-audit-form" className="px-6 py-2 bg-brand-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-teal-700 active:scale-95 transition-all shadow-md">
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {editingAudit && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setEditingAudit(null)} />
+            <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <h3 className="font-black text-slate-800 uppercase tracking-tight">Edit Audit Details</h3>
+                <button onClick={() => setEditingAudit(null)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 overflow-y-auto">
+                <form id="edit-audit-form" onSubmit={handleUpdateAudit} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Unit/Ward</label>
+                    <select
+                      value={editingAudit._editForm.unit}
+                      onChange={(e) => setEditingAudit({...editingAudit, _editForm: {...editingAudit._editForm, unit: e.target.value}})}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700"
+                    >
+                      {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Profession</label>
+                    <select
+                      value={editingAudit._editForm.profession}
+                      onChange={(e) => setEditingAudit({...editingAudit, _editForm: {...editingAudit._editForm, profession: e.target.value}})}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700"
+                    >
+                      <option value="1">Nurse</option>
+                      <option value="2">Physician</option>
+                      <option value="3">Allied Health</option>
+                      <option value="4">Ancillary</option>
+                    </select>
+                  </div>
+                  {editingAudit.type === 'HH_COMPLIANCE' && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Staff Identifier (Name/ID)</label>
+                      <input
+                        type="text"
+                        value={editingAudit._editForm.staffIdentifier || ''}
+                        onChange={(e) => setEditingAudit({...editingAudit, _editForm: {...editingAudit._editForm, staffIdentifier: e.target.value}})}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700"
+                      />
+                    </div>
+                  )}
+                </form>
+              </div>
+              <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+                <button type="button" onClick={() => setEditingAudit(null)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700">Cancel</button>
+                <button type="submit" form="edit-audit-form" className="px-6 py-2 bg-brand-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-teal-700 active:scale-95 transition-all shadow-md">
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+{isAdding && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-6 bg-slate-900/10 backdrop-blur-md">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -1238,6 +1405,27 @@ export default function Audits({ user }: { user: UserProfile | null }) {
                           className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-brand-primary outline-none"
                           value={formData.bedNumber || ''}
                           onChange={(e) => setFormData({...formData, bedNumber: e.target.value})}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Override Date (Optional)</label>
+                        <input 
+                          type="date"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-brand-primary outline-none"
+                          value={formData.overrideDate || ''}
+                          onChange={(e) => setFormData({...formData, overrideDate: e.target.value})}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Override Time (Optional)</label>
+                        <input 
+                          type="time"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-brand-primary outline-none"
+                          value={formData.overrideTime || ''}
+                          onChange={(e) => setFormData({...formData, overrideTime: e.target.value})}
                         />
                       </div>
                     </div>
@@ -2367,7 +2555,7 @@ export default function Audits({ user }: { user: UserProfile | null }) {
 }
 
 function AuditEntry(props: any) {
-  const { id, type, unit, score, total, timestamp, auditorEmail, auditorName, isValidated, validatedBy, validatorName, validationStatus, validatedAt, onValidate, isAdmin, details } = props;
+  const { id, type, unit, score, total, timestamp, auditorEmail, auditorName, isValidated, validatedBy, validatorName, validationStatus, validatedAt, onValidate, isAdmin, details, onEdit } = props;
   const [isExpanded, setIsExpanded] = useState(false);
   const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
   const colorClass = percentage >= 90 ? 'text-emerald-600' : percentage >= 80 ? 'text-amber-600' : 'text-rose-600';
@@ -2409,14 +2597,37 @@ function AuditEntry(props: any) {
           </div>
           <div className="flex flex-col gap-0.5">
              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-slate-700 truncate max-w-[150px]">{auditorName || auditorEmail || 'System'}</span>
+                <NameEditor
+                  currentName={auditorName || auditorEmail || ""}
+                  fallbackName="System"
+                  canEdit={!!(isAdmin || auditorEmail === props.currentUserUid)}
+                  onSave={async (newName) => {
+                    await updateDoc(doc(db, 'audits', id), { auditorName: newName });
+                  }}
+                  textClassName="text-sm font-bold text-slate-700 truncate max-w-[150px]"
+                  buttonClassName="hover:bg-slate-200 text-slate-400"
+                  iconClassName="w-3 h-3"
+                />
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{formatDate(timestamp)}</span>
              </div>
              {isValidated && (
                <div className="flex flex-col gap-0.5 mt-1">
                  <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 uppercase tracking-tight">
                     <CheckCircle2 className="w-2.5 h-2.5" />
-                    <span>Validated by: {validatorName || validatedBy}</span>
+                    <div className="flex items-center gap-1">
+                      <span>Validated by: </span>
+                      <NameEditor
+                        currentName={validatorName || validatedBy || ""}
+                        fallbackName="System"
+                        canEdit={!!isAdmin}
+                        onSave={async (newName) => {
+                          await updateDoc(doc(db, 'audits', id), { validatorName: newName });
+                        }}
+                        textClassName="inherit"
+                        buttonClassName="hover:bg-emerald-100 text-emerald-600"
+                        iconClassName="w-3 h-3"
+                      />
+                    </div>
                  </div>
                  <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 uppercase tracking-tight">
                     <span>Status: {props.validationStatus || 'VALIDATED'}</span>

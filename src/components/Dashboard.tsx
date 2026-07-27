@@ -13,7 +13,7 @@ import { db, safeGetDocs, safeDeleteDoc } from '../lib/firebase';
 const getDocs = safeGetDocs;
 const deleteDoc = safeDeleteDoc;
 import { UserProfile, BOCLog } from '../types';
-import { cn, getComplianceColor, formatDate } from '../lib/utils';
+import { cn, getComplianceColor, formatDate , mapLegacyData } from '../lib/utils';
 import { 
   ShieldCheck, Crosshair, Thermometer, Droplets, Wind, Scissors,
   Database, FlaskConical, ArrowUpRight
@@ -33,6 +33,11 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
     outbreaks: any[];
     hais: any[];
   }>({ boc: [], ams: [], nsi: [], audits: [], outbreaks: [], hais: [] });
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
   const [confirmPurge, setConfirmPurge] = useState(false);
   const [showPendingModal, setShowPendingModal] = useState(false);
   const [stats, setStats] = useState({
@@ -90,16 +95,16 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
         const currentMonth = now.getMonth();
         const currentYear = now.getFullYear();
 
-        const bocData = boc.docs.map(d => ({ ...d.data(), id: d.id } as BOCLog));
-        const amsData = ams.docs.map(d => ({ ...d.data(), id: d.id } as any));
-        const nsiData = nsi.docs.map(d => ({ ...d.data(), id: d.id } as any));
-        const auditData = audits.docs.map(d => ({ ...d.data(), id: d.id } as any));
-        const outbreakData = outbreaks.docs.map(d => ({ ...d.data(), id: d.id } as any));
-        const haiData = hais.docs.map(d => ({ ...d.data(), id: d.id } as any));
+        const bocData = boc.docs.map(d => ({ ...mapLegacyData(d.data()), id: d.id } as BOCLog));
+        const amsData = ams.docs.map(d => ({ ...mapLegacyData(d.data()), id: d.id } as any));
+        const nsiData = nsi.docs.map(d => ({ ...mapLegacyData(d.data()), id: d.id } as any));
+        const auditData = audits.docs.map(d => ({ ...mapLegacyData(d.data()), id: d.id } as any));
+        const outbreakData = outbreaks.docs.map(d => ({ ...mapLegacyData(d.data()), id: d.id } as any));
+        const haiData = hais.docs.map(d => ({ ...mapLegacyData(d.data()), id: d.id } as any));
         
         // Merge daily monitorings into bocData
         monitorings.docs.forEach(docSnap => {
-          const data = docSnap.data();
+          const data = mapLegacyData(docSnap.data());
           const days = data.monitoringDays || [];
           days.forEach((day: any, index: number) => {
              const devMap: Record<string, string> = {
@@ -328,14 +333,27 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
           .slice(0, 3)
           .map(([label, count]) => ({ label, count }));
 
+        const oneMonthAgo = new Date();
+        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
         const allDocs = [
           ...auditData.map(a => ({ ...a, __type: 'AUDIT', __date: a.createdAt?.toDate?.() || new Date(a.timestamp) })),
           ...haiData.map(h => ({ ...h, __type: 'HAI', __date: h.createdAt?.toDate?.() || new Date(h.triggerDate) })),
           ...bocData.map(b => ({ ...b, __type: 'BUNDLE', __date: b.createdAt?.toDate?.() || new Date(b.date) })),
-          ...amsData.map(a => ({ ...a, __type: 'AMS', __date: a.createdAt?.toDate?.() || new Date(a.dateTimeRequested) })),
+          ...amsData.map(a => ({ ...a, __type: 'AMS', __date: a.createdAt?.toDate?.() || (a.dateTimeRequested ? new Date(a.dateTimeRequested) : (a.date ? new Date(a.date) : new Date())) })),
           ...nsiData.map(n => ({ ...n, __type: 'NSI', __date: n.createdAt?.toDate?.() || new Date() })),
           ...outbreakData.map(o => ({ ...o, __type: 'OUTBREAK', __date: o.createdAt?.toDate?.() || new Date(o.detectedAt) }))
         ];
+
+        const pendingReportsList = allDocs.filter((d: any) => { 
+          if (d.__type === 'AMS') { 
+            if ((d.status === 'PENDING' || d.status === 'APPROVED') && d.__date < oneMonthAgo) {
+              return false;
+            }
+            return d.status === 'PENDING' || d.status === 'APPROVED'; 
+          } 
+          return !(d.isValidated || d.status === 'VALIDATED' || d.status === 'APPROVED' || d.status === 'REJECTED' || d.status === 'RESOLVED' || !!d.validation?.decision); 
+        }).sort((a: any, b: any) => b.__date.getTime() - a.__date.getTime());
 
         const total = allDocs.length;
         const validated = allDocs.filter((d: any) => d.isValidated || d.status === 'VALIDATED' || d.status === 'APPROVED' || d.status === 'REJECTED' || d.status === 'RESOLVED' || !!d.validation?.decision).length;
@@ -343,19 +361,20 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
         setStats(prev => ({
           ...prev,
           validatedCount: validated,
-          pendingVerificationCount: total - validated,
+          pendingVerificationCount: pendingReportsList.length,
           totalCount: total,
           complianceTrends: last4Months,
 
-
-
-          activeAMS: amsData.filter(d => d.status === 'PENDING').length,
+          activeAMS: amsData.filter(d => {
+            const dDate = d.createdAt?.toDate?.() || (d.dateTimeRequested ? new Date(d.dateTimeRequested) : (d.date ? new Date(d.date) : new Date()));
+            return d.status === 'PENDING' && dDate >= oneMonthAgo;
+          }).length,
           recentHAIs: haiData.length,
           auditsCount: auditData.length,
           amsCount: amsData.length,
           outbreakCount: outbreakData.length,
           allReports: allDocs.sort((a: any, b: any) => b.__date.getTime() - a.__date.getTime()).slice(0, 5),
-          pendingReports: allDocs.filter((d: any) => { if (d.__type === 'AMS' && d.status === 'APPROVED') return true; return !(d.isValidated || d.status === 'VALIDATED' || d.status === 'APPROVED' || d.status === 'REJECTED' || d.status === 'RESOLVED' || !!d.validation?.decision); }).sort((a: any, b: any) => b.__date.getTime() - a.__date.getTime()),
+          pendingReports: pendingReportsList,
           hhCompliance: calcAvg(hhAudits),
           ppeCompliance: calcAvg(ppeAudits),
           envCompliance: calcAvg(envAudits),
@@ -411,13 +430,17 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
           count++;
         }
       }
-      alert(`Purge Complete! ${count} documents removed.`);
+      showToast(`Purge Complete! ${count} documents removed.`);
       window.location.reload();
     } catch (error) {
       console.warn("Purge failed:", error);
-      alert(`Purge failed: ${error instanceof Error ? error.message : String(error)}`);
+      showToast("Purge failed.", "error");
     }
   };
+
+  const clinicalReports = stats.pendingReports.filter((r: any) => r.__type !== 'AMS');
+  const amsPendingReports = stats.pendingReports.filter((r: any) => r.__type === 'AMS' && r.status === 'PENDING');
+  const pharmacyReports = stats.pendingReports.filter((r: any) => r.__type === 'AMS' && r.status === 'APPROVED');
 
   return (
     <div className="space-y-6 md:space-y-8 pb-10">
@@ -562,46 +585,142 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
                       <p className="text-center text-sm font-bold text-slate-500 py-8">No pending verifications found.</p>
                     ) : (
                       <div className="space-y-6">
-                        {['BUNDLE', 'AUDIT', 'HAI', 'AMS', 'NSI', 'OUTBREAK'].map(type => {
-                          const groupReports = stats.pendingReports.filter((r: any) => r.__type === type);
-                          if (groupReports.length === 0) return null;
-                          return (
-                            <div key={type} className="space-y-3">
-                              <h4 className="text-xs font-black uppercase tracking-widest text-slate-500 pb-2 border-b border-slate-200">{type} REPORTS ({groupReports.length})</h4>
-                              {groupReports.map((report: any, idx: number) => (
-                                <div key={`${report.id || Math.random()}-${idx}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
-                                  <div className="flex items-center gap-4">
-                                    <div className={cn(
-                                      "w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xs",
-                                      report.__type === 'AUDIT' ? 'bg-amber-500' :
-                                      report.__type === 'BUNDLE' ? 'bg-indigo-500' :
-                                      report.__type === 'HAI' ? 'bg-rose-500' :
-                                      report.__type === 'AMS' ? 'bg-teal-500' :
-                                      report.__type === 'NSI' ? 'bg-orange-500' : 'bg-slate-500'
-                                    )}>
-                                      {report.__type?.[0]}
-                                    </div>
-                                    <div>
-                                      <p className="text-xs font-bold text-slate-900 uppercase tracking-tight">{report.__type} REPORT • {report.unit || report.incident?.unit || 'GEN'}</p>
-                                      <p className="text-[10px] font-medium text-slate-500 italic">By {report.auditorName || report.staffName || report.prescriberName || report.reporterName || report.reportedBy || report.reporterEmail || 'Staff Member'}</p>
-                                    </div>
+                        {/* Clinical / IPC Reviews Section */}
+                        {clinicalReports.length > 0 && (
+                          <div className="space-y-4">
+                            <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 px-3 py-1 rounded-md bg-slate-100 inline-block">
+                              🔬 Clinical & IPC Verifications
+                            </h4>
+                            <div className="space-y-5">
+                              {['BUNDLE', 'AUDIT', 'HAI', 'NSI', 'OUTBREAK'].map(type => {
+                                const groupReports = clinicalReports.filter((r: any) => r.__type === type);
+                                if (groupReports.length === 0) return null;
+                                return (
+                                  <div key={type} className="space-y-3">
+                                    <h5 className="text-[10px] font-black uppercase tracking-wider text-slate-500 pb-1.5 border-b border-slate-100">
+                                      {type} REPORTS ({groupReports.length})
+                                    </h5>
+                                    {groupReports.map((report: any, idx: number) => (
+                                      <div key={`${report.id || Math.random()}-${idx}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
+                                        <div className="flex items-center gap-4">
+                                          <div className={cn(
+                                            "w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xs",
+                                            report.__type === 'AUDIT' ? 'bg-amber-500' :
+                                            report.__type === 'BUNDLE' ? 'bg-indigo-500' :
+                                            report.__type === 'HAI' ? 'bg-rose-500' :
+                                            report.__type === 'NSI' ? 'bg-orange-500' : 'bg-slate-500'
+                                          )}>
+                                            {report.__type?.[0]}
+                                          </div>
+                                          <div>
+                                            <p className="text-xs font-bold text-slate-900 uppercase tracking-tight">{report.__type} REPORT • {report.unit || report.incident?.unit || 'GEN'}</p>
+                                            <p className="text-[10px] font-medium text-slate-500 italic">By {report.auditorName || report.staffName || report.prescriberName || report.reporterName || report.reportedBy || report.reporterEmail || 'Staff Member'}</p>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                          <div className="text-right">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{formatDate(report.__date)}</p>
+                                            <div className="text-[9px] font-black uppercase px-2 py-0.5 rounded-lg inline-block mt-1 bg-amber-100 text-amber-700">
+                                              PENDING
+                                            </div>
+                                          </div>
+                                          <button onClick={() => { setShowPendingModal(false); onNavigate && onNavigate(report.__type === 'BUNDLE' ? 'hai' : report.__type === 'AUDIT' ? 'audits' : report.__type.toLowerCase()); }} className="p-2 bg-white shadow-sm border border-slate-200 rounded-xl hover:border-brand-primary hover:text-brand-primary transition-colors">
+                                            <ArrowDownRight className="w-4 h-4 -rotate-90" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
-                                  <div className="flex items-center gap-4">
-                                    <div className="text-right">
-                                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{formatDate(report.__date)}</p>
-                                      <div className="text-[9px] font-black uppercase px-2 py-0.5 rounded-lg inline-block mt-1 bg-amber-100 text-amber-700">
-                                        PENDING
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Combined Antimicrobial Stewardship (AMS) Section */}
+                        {(amsPendingReports.length > 0 || pharmacyReports.length > 0) && (
+                          <div className="space-y-4 pt-4 border-t border-slate-200/80">
+                            <h4 className="text-xs font-black uppercase tracking-widest text-teal-800 px-3 py-1 rounded-md bg-teal-50 inline-block border border-teal-100">
+                              🧬 Antimicrobial Stewardship (AMS) Queue
+                            </h4>
+
+                            <div className="space-y-5">
+                              {/* Clinical AMS Reviews Needed */}
+                              {amsPendingReports.length > 0 && (
+                                <div className="space-y-3">
+                                  <h5 className="text-[10px] font-black uppercase tracking-wider text-teal-600 pb-1.5 border-b border-teal-50">
+                                    🔬 CLINICAL REVIEWS NEEDED ({amsPendingReports.length})
+                                  </h5>
+                                  {amsPendingReports.map((report: any, idx: number) => (
+                                    <div key={`${report.id || Math.random()}-${idx}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
+                                      <div className="flex items-center gap-4">
+                                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white bg-teal-500 font-black text-xs">
+                                          A
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-bold text-slate-900 uppercase tracking-tight">
+                                            AMS CLINICAL REPORT • {report.unit || 'GEN'}
+                                          </p>
+                                          <p className="text-[10px] font-medium text-slate-500 italic">
+                                            By {report.requestingPhysician || report.prescriberName || report.staffName || 'Staff Member'}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-4">
+                                        <div className="text-right">
+                                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{formatDate(report.__date)}</p>
+                                          <div className="text-[9px] font-black uppercase px-2 py-0.5 rounded-lg inline-block mt-1 bg-amber-100 text-amber-700">
+                                            PENDING REVIEW
+                                          </div>
+                                        </div>
+                                        <button onClick={() => { setShowPendingModal(false); onNavigate && onNavigate('ams'); }} className="p-2 bg-white shadow-sm border border-slate-200 rounded-xl hover:border-brand-primary hover:text-brand-primary transition-colors">
+                                          <ArrowDownRight className="w-4 h-4 -rotate-90" />
+                                        </button>
                                       </div>
                                     </div>
-                                    <button onClick={() => { setShowPendingModal(false); onNavigate && onNavigate(report.__type === 'BUNDLE' ? 'hai' : report.__type === 'AUDIT' ? 'audits' : report.__type.toLowerCase()); }} className="p-2 bg-white shadow-sm border border-slate-200 rounded-xl hover:border-brand-primary hover:text-brand-primary transition-colors">
-                                      <ArrowDownRight className="w-4 h-4 -rotate-90" />
-                                    </button>
-                                  </div>
+                                  ))}
                                 </div>
-                              ))}
+                              )}
+
+                              {/* Pharmacy Reviews / Dispensing */}
+                              {pharmacyReports.length > 0 && (
+                                <div className="space-y-3">
+                                  <h5 className="text-[10px] font-black uppercase tracking-wider text-sky-600 pb-1.5 border-b border-sky-50">
+                                    💊 HEADING TO PHARMACY FOR DISPENSING ({pharmacyReports.length})
+                                  </h5>
+                                  {pharmacyReports.map((report: any, idx: number) => (
+                                    <div key={`${report.id || Math.random()}-${idx}`} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl hover:bg-sky-50/5 transition-colors border border-transparent hover:border-sky-100">
+                                      <div className="flex items-center gap-4">
+                                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white bg-sky-500 font-black text-xs">
+                                          P
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-bold text-slate-900 uppercase tracking-tight">
+                                            PHARMACY REPORT • {report.unit || 'GEN'}
+                                          </p>
+                                          <p className="text-[10px] font-medium text-slate-500 italic">
+                                            Approved for dispensing • By {report.requestingPhysician || report.prescriberName || 'Staff Member'}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-4">
+                                        <div className="text-right">
+                                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{formatDate(report.__date)}</p>
+                                          <div className="text-[9px] font-black uppercase px-2 py-0.5 rounded-lg inline-block mt-1 bg-sky-100 text-sky-700 border border-sky-200">
+                                            TO DISPENSE
+                                          </div>
+                                        </div>
+                                        <button onClick={() => { setShowPendingModal(false); onNavigate && onNavigate('ams'); }} className="p-2 bg-white shadow-sm border border-slate-200 rounded-xl hover:border-sky-500 hover:text-sky-600 transition-colors">
+                                          <ArrowDownRight className="w-4 h-4 -rotate-90" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          );
-                        })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -651,7 +770,23 @@ export default function Dashboard({ user, onNavigate }: { user: UserProfile | nu
             </div>
 
                       </div>
-        </div>
+              <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-slate-900 text-white rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-800"
+          >
+            <div className={cn(
+              "w-2 h-2 rounded-full animate-pulse",
+              toast.type === 'success' ? "bg-emerald-400" : "bg-rose-400"
+            )} />
+            <span className="text-xs font-black uppercase tracking-widest">{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      </div>
     </div>
   );
 }

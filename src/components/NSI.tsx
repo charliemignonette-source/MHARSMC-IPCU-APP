@@ -22,7 +22,8 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
-  Trash2
+  Trash2,
+  Edit3
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, where, serverTimestamp, orderBy, doc, limit } from 'firebase/firestore';
@@ -32,7 +33,7 @@ const updateDoc = safeUpdateDoc;
 const deleteDoc = safeDeleteDoc;
 import { UserProfile, NSIReport, NSIStatus, NSIExposureType, NSIDevice, NSIActivity } from '../types';
 import { UNITS, NSI_CONSTANTS } from '../constants';
-import { cn, formatDate } from '../lib/utils';
+import { cn, formatDate , mapLegacyData } from '../lib/utils';
 
 interface NSIProps {
   user: UserProfile | null;
@@ -40,6 +41,11 @@ interface NSIProps {
 
 export default function NSI({ user }: NSIProps) {
   const [reports, setReports] = useState<NSIReport[]>([]);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [selectedReport, setSelectedReport] = useState<NSIReport | null>(null);
@@ -71,7 +77,8 @@ export default function NSI({ user }: NSIProps) {
       position: 'Nurse',
       positionOther: '',
       employmentStatus: 'Regular' as const,
-      hepBStatus: 'Complete' as const
+      hepBStatus: 'Complete' as const,
+      hepBResponse: 'Responder' as const
     },
     source: {
       name: '',
@@ -94,6 +101,7 @@ export default function NSI({ user }: NSIProps) {
   };
 
   const [formData, setFormData] = useState(initialFormState);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // Validation State
   const [validationData, setValidationData] = useState({
@@ -120,7 +128,7 @@ export default function NSI({ user }: NSIProps) {
     }
 
     const unsubscribe = safeOnSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as NSIReport));
+      const data = snapshot.docs.map(doc => ({ ...mapLegacyData(doc.data()), id: doc.id } as NSIReport));
       const sortedData = data.sort((a, b) => {
         const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
         const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
@@ -167,20 +175,76 @@ export default function NSI({ user }: NSIProps) {
     };
   }, [reports]);
 
+  const handleDownloadCSV = () => {
+    const filtered = reports.filter(r => {
+      const s = searchTerm.toLowerCase();
+      return (
+        (r.staff?.name?.toLowerCase().includes(s)) ||
+        (r.staff?.department?.toLowerCase().includes(s)) ||
+        (r.incident?.unit?.toLowerCase().includes(s)) ||
+        (r.incident?.deviceInvolved?.toLowerCase().includes(s)) ||
+        (r.incident?.activity?.toLowerCase().includes(s)) ||
+        (r.incident?.exposureType?.toLowerCase().includes(s))
+      );
+    });
+
+    if (filtered.length === 0) {
+      showToast('No data found for the selected criteria.', 'error');
+      return;
+    }
+
+    const csvRows = [
+      ['Date', 'Time', 'Unit', 'Staff Name', 'Position', 'Exposure Type', 'Device', 'Status', 'Root Cause', 'Validator'].join(',')
+    ];
+
+    filtered.forEach(r => {
+      csvRows.push([
+        r.incident?.date || '',
+        r.incident?.time || '',
+        r.incident?.unit || '',
+        r.staff?.name || '',
+        r.staff?.position || '',
+        r.incident?.exposureType || '',
+        r.incident?.deviceInvolved || '',
+        r.status || '',
+        (r.validation?.rootCauses || []).join('; '),
+        r.validation?.validatorName || ''
+      ].map(v => `"${v}"`).join(','));
+    });
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `NSI_Reports_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
     try {
-      await addDoc(collection(db, 'nsi_reports'), {
-        reporterId: user.uid,
-        reporterEmail: user.email,
-        reporterName: user.name, // adding name
-        createdAt: serverTimestamp(),
-        status: 'PENDING',
-        ...formData
-      });
-      setIsAdding(false);
+      if (editingId) {
+        await updateDoc(doc(db, 'nsi_reports', editingId), {
+          ...formData,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await addDoc(collection(db, 'nsi_reports'), {
+          reporterId: user.uid,
+          reporterEmail: user.email,
+          reporterName: user.name, // adding name
+          createdAt: serverTimestamp(),
+          status: 'PENDING',
+          ...formData
+        });
+      }
+      setActiveTab('list');
+      setEditingId(null);
       setFormData(initialFormState);
+      showToast("Changes saved successfully");
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'nsi_reports');
     }
@@ -199,6 +263,7 @@ export default function NSI({ user }: NSIProps) {
         }
       });
       setSelectedReport(null);
+      showToast("Validation saved");
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'nsi_reports');
     }
@@ -224,11 +289,11 @@ export default function NSI({ user }: NSIProps) {
     try {
       await deleteDoc(doc(db, 'nsi_reports', id));
       if (selectedReport?.id === id) setSelectedReport(null);
-      alert("Log deleted.");
+      showToast("Record deleted.");
     } catch (error) {
       console.error("Delete error:", error);
       handleFirestoreError(error, OperationType.DELETE, `nsi_reports/${id}`);
-      alert("Delete failed. Try again.");
+      showToast("Delete failed. Try again.", "error");
     }
   };
 
@@ -466,7 +531,14 @@ export default function NSI({ user }: NSIProps) {
                         <button
                           key={s}
                           type="button"
-                          onClick={() => setFormData({...formData, staff: {...formData.staff, hepBStatus: s as any}})}
+                          onClick={() => setFormData({
+                            ...formData, 
+                            staff: {
+                              ...formData.staff, 
+                              hepBStatus: s as any,
+                              hepBResponse: s === 'Complete' ? (formData.staff.hepBResponse || 'Responder') : undefined
+                            }
+                          })}
                           className={cn(
                             "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
                             formData.staff.hepBStatus === s ? "bg-rose-50 border-rose-200 text-rose-600" : "bg-white border-slate-100 text-slate-400 hover:border-slate-300"
@@ -476,6 +548,38 @@ export default function NSI({ user }: NSIProps) {
                         </button>
                       ))}
                     </div>
+                    {formData.staff.hepBStatus === 'Complete' && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold uppercase text-slate-500">Vaccine Response Status (Anti-HBs)</label>
+                          <span className="text-[9px] font-bold text-rose-500 uppercase">Complete Status Detail</span>
+                        </div>
+                        <div className="flex gap-3">
+                          {['Responder', 'Non-responder', 'Unknown'].map(r => (
+                            <button
+                              key={r}
+                              type="button"
+                              onClick={() => setFormData({
+                                ...formData,
+                                staff: { ...formData.staff, hepBResponse: r as any }
+                              })}
+                              className={cn(
+                                "flex-1 py-2.5 rounded-lg text-[9px] font-black uppercase tracking-wider border transition-all",
+                                (formData.staff.hepBResponse || 'Responder') === r 
+                                  ? "bg-rose-600 border-rose-600 text-white shadow-sm" 
+                                  : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
+                              )}
+                            >
+                              {r}
+                            </button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -690,6 +794,7 @@ export default function NSI({ user }: NSIProps) {
               </div>
 
               <div className="flex gap-4 pt-8">
+                <button type="button" onClick={() => { setActiveTab('list'); setEditingId(null); setFormData(initialFormState); }} className="flex-1 bg-slate-100 text-slate-500 rounded-2xl py-5 text-[12px] font-black uppercase tracking-[0.2em] hover:bg-slate-200 transition-all">Cancel</button>
                 <button 
                   type="submit"
                   className="flex-1 bg-rose-600 text-white rounded-2xl py-5 shadow-2xl shadow-rose-900/30 text-[12px] font-black uppercase tracking-[0.2em] hover:bg-rose-700 transition-all active:scale-[0.98]"
@@ -718,7 +823,7 @@ export default function NSI({ user }: NSIProps) {
                <button className="p-2 border border-slate-100 rounded-lg text-slate-400 hover:bg-slate-50">
                 <Filter className="w-4 h-4" />
                </button>
-               <button className="p-2 border border-slate-100 rounded-lg text-slate-400 hover:bg-slate-50">
+               <button onClick={handleDownloadCSV} className="p-2 border border-slate-100 rounded-lg text-slate-400 hover:bg-slate-50">
                 <Download className="w-4 h-4" />
                </button>
             </div>
@@ -803,6 +908,15 @@ export default function NSI({ user }: NSIProps) {
                                  <Trash2 className="w-4 h-4" />
                                </button>
                              )}
+                             {(user?.role === 'ADMIN' || user?.role === 'IPCN' || report.reporterId === user?.uid) && (
+                               <button 
+                                 onClick={() => { setFormData(report as any); setEditingId(report.id!); setActiveTab('form'); }}
+                                 className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                 title="Edit Record"
+                               >
+                                 <Edit3 className="w-4 h-4" />
+                               </button>
+                             )}
                           </div>
                         </td>
                       </tr>
@@ -865,14 +979,24 @@ export default function NSI({ user }: NSIProps) {
                         Incident Summary
                        </h4>
                        <div className="bg-slate-50/50 rounded-2xl p-6 border border-slate-100 space-y-4">
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                              <div>
                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Exposed Staff</label>
                                 <p className="text-sm font-bold text-slate-800">{selectedReport.staff.name}</p>
+                                <p className="text-[10px] text-slate-500 font-medium">{selectedReport.staff.position} ({selectedReport.staff.employmentStatus})</p>
                              </div>
                              <div>
                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Exposure Type</label>
                                 <p className="text-sm font-bold text-rose-600">{selectedReport.incident.exposureType}</p>
+                             </div>
+                             <div>
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">HepB Vaccine Status</label>
+                                <p className="text-sm font-bold text-slate-800">{selectedReport.staff.hepBStatus}</p>
+                                {selectedReport.staff.hepBStatus === 'Complete' && selectedReport.staff.hepBResponse && (
+                                  <span className="inline-block mt-1 px-2 py-0.5 bg-rose-50 border border-rose-200 text-rose-600 rounded text-[9px] font-black uppercase">
+                                    {selectedReport.staff.hepBResponse}
+                                  </span>
+                                )}
                              </div>
                           </div>
                           <div>
@@ -1085,6 +1209,22 @@ export default function NSI({ user }: NSIProps) {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-slate-900 text-white rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-800"
+          >
+            <div className={cn(
+              "w-2 h-2 rounded-full animate-pulse",
+              toast.type === 'success' ? "bg-emerald-400" : "bg-rose-400"
+            )} />
+            <span className="text-xs font-black uppercase tracking-widest">{toast.message}</span>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

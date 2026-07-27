@@ -32,16 +32,18 @@ import {
   Download,
   AlertCircle,
   Info,
-  Target
+  Target,
+  WifiOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {  auth, db , safeOnSnapshot, safeGetDoc, safeSetDoc, safeGetDocs, isQuotaExceeded, testConnection } from './lib/firebase';
+import { useOnlineStatus } from './lib/useOnlineStatus';
 import { doc, collection, query, where, limit } from 'firebase/firestore';
 const getDoc = safeGetDoc;
 const setDoc = safeSetDoc;
 const getDocs = safeGetDocs;
 import { UserProfile, Role } from './types';
-import { cn } from './lib/utils';
+import { cn, mapLegacyData } from "./lib/utils";
 import { seedUserRoles } from './lib/seed';
 
 // Pages
@@ -89,6 +91,7 @@ export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const isOnline = useOnlineStatus();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   // PIN Login State
@@ -150,7 +153,7 @@ export default function App() {
             const docSnap = await getDoc(docRef);
           
           if (docSnap.exists()) {
-            const data = docSnap.data() as UserProfile;
+            const data = mapLegacyData(docSnap.data()) as UserProfile;
             let updatedRole: typeof data.role | null = null;
 
             const normalizedEmail = (authStateUser.email || '').toLowerCase().trim();
@@ -211,7 +214,7 @@ export default function App() {
              } else if (normalizedEmail && APPROVER_EMAILS.some(e => e.toLowerCase() === normalizedEmail)) {
                role = 'APPROVER';
              } else if (!rolesSnap.empty) {
-              const roleData = rolesSnap.docs[0].data();
+              const roleData = mapLegacyData(rolesSnap.docs[0].data());
               role = roleData.role;
               unit = roleData.unit || 'ALL';
             }
@@ -240,7 +243,7 @@ export default function App() {
             email: '', // Ensure email key exists for schema consistency
             name: 'Ward Staff',
             role: 'USER',
-            unit: 'Medical Ward',
+            unit: 'Ward 1A',
             isVerified: false,
             isAnonymous: true,
             createdAt: new Date().toISOString()
@@ -258,7 +261,7 @@ export default function App() {
             setProfile(anonymousProfile);
           } else {
             // Update existing if needed or just sync
-            const existingData = docSnap.data() as UserProfile;
+            const existingData = mapLegacyData(docSnap.data()) as UserProfile;
             setProfile(existingData);
           }
         }
@@ -309,7 +312,7 @@ export default function App() {
       if (profile.role === 'ADMIN' || profile.role === 'IPCN' || profile.role === 'APPROVER' || profile.role === 'PHARMACY') {
         const q = query(baseQuery);
         getDocs(q).then((snapshot) => {
-          const reqs = snapshot.docs.map(doc => doc.data() as any);
+          const reqs = snapshot.docs.map(doc => mapLegacyData(doc.data()) as any);
           let count = 0;
           if (profile.role === 'ADMIN' || profile.role === 'IPCN' || profile.role === 'APPROVER') {
             count += reqs.filter(r => r.status === 'PENDING').length;
@@ -325,7 +328,7 @@ export default function App() {
       } else {
         const q = query(baseQuery, where('prescriberId', '==', profile.uid));
         getDocs(q).then((snapshot) => {
-          const reqs = snapshot.docs.map(doc => doc.data() as any);
+          const reqs = snapshot.docs.map(doc => mapLegacyData(doc.data()) as any);
           const count = reqs.filter(r => r.status === 'MODIFY').length;
           setPendingAMSCount(count);
           setHasPendingAMS(count > 0);
@@ -426,7 +429,7 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
         return;
       }
 
-      const userData = docSnap.data();
+      const userData = mapLegacyData(docSnap.data());
       console.log("Staff record found, verifying PIN...");
       
       if (userData.pin !== pin) {
@@ -851,6 +854,13 @@ Note: You must also add the domain from your "Shared App URL" if you intend to s
                  <span className="hidden xs:inline">{profile?.role === 'USER' ? 'GUEST ACCESS ACTIVE' : 'PROTECTION ACTIVE'}</span>
                  <span className="xs:hidden font-black">{profile?.role === 'USER' ? 'GUEST' : 'ACTIVE'}</span>
                </div>
+               {!isOnline && (
+                 <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold">
+                   <WifiOff className="w-3 h-3" />
+                   <span className="hidden xs:inline">OFFLINE MODE</span>
+                   <span className="xs:hidden font-black">OFFLINE</span>
+                 </div>
+               )}
             </div>
           </div>
 
