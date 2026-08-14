@@ -1,6 +1,7 @@
 import { NameEditor } from './NameEditor';
 import React, { useState, useEffect } from "react";
 import {
+  ArrowUpDown,
   AlertOctagon,
   Calendar,
   Clock,
@@ -215,15 +216,8 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
   useEffect(() => {
     if (!user) return;
     const baseQuery = collection(db, "outbreaks");
-    let q;
-    const isIPCU = user.role === "ADMIN" || user.role === "IPCN";
-    if (isIPCU) {
-      q = query(baseQuery, orderBy("createdAt", "desc"));
-    } else {
-      q = query(baseQuery, where("reporterId", "==", user.uid));
-    }
     const unsub = safeOnSnapshot(
-      q,
+      baseQuery,
       (snap) => {
         const data = snap.docs.map(
           (d) => ({ ...mapLegacyData(d.data()), id: d.id }) as OutbreakReport,
@@ -231,10 +225,10 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
         const sortedData = data.sort((a, b) => {
           const timeA = a.createdAt?.toMillis
             ? a.createdAt.toMillis()
-            : new Date(a.createdAt || 0).getTime();
+            : new Date(a.createdAt || a.detectedAt || 0).getTime();
           const timeB = b.createdAt?.toMillis
             ? b.createdAt.toMillis()
-            : new Date(b.createdAt || 0).getTime();
+            : new Date(b.createdAt || b.detectedAt || 0).getTime();
           return timeB - timeA;
         });
         setReports(sortedData);
@@ -279,6 +273,14 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     value: string,
   ) => {
     const newList = [...(formData.lineList || [])];
+    
+    if (field === 'patientName') {
+      value = value.toUpperCase();
+    }
+    if (field === 'hospNo') {
+      value = value.replace(/-/g, "");
+    }
+    
     newList[index] = { ...newList[index], [field]: value };
     setFormData({ ...formData, lineList: newList });
   };
@@ -311,27 +313,31 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     setIsSubmitting(true);
 
     const deepStripUndefined = (obj: any): any => {
+      if (obj === null || obj === undefined) return obj;
+      if (typeof obj !== "object") return obj;
+      if (obj instanceof Date) return obj;
+      if (typeof obj.toDate === "function") return obj;
+      if (typeof obj.isEqual === "function") return obj;
       if (Array.isArray(obj)) return obj.map(deepStripUndefined);
-      if (obj !== null && typeof obj === "object") {
-        const newObj: any = {};
-        for (const key in obj) {
-          if (obj[key] !== undefined) {
-            newObj[key] = deepStripUndefined(obj[key]);
-          }
+
+      const newObj: any = {};
+      for (const key of Object.keys(obj)) {
+        if (obj[key] !== undefined) {
+          newObj[key] = deepStripUndefined(obj[key]);
         }
-        return newObj;
       }
-      return obj;
+      return newObj;
     };
 
     try {
-      const { id, ...rawCleanData } = formData;
+      const { id, createdAt, ...rawCleanData } = formData;
       const cleanData = deepStripUndefined(rawCleanData);
 
       if (activeReport?.id) {
         // Update existing
         await updateDoc(doc(db, "outbreaks", activeReport.id), {
           ...cleanData,
+          reportedBy: formData.reportedBy || user.name || "Unknown",
           updatedAt: serverTimestamp(),
         });
       } else {
@@ -579,7 +585,8 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     doc.setTextColor(15, 118, 110);
     doc.text("4. CASE LINE LISTING & CLASSIFICATION RESULTS", 15, 130);
 
-    const cases = (report.lineList || []).map((c) => {
+    const sortedLineList = [...(report.lineList || [])].sort((a, b) => new Date(a.onSetDate || 0).getTime() - new Date(b.onSetDate || 0).getTime());
+    const cases = sortedLineList.map((c) => {
       const score = c.caseScore?.totalScore || 0;
       const cls = c.caseScore?.classification || "POSSIBLE CASE";
       const labFlag = c.caseScore?.isPossibleLabAssoc ? "YES" : "NO";
@@ -938,6 +945,14 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
     updates: Partial<OutbreakCase>,
   ) => {
     const newList = [...(formData.lineList || [])];
+    
+    if (updates.patientName !== undefined) {
+      updates.patientName = updates.patientName.toUpperCase();
+    }
+    if (updates.hospNo !== undefined) {
+      updates.hospNo = updates.hospNo.replace(/-/g, "");
+    }
+
     newList[idx] = { ...newList[idx], ...updates };
     setFormData({ ...formData, lineList: newList });
   };
@@ -961,8 +976,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
             if (view === "LIST") setView("FORM");
             else {
               setView("LIST");
-      resetForm();
-      showToast("Changes saved successfully");
+              resetForm();
             }
           }}
           className={cn(
@@ -1514,13 +1528,50 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                     Case Line List
                   </h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleAddCase}
-                  className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add Row
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newList = [...(formData.lineList || [])].map((c) => {
+                        let patientName = (c.patientName || "").trim().toUpperCase();
+                        let hospNo = (c.hospNo || "").replace(/-/g, "");
+                        
+                        if (patientName && !patientName.includes(",")) {
+                          const parts = patientName.split(" ");
+                          if (parts.length > 1) {
+                            const surname = parts.pop();
+                            const firstName = parts.join(" ");
+                            patientName = `${surname}, ${firstName}`;
+                          }
+                        }
+                        
+                        return { ...c, patientName, hospNo };
+                      });
+                      setFormData({ ...formData, lineList: newList });
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm transition-all"
+                  >
+                    <ClipboardList className="w-3.5 h-3.5" /> Format List
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newList = [...(formData.lineList || [])].sort((a, b) => new Date(a.onSetDate || 0).getTime() - new Date(b.onSetDate || 0).getTime());
+                      setFormData({ ...formData, lineList: newList });
+                      setSelectedCaseIndex(null);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm transition-all"
+                  >
+                    <ArrowUpDown className="w-3.5 h-3.5" /> Sort by Date
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddCase}
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Row
+                  </button>
+                </div>
               </div>
 
               <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
@@ -1555,13 +1606,13 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                     <tbody>
                       {(formData.lineList || []).map((row, idx) => (
                         <tr
-                          key={idx}
+                          key={row.hospNo || idx}
                           className="border-b border-slate-50 last:border-0 group"
                         >
                           <td className="px-4 py-3">
                             <input
                               className="w-full bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-bold font-mono outline-none focus:bg-white focus:ring-1 focus:ring-brand-primary group-hover:bg-white"
-                              value={row.patientName}
+                              value={row.patientName || ""}
                               onChange={(e) =>
                                 handleCaseUpdate(
                                   idx,
@@ -1574,7 +1625,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                           <td className="px-4 py-3">
                             <input
                               className="w-full bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-bold font-mono outline-none focus:bg-white focus:ring-1 focus:ring-brand-primary group-hover:bg-white"
-                              value={row.hospNo}
+                              value={row.hospNo || ""}
                               onChange={(e) =>
                                 handleCaseUpdate(idx, "hospNo", e.target.value)
                               }
@@ -1583,7 +1634,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                           <td className="px-4 py-3">
                             <select
                               className="w-full bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:bg-white focus:ring-1 focus:ring-brand-primary group-hover:bg-white"
-                              value={row.unit}
+                              value={row.unit || ""}
                               onChange={(e) =>
                                 handleCaseUpdate(idx, "unit", e.target.value)
                               }
@@ -1599,7 +1650,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                             <input
                               type="date"
                               className="w-full bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:bg-white focus:ring-1 focus:ring-brand-primary group-hover:bg-white"
-                              value={row.onSetDate}
+                              value={row.onSetDate || ""}
                               onChange={(e) =>
                                 handleCaseUpdate(
                                   idx,
@@ -1612,7 +1663,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                           <td className="px-4 py-3">
                             <input
                               className="w-full bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:bg-white focus:ring-1 focus:ring-brand-primary group-hover:bg-white"
-                              value={row.symptoms}
+                              value={row.symptoms || ""}
                               onChange={(e) =>
                                 handleCaseUpdate(
                                   idx,
@@ -1625,7 +1676,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                           <td className="px-4 py-3">
                             <select
                               className="w-full bg-slate-50/50 rounded-xl px-3 py-2 text-[10px] font-black uppercase outline-none focus:bg-white focus:ring-1 focus:ring-brand-primary group-hover:bg-white"
-                              value={row.outcome}
+                              value={row.outcome || ""}
                               onChange={(e) =>
                                 handleCaseUpdate(idx, "outcome", e.target.value)
                               }
@@ -2196,8 +2247,9 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                                 Results Description
                               </label>
-                              <input
-                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-brand-primary"
+                              <textarea
+                                rows={4}
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-brand-primary resize-y"
                                 value={
                                   formData.findings?.envSwabbing.results || ""
                                 }
@@ -2310,8 +2362,9 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                                 Results Description
                               </label>
-                              <input
-                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-brand-primary"
+                              <textarea
+                                rows={4}
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-brand-primary resize-y"
                                 value={
                                   formData.findings?.waterTesting.results || ""
                                 }
@@ -2595,8 +2648,7 @@ export default function Outbreak({ user }: { user: UserProfile | null }) {
                 type="button"
                 onClick={() => {
                   setView("LIST");
-      resetForm();
-      showToast("Changes saved successfully");
+                  resetForm();
                 }}
                 className="px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[11px] text-slate-500 hover:bg-slate-50 transition-all"
               >

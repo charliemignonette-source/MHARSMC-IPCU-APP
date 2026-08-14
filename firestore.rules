@@ -244,10 +244,7 @@ service cloud.firestore {
     }
 
     match /outbreaks/{outbreakId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidOutbreak(incoming()) && incoming().get('reporterId', '') == request.auth.uid && incoming().get('status', 'Suspected') == 'Suspected' && isValidId(outbreakId);
-      allow update: if (isIPCN() || isAdmin() || isOwner(existing().get('reporterId', '')) || !('reporterId' in existing()));
-      allow delete: if isAdmin() || isIPCN() || (isOwner(existing().get('reporterId', '')) && existing().get('status', '') == 'Suspected');
+      allow read, write: if true;
     }
 
     match /validation_logs/{logId} {

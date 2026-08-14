@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DOCTORS } from '../lib/doctors';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getAntibioticRecommendation } from '../services/amsAlertService';
@@ -527,10 +528,10 @@ export default function AMS({ user }: { user: UserProfile | null }) {
     const req = requests.find(r => r.id === requestId);
     if (!req) return;
 
-    const remarks = reviewRemarks[requestId] || '';
-    const reviewerNameOverride = reviewPhysicians[requestId] || '';
+    const remarks = reviewRemarks[requestId] ?? req.remarks ?? '';
+    const reviewerNameOverride = reviewPhysicians[requestId] ?? (req.reviewerName && req.reviewerName !== 'Anonymous Reviewer' ? req.reviewerName : '');
     const defaultDays = getDefaultApprovedDays(req);
-    const daysApproved = reviewDays[requestId] || defaultDays;
+    const daysApproved = reviewDays[requestId] ?? req.daysApproved ?? defaultDays;
     const now = new Date();
     const dateTimeApproved = `${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     
@@ -551,6 +552,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
       }
 
       await updateDoc(doc(db, 'ams_requests', requestId), updateData);
+      setRevisingReviewId(null);
 
       // Notify Pharmacy if approved
       if (status === 'APPROVED') {
@@ -635,6 +637,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
   };
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [revisingReviewId, setRevisingReviewId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [recommendation, setRecommendation] = useState<string>('');
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
@@ -1201,7 +1204,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                           <Trash2 className="w-4 h-4" />
                         </button>
                       )}
-                      {req.status === 'PENDING' && isApprover ? null : (
+                      {(req.status === 'PENDING' || revisingReviewId === req.id) && isApprover ? null : (
                          <div className={cn(
                             "px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[8px] sm:text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5",
                             req.status === 'APPROVED' ? "bg-emerald-100 text-emerald-700" : 
@@ -1217,29 +1220,34 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                       <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform", expandedId === req.id && "rotate-180")} />
                     </div>
                     
-                    {req.status === 'PENDING' && isApprover ? (
+                    {(req.status === 'PENDING' || revisingReviewId === req.id) && isApprover ? (
                       <div className="flex flex-col gap-3 items-end" onClick={e => e.stopPropagation()}>
                         <div className="flex flex-col gap-2 w-full max-w-[240px] sm:max-w-xs">
                           <div className="relative group">
                             <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
                             <input 
+                              list="review-doctors"
                               placeholder="Reviewing Physician Name..."
-                              value={reviewPhysicians[req.id!] || ''}
+                              value={reviewPhysicians[req.id!] ?? (req.reviewerName && req.reviewerName !== 'Anonymous Reviewer' ? req.reviewerName : '')}
                               onChange={(e) => setReviewPhysicians(prev => ({ ...prev, [req.id!]: e.target.value }))}
-                              className="w-full text-[9px] font-bold uppercase tracking-widest pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-brand-primary/20 placeholder:text-slate-400"
+                              className="w-full text-[9px] font-bold uppercase tracking-widest pl-8 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-brand-primary/20 text-slate-700"
                             />
+                            <datalist id="review-doctors">
+                              <option value="DR. MISHELLE VONNABIE BALA" />
+                              <option value="DR. JULIE ROSE CAPUYAN" />
+                            </datalist>
                           </div>
                           <div className="relative">
                             <MessageSquare className="absolute left-3 top-3 w-3 h-3 text-slate-400" />
                             <textarea 
                               placeholder="Reviewer remarks (reason for approval, denial, or required modifications)..."
-                              value={reviewRemarks[req.id!] || ''}
+                              value={reviewRemarks[req.id!] ?? req.remarks ?? ''}
                               onChange={(e) => setReviewRemarks(prev => ({ ...prev, [req.id!]: e.target.value }))}
                               className="w-full text-[10px] font-medium pl-8 pr-3 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-brand-primary/10 min-h-[80px] resize-none placeholder:text-slate-400 placeholder:italic"
                             />
                           </div>
                         </div>
-                        {req.status === 'PENDING' && isApprover && (() => {
+                        {(req.status === 'PENDING' || revisingReviewId === req.id) && isApprover && (() => {
                           const itemDefaultDays = getDefaultApprovedDays(req);
                           const dynamicOptions = Array.from(new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 21, 30, itemDefaultDays]))
                             .filter(val => !isNaN(val) && val > 0)
@@ -1249,7 +1257,7 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                                <Clock className="w-3 h-3 text-emerald-600" />
                                <span className="text-[9px] font-black uppercase text-emerald-700 tracking-widest">Approve for:</span>
                                <select 
-                                 value={reviewDays[req.id!] || itemDefaultDays}
+                                 value={reviewDays[req.id!] ?? req.daysApproved ?? itemDefaultDays}
                                  onChange={(e) => setReviewDays(prev => ({ ...prev, [req.id!]: parseInt(e.target.value, 10) }))}
                                  className="ml-auto bg-white border border-emerald-200 rounded-lg text-[9px] font-bold px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-500"
                                >
@@ -1284,6 +1292,14 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                             <XCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                             <span className="text-[8px] sm:text-[9px] font-bold uppercase">Deny</span>
                           </button>
+                          {revisingReviewId === req.id && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setRevisingReviewId(null); }}
+                              className="p-1.5 sm:p-2 bg-white rounded-lg text-slate-500 hover:text-slate-600 shadow-sm transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+                            >
+                              <span className="text-[8px] sm:text-[9px] font-bold uppercase">Cancel</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -1378,15 +1394,26 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                             <div className="bg-white/60 p-4 rounded-xl border border-white/40 shadow-inner">
                               <p className="text-sm font-medium leading-relaxed italic">"{req.remarks}"</p>
                             </div>
-                            {(req.status === 'MODIFY' && (req.prescriberId === user?.uid || (user?.isAnonymous && req.unit === user?.unit))) && (
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); handleEdit(req); }}
-                                className="w-fit flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-orange-600/20 active:scale-95 transition-transform"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                                Proceed with modification
-                              </button>
-                            )}
+                            <div className="flex items-center gap-3">
+                              {(req.status === 'MODIFY' && (req.prescriberId === user?.uid || (user?.isAnonymous && req.unit === user?.unit))) && (
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleEdit(req); }}
+                                  className="w-fit flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-orange-600/20 active:scale-95 transition-transform"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                  Proceed with modification
+                                </button>
+                              )}
+                              {isApprover && (
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); setRevisingReviewId(req.id!); }}
+                                  className="w-fit flex items-center gap-2 px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-slate-50 active:scale-95 transition-transform"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                  Edit Decision & Remarks
+                                </button>
+                              )}
+                            </div>
                           </div>
                         )}
 
@@ -2613,13 +2640,21 @@ export default function AMS({ user }: { user: UserProfile | null }) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 col-span-full">
                        <div className="space-y-1">
                           <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Requesting Physician Name <span className="text-rose-500">*</span></label>
-                          <input 
-                            required
-                            className="text-input" 
-                            placeholder="e.g. Dr. Charlie Mignonette Bala"
-                            value={formData.requestingPhysician}
-                            onChange={e => setFormData({...formData, requestingPhysician: e.target.value})}
-                          />
+                          <div className="relative">
+                            <input 
+                              required
+                              list="requesting-doctors"
+                              className="text-input w-full bg-white" 
+                              placeholder="e.g. Dr. Charlie Mignonette Bala"
+                              value={formData.requestingPhysician}
+                              onChange={e => setFormData({...formData, requestingPhysician: e.target.value})}
+                            />
+                            <datalist id="requesting-doctors">
+                              {DOCTORS.map(doc => (
+                                <option key={doc} value={doc} />
+                              ))}
+                            </datalist>
+                          </div>
                        </div>
                        <div className="space-y-1">
                           <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Contact Number <span className="text-rose-500">*</span></label>

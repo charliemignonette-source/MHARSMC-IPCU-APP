@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DOCTORS } from '../lib/doctors';
 import { 
   Activity, 
   Layers, 
@@ -9,6 +10,7 @@ import {
   Plus,
   ShieldCheck,
   ChevronRight,
+  ChevronDown,
   Microscope,
   Calendar,
   XCircle,
@@ -2087,27 +2089,40 @@ function EndMonitoringModal({ onClose, onConfirm }: any) {
 }
 
 function DenominatorsModal({ onClose, denominators, user, showToast }: any) {
-  const currentMonthStr = new Date().toISOString().slice(0, 7);
-  const existing = denominators.find((d: any) => d.month === currentMonthStr) || {};
+  const defaultMonthStr = new Date().toISOString().slice(0, 7);
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonthStr);
+  
+  const existingInit = denominators.find((d: any) => d.month === defaultMonthStr) || {};
   
   const [form, setForm] = useState({
-    patientsAtRisk: existing.patientsAtRisk || 5000,
-    ventDays: existing.ventDays || 1000,
-    lineDays: existing.lineDays || 1200,
-    cathDays: existing.cathDays || 1500,
-    procedureDays: existing.procedureDays || 1000
+    patientsAtRisk: existingInit.patientsAtRisk || 5000,
+    ventDays: existingInit.ventDays || 1000,
+    lineDays: existingInit.lineDays || 1200,
+    cathDays: existingInit.cathDays || 1500,
+    procedureDays: existingInit.procedureDays || 1000
   });
+
+  useEffect(() => {
+    const existing = denominators.find((d: any) => d.month === selectedMonth) || {};
+    setForm({
+      patientsAtRisk: existing.patientsAtRisk || 5000,
+      ventDays: existing.ventDays || 1000,
+      lineDays: existing.lineDays || 1200,
+      cathDays: existing.cathDays || 1500,
+      procedureDays: existing.procedureDays || 1000
+    });
+  }, [selectedMonth, denominators]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const q = query(collection(db, 'hai_denominators'), where('month', '==', currentMonthStr));
+      const q = query(collection(db, 'hai_denominators'), where('month', '==', selectedMonth));
       const snap = await getDocs(q);
       
       if (snap.empty) {
         await addDoc(collection(db, 'hai_denominators'), removeUndefined({
           ...form,
-          month: currentMonthStr,
+          month: selectedMonth,
           updatedAt: serverTimestamp(),
           updatedBy: user.uid
         }));
@@ -2133,7 +2148,16 @@ function DenominatorsModal({ onClose, denominators, user, showToast }: any) {
           <button onClick={onClose} className="text-slate-400 hover:text-white"><XCircle className="w-6 h-6" /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
-           <p className="text-[10px] font-black text-brand-primary uppercase tracking-widest mb-4">Current Month: {currentMonthStr}</p>
+           <div className="flex items-center gap-4 mb-4">
+              <label className="text-[10px] font-black text-brand-primary uppercase tracking-widest flex-shrink-0">Target Month</label>
+              <input 
+                type="month" 
+                value={selectedMonth} 
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:border-brand-primary"
+                required
+              />
+           </div>
            <div className="grid grid-cols-2 gap-4">
               {[
                 { label: 'Patients At Risk', key: 'patientsAtRisk' },
@@ -4158,7 +4182,20 @@ function DeviceEnrollmentModal({ onClose, user, showToast }: { onClose: () => vo
                 </div>
                 <div className="col-span-2">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Attending Physician (PIC)</label>
-                  <input placeholder="e.g. Dr. Charlie Mignonette Bala" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-teal-500" value={form.attendingPhysician} onChange={e => setForm({...form, attendingPhysician: e.target.value})} />
+                  <div className="relative">
+                    <input 
+                      list="attending-doctors"
+                      placeholder="e.g. Dr. Charlie Mignonette Bala"
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-teal-500" 
+                      value={form.attendingPhysician} 
+                      onChange={e => setForm({...form, attendingPhysician: e.target.value})}
+                    />
+                    <datalist id="attending-doctors">
+                      {DOCTORS.map(doc => (
+                        <option key={doc} value={doc} />
+                      ))}
+                    </datalist>
+                  </div>
                 </div>
               </div>
             </div>
@@ -4285,24 +4322,61 @@ function DeviceEnrollmentModal({ onClose, user, showToast }: { onClose: () => vo
   );
 }
 
+function getPatientDeviceStartDate(patient: BundleMonitoring, bundleType: string) {
+  if (bundleType === 'CLABSI') return patient.devices?.clabsi?.insertionDate;
+  if (bundleType === 'CAUTI') return patient.devices?.cauti?.insertionDate;
+  if (bundleType === 'VAP') return patient.devices?.vap?.intubationDate;
+  if (bundleType === 'SSI') return patient.surgery?.startDate;
+  return null;
+}
+
+function calculateDeviceDays(startDate: string | null | undefined, currentDate: string) {
+  if (!startDate) return 1;
+  const start = new Date(startDate);
+  const current = new Date(currentDate);
+  const diffTime = Math.abs(current.getTime() - start.getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+  return diffDays + 1;
+}
+
 function MonitoringDayModal({ 
   patient, 
   onClose, 
   user, 
   onSave, 
   initialDay, 
-  editingIndex 
+  editingIndex,
+  initialBundleType
 }: { 
   patient: BundleMonitoring, 
   onClose: () => void, 
   user: UserProfile | null, 
   onSave: (day: MonitoringDay, index?: number) => void,
   initialDay?: MonitoringDay,
-  editingIndex?: number
+  editingIndex?: number,
+  initialBundleType?: 'CLABSI' | 'CAUTI' | 'VAP' | 'SSI'
 }) {
   const isEditing = initialDay !== undefined && editingIndex !== undefined;
-  const [dayNumber, setDayNumber] = useState(initialDay ? initialDay.dayNumber : (patient.monitoringDays?.length || 0) + 1);
   const [date, setDate] = useState(initialDay ? initialDay.date : new Date().toISOString().split('T')[0]);
+
+  const [selectedBundleType, setSelectedBundleType] = useState<'CLABSI' | 'CAUTI' | 'VAP' | 'SSI'>(
+    initialDay?.bundleType || initialBundleType || (patient.devices?.clabsi ? 'CLABSI' : patient.devices?.vap ? 'VAP' : patient.devices?.cauti ? 'CAUTI' : 'SSI')
+  );
+  
+  const computeInitialDayNumber = () => {
+    if (initialDay) return initialDay.dayNumber;
+    const bType = initialBundleType || (patient.devices?.clabsi ? 'CLABSI' : patient.devices?.vap ? 'VAP' : patient.devices?.cauti ? 'CAUTI' : 'SSI');
+    const start = getPatientDeviceStartDate(patient, bType);
+    const currentDateStr = new Date().toISOString().split('T')[0];
+    if (start) {
+      return calculateDeviceDays(start, currentDateStr);
+    }
+    const deviceDaysCount = (patient.monitoringDays || []).filter(d => d.bundleType === bType).length;
+    return deviceDaysCount + 1;
+  };
+
+  const [dayNumber, setDayNumber] = useState<number>(computeInitialDayNumber());
+
   const [isMissed, setIsMissed] = useState(initialDay ? !!initialDay.missedDay : false);
   const [missedReason, setMissedReason] = useState(initialDay ? initialDay.missedReason || '' : '');
   const [monitorName, setMonitorName] = useState(initialDay ? (initialDay.monitor?.name || initialDay.staffName || user?.name || '') : (user?.name || ''));
@@ -4320,11 +4394,8 @@ function MonitoringDayModal({
     'Other'
   ];
 
-  const [selectedBundleType, setSelectedBundleType] = useState<'CLABSI' | 'CAUTI' | 'VAP' | 'SSI'>(
-    initialDay?.bundleType || (patient.devices.clabsi ? 'CLABSI' : patient.devices.vap ? 'VAP' : patient.devices.cauti ? 'CAUTI' : 'SSI')
-  );
   const [selectedSubtype, setSelectedSubtype] = useState<string>(
-    initialDay?.bundleSubtype || (patient.devices.clabsi ? 'Maintenance' : patient.devices.ssi ? 'Post-op' : 'Maintenance')
+    initialDay?.bundleSubtype || (patient.devices?.clabsi ? 'Maintenance' : patient.devices?.ssi ? 'Post-op' : 'Maintenance')
   );
   
   const [bundleChecklist, setBundleChecklist] = useState<Record<string, 'Done' | 'Not Done' | 'N/A'>>(
@@ -4333,6 +4404,20 @@ function MonitoringDayModal({
   const [clinicalCriteria, setClinicalCriteria] = useState<Record<string, any>>(
     initialDay?.clinicalCriteria || {}
   );
+
+  const deviceStartDate = getPatientDeviceStartDate(patient, selectedBundleType);
+
+  // Recalculate day number dynamically when device bundle or date changes
+  useEffect(() => {
+    if (isEditing) return;
+    if (deviceStartDate && date) {
+      const calculated = calculateDeviceDays(deviceStartDate, date);
+      setDayNumber(calculated);
+    } else {
+      const deviceDaysCount = (patient.monitoringDays || []).filter(d => d.bundleType === selectedBundleType).length;
+      setDayNumber(deviceDaysCount + 1);
+    }
+  }, [selectedBundleType, date, deviceStartDate, isEditing, patient.monitoringDays]);
   
   const isPedia = (patient.age.toLowerCase().includes('mo') || parseInt(patient.age) < 18);
 
@@ -4459,7 +4544,12 @@ function MonitoringDayModal({
               <Calendar className="w-6 h-6 text-teal-400" />
             </div>
             <div>
-               <h3 className="text-xl font-black uppercase tracking-tight">{isEditing ? `Edit Monitoring Day ${dayNumber}` : `Add Monitoring Day ${dayNumber}`}</h3>
+               <div className="flex items-center gap-3">
+                 <h3 className="text-xl font-black uppercase tracking-tight">{isEditing ? `Edit ${selectedBundleType} Day ${dayNumber}` : `Add ${selectedBundleType} Day ${dayNumber}`}</h3>
+                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                   Day {dayNumber} ({selectedBundleType})
+                 </span>
+               </div>
                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{patient.patientName} • Managed by {patient.assignedMonitor?.name || 'N/A'}</p>
             </div>
           </div>
@@ -4483,6 +4573,16 @@ function MonitoringDayModal({
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Monitoring Date</label>
                    <input type="date" className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-teal-500" value={date} onChange={e => setDate(e.target.value)} />
                 </div>
+                <div className="w-full md:w-36">
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Device Day #</label>
+                   <input 
+                     type="number" 
+                     min="1"
+                     className="w-full px-4 py-3 bg-teal-50/60 border border-teal-200 rounded-xl text-xs font-black text-teal-800 outline-none focus:border-teal-500" 
+                     value={dayNumber} 
+                     onChange={e => setDayNumber(parseInt(e.target.value) || 1)} 
+                   />
+                </div>
              </div>
           </div>
 
@@ -4491,20 +4591,61 @@ function MonitoringDayModal({
                <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Select Active Bundle</label>
                   <div className="flex flex-col gap-2">
-                    {['CLABSI', 'CAUTI', 'VAP', 'SSI'].map(b => (
-                      <button 
-                        key={b} 
-                        type="button"
-                        onClick={() => setSelectedBundleType(b as any)}
-                        className={cn(
-                          "px-4 py-2 text-[10px] font-black uppercase tracking-widest text-left border transition-all rounded-xl",
-                          selectedBundleType === b ? "bg-teal-600 border-teal-600 text-white shadow-lg" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"
-                        )}
-                      >
-                        {b} Bundle
-                      </button>
-                    ))}
+                    {(['CLABSI', 'CAUTI', 'VAP', 'SSI'] as const).map(b => {
+                      const isActive = b === 'CLABSI' ? !!patient.devices?.clabsi :
+                                       b === 'CAUTI' ? !!patient.devices?.cauti :
+                                       b === 'VAP' ? !!patient.devices?.vap :
+                                       !!patient.surgery;
+                      const bStart = getPatientDeviceStartDate(patient, b);
+                      const bDays = calculateDeviceDays(bStart, date);
+                      
+                      return (
+                        <button 
+                          key={b} 
+                          type="button"
+                          onClick={() => setSelectedBundleType(b)}
+                          className={cn(
+                            "p-3 text-left border transition-all rounded-xl flex flex-col gap-1",
+                            selectedBundleType === b ? "bg-teal-600 border-teal-600 text-white shadow-lg" : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
+                          )}
+                        >
+                          <div className="flex items-center justify-between w-full">
+                            <span className="text-[10px] font-black uppercase tracking-widest">{b} Bundle</span>
+                            {isActive ? (
+                              <span className={cn("text-[8px] font-black uppercase px-1.5 py-0.5 rounded", selectedBundleType === b ? "bg-white/20 text-white" : "bg-teal-50 text-teal-700")}>
+                                {bStart ? `Day ${bDays}` : 'Active'}
+                              </span>
+                            ) : (
+                              <span className="text-[8px] font-bold text-slate-400">Inactive</span>
+                            )}
+                          </div>
+                          {bStart && (
+                            <span className={cn("text-[8px] font-semibold", selectedBundleType === b ? "text-teal-100" : "text-slate-400")}>
+                              Start: {bStart}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
+               </div>
+
+               {/* Device independent timeline alert */}
+               <div className="p-4 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-1.5 mt-4">
+                 <div className="flex items-center gap-1.5 text-teal-800">
+                   <ShieldCheck className="w-3.5 h-3.5" />
+                   <span className="text-[9px] font-black uppercase tracking-wider">{selectedBundleType} Device Timeline</span>
+                 </div>
+                 <p className="text-[10px] text-teal-900 font-medium leading-relaxed">
+                   {deviceStartDate ? (
+                     <>Started on <strong className="font-black">{deviceStartDate}</strong>. Today is <strong className="font-black">Day {dayNumber}</strong> for this device.</>
+                   ) : (
+                     <>Tracking as <strong className="font-black">Day {dayNumber}</strong>.</>
+                   )}
+                 </p>
+                 <p className="text-[8px] text-teal-600 font-bold uppercase tracking-tight italic">
+                   * Device days are tracked separately and not added together.
+                 </p>
                </div>
 
                {selectedBundleType === 'CLABSI' && (

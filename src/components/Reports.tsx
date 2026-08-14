@@ -384,10 +384,12 @@ export default function Reports({ user }: { user: UserProfile | null }) {
               'Hosp Number': d.hospitalNo || d.hospNo || '',
               'Age/Sex': `${d.age || ''} / ${d.sex || ''}`,
               'Physician in-charge': d.attendingPhysician || 'N/A',
-              'Devices': day.bundleType || '',
+              'Device / Bundle': day.bundleType || '',
+              'Device Day #': day.dayNumber !== undefined ? day.dayNumber : '',
+              'Bundle Subtype / Phase': day.bundleSubtype || '',
               'Compliance %': (day.complianceScores?.overall || compPct) + '%',
               'Staff Reporter': d.staffName || day.staffName || 'System',
-              'Designation': 'N/A',
+              'Monitor of the Day': day.monitor?.name || day.staffName || 'N/A',
               'Clinical Criteria': criteriaList.length > 0 ? criteriaList.join(', ') : 'No Entries',
               'Verification Status': day.isVerifiedByIPCU ? 'Verified' : 'Not Verified',
               'Final Decision': day.isVerifiedByIPCU ? day.status || 'Verified' : 'N/A',
@@ -702,12 +704,14 @@ export default function Reports({ user }: { user: UserProfile | null }) {
             const avg = (num / den) * 100;
             return { score: `${avg.toFixed(1)}% (${num}/${den})`, raw: avg };
           }
-          if (type === 'BUNDLE') {
+          if (type === 'BUNDLE' || type.startsWith('BUNDLE_TYPE:')) {
+            const specificType = type.startsWith('BUNDLE_TYPE:') ? type.replace('BUNDLE_TYPE:', '') : null;
             let totalApplicable = 0;
             let totalCompliant = 0;
             subset.forEach(log => {
                if (log.monitoringDays && Array.isArray(log.monitoringDays)) {
                    log.monitoringDays.forEach((day: any) => {
+                       if (specificType && day.bundleType !== specificType) return;
                        if (day.bundleChecklist && Object.keys(day.bundleChecklist).length > 0) {
                            const reqValues = Object.values(day.bundleChecklist);
                            const applicable = reqValues.filter((v: any) => v !== "N/A");
@@ -746,7 +750,11 @@ export default function Reports({ user }: { user: UserProfile | null }) {
           { metric: '   PPE Availability', type: 'AUDIT_TYPE:PPE_AVAILABILITY', isPercent: true },
           { metric: '   Environmental Cleaning', type: 'AUDIT_TYPE:ENV_CLEANING', isPercent: true },
           { metric: '   Safe Injections', type: 'AUDIT_TYPE:SAFE_INJECTION', isPercent: true },
-          { metric: 'Device Bundle Compliance', type: 'BUNDLE', isPercent: true },
+          { metric: 'Device Bundle Compliance (Overall)', type: 'BUNDLE', isPercent: true },
+          { metric: '   CLABSI Bundle Compliance', type: 'BUNDLE_TYPE:CLABSI', isPercent: true },
+          { metric: '   CAUTI Bundle Compliance', type: 'BUNDLE_TYPE:CAUTI', isPercent: true },
+          { metric: '   VAP Bundle Compliance', type: 'BUNDLE_TYPE:VAP', isPercent: true },
+          { metric: '   SSI Bundle Compliance', type: 'BUNDLE_TYPE:SSI', isPercent: true },
           { metric: 'Reported HAI Cases', type: 'HAI', isPercent: false },
           { metric: 'Reported NSI Cases', type: 'NSI', isPercent: false }
         ];
@@ -755,7 +763,7 @@ export default function Reports({ user }: { user: UserProfile | null }) {
         const wardStatsData = wardStatsDefinitions.map(m => {
            let dataRef: any[] = [];
            if (m.type.startsWith('AUDIT_TYPE:') || m.type === 'AUDITS_ALL') dataRef = audits;
-           if (m.type === 'BUNDLE') dataRef = bocLogs;
+           if (m.type === 'BUNDLE' || m.type.startsWith('BUNDLE_TYPE:')) dataRef = bocLogs;
            if (m.type === 'AMS') dataRef = amsRequests;
            if (m.type === 'HAI') dataRef = haiCases;
            if (m.type === 'NSI') dataRef = nsiReports;
